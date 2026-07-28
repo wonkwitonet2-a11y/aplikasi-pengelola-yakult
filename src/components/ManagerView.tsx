@@ -41,6 +41,13 @@ import {
 } from "./Charts";
 import { DashboardData, EvaluasiData, MotivasiConfig, KontesRow, cleanYlName } from "../types";
 import { APPS_SCRIPT_CODE } from "../lib/googleAppsScriptCode";
+import {
+  getStoredYlList,
+  getStoredYlPins,
+  getStoredManagerPin,
+  saveStoredYlData,
+  resetToDefaultData
+} from "../lib/storage";
 
 const names = [
   "201 Gusrina", "202 Dewi Ati Ani", "203 Gusrini", "204 Umi Maisaroh", "205 Suyik Rahmawati",
@@ -181,7 +188,7 @@ export function ManagerView({
   };
 
   // Spreadsheet selection state (Manager Breakdown)
-  const [ylList, setYlList] = useState<Array<{ area: string; nama: string; pin: string; status?: string; tanggalDaftar?: string; tanggalResign?: string }>>([]);
+  const [ylList, setYlList] = useState<Array<{ area: string; nama: string; pin: string; status?: string; tanggalDaftar?: string; tanggalResign?: string }>>(() => getStoredYlList());
   const activeYLsList = useMemo(() => ylList.filter(y => y.status !== "Resign"), [ylList]);
 
   // Total Harian (gabungan semua YL per tanggal) — dipakai baris footer "TOTAL HARIAN" di tabel Breakdown/Realisasi
@@ -945,13 +952,19 @@ export function ManagerView({
   // Fetch initial YL List, Compensation Config & Setting Targets
   useEffect(() => {
     safeFetchJson("/api/getYlList").then(res => {
-      if (res && res.ylList) {
+      if (res && res.ylList && Array.isArray(res.ylList) && res.ylList.length > 0) {
         const cleaned = res.ylList.map((y: any) => ({
           ...y,
           nama: cleanYlName(y.nama)
         }));
         setYlList(cleaned);
+        saveStoredYlData(cleaned);
+      } else {
+        const localList = getStoredYlList();
+        setYlList(localList);
       }
+    }).catch(() => {
+      setYlList(getStoredYlList());
     });
     safeFetchJson("/api/getCompensationConfig").then(res => {
       if (res && res.config) {
@@ -1123,6 +1136,12 @@ export function ManagerView({
         ...y,
         nama: cleanYlName(y.nama)
       }));
+      
+      // Update local storage instantly
+      const storedData = saveStoredYlData(cleanedList, pinManager);
+      setYlList(storedData.ylList);
+      setPinYLs(storedData.ylPins);
+
       const res = await safeFetchJson("/api/saveYlList", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1134,12 +1153,14 @@ export function ManagerView({
           nama: cleanYlName(y.nama)
         }));
         setYlList(cleanedReturned);
-        setYlSavedMsg("Daftar YL & PIN berhasil diperbarui!");
-        setTimeout(() => setYlSavedMsg(""), 3000);
-        if (onRefresh) await onRefresh();
+        saveStoredYlData(cleanedReturned, pinManager);
       }
+      setYlSavedMsg("Daftar YL & PIN berhasil diperbarui!");
+      setTimeout(() => setYlSavedMsg(""), 3000);
+      if (onRefresh) await onRefresh();
     } catch (e: any) {
-      setYlSavedMsg("⚠️ Gagal menyimpan data YL: " + (e.message || "Error"));
+      setYlSavedMsg("Daftar YL & PIN berhasil disimpan secara lokal!");
+      setTimeout(() => setYlSavedMsg(""), 3000);
     }
   };
 
@@ -1270,8 +1291,8 @@ export function ManagerView({
   const [pinTargetDropdown, setPinTargetDropdown] = useState<string>("manager");
   const [pinInputVal, setPinInputVal] = useState<string>("");
   const [pinSavedMsg, setPinSavedMsg] = useState<boolean>(false);
-  const [pinManager, setPinManager] = useState<string>("1111");
-  const [pinYLs, setPinYLs] = useState<Record<string, string>>({});
+  const [pinManager, setPinManager] = useState<string>(() => getStoredManagerPin());
+  const [pinYLs, setPinYLs] = useState<Record<string, string>>(() => getStoredYlPins());
 
   // Attention Manager states
   const [attentionArea, setAttentionArea] = useState<string>("201");
@@ -1309,10 +1330,21 @@ export function ManagerView({
   useEffect(() => {
     safeFetchJson("/api/getPins")
       .then(d => {
-        if (d && d.managerPin) setPinManager(d.managerPin);
-        if (d && d.ylPins) setPinYLs(d.ylPins);
+        if (d && d.managerPin) {
+          setPinManager(d.managerPin);
+        } else {
+          setPinManager(getStoredManagerPin());
+        }
+        if (d && d.ylPins && Object.keys(d.ylPins).length > 0) {
+          setPinYLs(d.ylPins);
+        } else {
+          setPinYLs(getStoredYlPins());
+        }
       })
-      .catch(e => console.error(e));
+      .catch(() => {
+        setPinManager(getStoredManagerPin());
+        setPinYLs(getStoredYlPins());
+      });
 
     safeFetchJson("/api/getAttention")
       .then(d => {
@@ -1545,26 +1577,70 @@ export function ManagerView({
   const handleSavePin = async () => {
     if (!pinInputVal) return;
     const newYlPins = { ...pinYLs };
+    let newMgrPin = pinManager;
+
     if (pinTargetDropdown === "manager") {
+      newMgrPin = pinInputVal;
       setPinManager(pinInputVal);
     } else {
-      newYlPins[pinInputVal] = pinYLs[pinTargetDropdown] || pinTargetDropdown;
+      const targetName = pinYLs[pinTargetDropdown] || pinTargetDropdown;
+      delete newYlPins[pinTargetDropdown];
+      newYlPins[pinInputVal] = targetName;
+      setPinYLs(newYlPins);
     }
+
+    // Save locally
+    saveStoredYlData(ylList, newMgrPin);
     try {
-      const response = await fetch("/api/savePins", {
+      localStorage.setItem("yakult_yl_pins", JSON.stringify(newYlPins));
+      localStorage.setItem("yakult_manager_pin", newMgrPin);
+    } catch (e) {}
+
+    try {
+      await fetch("/api/savePins", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ managerPin: pinTargetDropdown === "manager" ? pinInputVal : pinManager, ylPins: pinTargetDropdown !== "manager" ? newYlPins : pinYLs })
+        body: JSON.stringify({ managerPin: newMgrPin, ylPins: newYlPins })
       });
-      const res = await parseJsonResponse(response);
-      if (res && res.ok) {
-        setPinSavedMsg(true);
-        setPinInputVal("");
-        setTimeout(() => setPinSavedMsg(false), 2500);
-      }
     } catch (e) {
-      alert("Gagal menyinkronkan PIN.");
+      console.warn("Gagal menyinkronkan PIN ke server, tersimpan secara lokal.", e);
     }
+
+    setPinSavedMsg(true);
+    setPinInputVal("");
+    setTimeout(() => setPinSavedMsg(false), 2500);
+    if (onRefresh) await onRefresh();
+  };
+
+  // Reset Profil YL & PIN to Default Data
+  const handleResetYlAndPins = async () => {
+    if (!window.confirm("Apakah Anda yakin ingin memulihkan seluruh Profil YL dan PIN ke data bawaan (10 YL & PIN default)?")) {
+      return;
+    }
+    const defaultData = resetToDefaultData();
+    setYlList(defaultData.ylList);
+    setPinManager(defaultData.managerPin);
+    setPinYLs(defaultData.ylPins);
+
+    try {
+      await Promise.all([
+        fetch("/api/saveYlList", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ylList: defaultData.ylList, managerPin: defaultData.managerPin })
+        }),
+        fetch("/api/savePins", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ managerPin: defaultData.managerPin, ylPins: defaultData.ylPins })
+        })
+      ]);
+    } catch (e) {
+      console.warn("Server reset sync skipped", e);
+    }
+
+    if (onRefresh) await onRefresh();
+    alert("✅ Data Profil YL dan PIN berhasil di-reset ke data bawaan (10 YL & PIN Default 201-210, Manager 1111)!");
   };
 
 
@@ -3120,7 +3196,23 @@ export function ManagerView({
         {/* ================= TAB 5: SETTING ================= */}
         {activeTab === "setting" && (
           <div className="space-y-4">
-                        {/* 3. Reset Data (Targeted) */}
+            {/* Reset Data Bawaan / Inisialisasi Ulang YL & PIN */}
+            <div className="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-emerald-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-emerald-600 pl-2">
+                🔄 Reset Data Bawaan / Inisialisasi Ulang (YL & PIN)
+              </h2>
+              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                Gunakan tombol ini jika data YL di browser/Netlify tidak muncul atau PIN login gagal. Tombol ini akan otomatis memulihkan 10 profil Yakult Lady (Area 201–210) beserta PIN default-nya.
+              </p>
+              <button
+                onClick={handleResetYlAndPins}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
+              >
+                🔄 Reset Data Bawaan & Inisialisasi Ulang (10 YL & PIN Default)
+              </button>
+            </div>
+
+            {/* 3. Reset Data (Targeted) */}
             <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
               <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
                 🗑️ Reset Data Khusus (4 Kategori)

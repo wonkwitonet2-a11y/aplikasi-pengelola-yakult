@@ -2,6 +2,12 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { KeyRound, Lock, } from "lucide-react";
 import { Transaction, MotivasiConfig, KontesRow, DashboardData, EvaluasiData } from "./types";
 import { safeFetchJson, parseJsonResponse } from "./lib/safeFetch";
+import {
+  getStoredManagerPin,
+  getStoredYlPins,
+  getStoredYlList,
+  saveStoredYlData
+} from "./lib/storage";
 
 // Lazy-loaded: masing-masing hanya di-download & di-parse browser saat memang
 // akan dirender (setelah login berhasil dan role diketahui). Sebelumnya semua
@@ -72,9 +78,9 @@ export default function App() {
   const [breakdownRealisasi, setBreakdownRealisasi] = useState<any[]>([]);
   const [tanggalValid, setTanggalValid] = useState<string[]>([]);
 
-  // System PIN dictionary (fetched from server)
-  const [activeManagerPin, setActiveManagerPin] = useState<string>("1111");
-  const [activeYlPins, setActiveYlPins] = useState<Record<string, string>>({});
+  // System PIN dictionary (fetched from server or LocalStorage)
+  const [activeManagerPin, setActiveManagerPin] = useState<string>(() => getStoredManagerPin());
+  const [activeYlPins, setActiveYlPins] = useState<Record<string, string>>(() => getStoredYlPins());
 
   // 1. Initial Load & Session Recovery
   useEffect(() => {
@@ -102,11 +108,24 @@ export default function App() {
     Promise.all([
       safeFetchJson("/api/getPins"),
       safeFetchJson("/api/getScriptUrl"),
-      safeFetchJson("/api/getMotivasi")
+      safeFetchJson("/api/getMotivasi"),
+      safeFetchJson("/api/getYlList")
     ])
-      .then(([pins, scr, mot]) => {
-        if (pins && pins.managerPin) setActiveManagerPin(pins.managerPin);
-        if (pins && pins.ylPins) setActiveYlPins(pins.ylPins);
+      .then(([pins, scr, mot, ylData]) => {
+        const mgrPin = pins?.managerPin || getStoredManagerPin();
+        const ylPinsMap = (pins?.ylPins && Object.keys(pins.ylPins).length > 0)
+          ? pins.ylPins
+          : getStoredYlPins();
+
+        setActiveManagerPin(mgrPin);
+        setActiveYlPins(ylPinsMap);
+
+        if (ylData && Array.isArray(ylData.ylList) && ylData.ylList.length > 0) {
+          saveStoredYlData(ylData.ylList, mgrPin);
+        } else {
+          saveStoredYlData(getStoredYlList(), mgrPin);
+        }
+
         if (scr && scr.scriptUrl) setScriptUrl(scr.scriptUrl);
         if (mot) {
           setMotivasiConfig(prev => ({
@@ -116,7 +135,11 @@ export default function App() {
           }));
         }
       })
-      .catch(e => console.error("Error loading configs:", e))
+      .catch(e => {
+        console.error("Error loading configs:", e);
+        setActiveManagerPin(getStoredManagerPin());
+        setActiveYlPins(getStoredYlPins());
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -260,14 +283,19 @@ export default function App() {
     const pin = pinInput.trim();
     if (!pin) return;
 
-    if (pin === activeManagerPin) {
+    const mgrPin = activeManagerPin || getStoredManagerPin();
+    const ylPinsMap = (activeYlPins && Object.keys(activeYlPins).length > 0)
+      ? activeYlPins
+      : getStoredYlPins();
+
+    if (pin === mgrPin) {
       const newSession = { role: "manager" as const, name: "Manager DP Jember 1" };
       setSession(newSession);
       localStorage.setItem("yakult_session", JSON.stringify(newSession));
       setPinInput("");
     } else {
       // Find matching YL Pin
-      const matchedYlName = activeYlPins[pin];
+      const matchedYlName = ylPinsMap[pin];
       if (matchedYlName) {
         const newSession = { role: "yl" as const, name: matchedYlName };
         setSession(newSession);
