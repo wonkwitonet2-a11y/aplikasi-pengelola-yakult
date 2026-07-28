@@ -33,6 +33,7 @@ import { ManagerDashboardTab } from "./ManagerDashboardTab";
 import { ManagerLadyTab } from "./ManagerLadyTab";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
 import { getFallbackEvaluasiData } from "../lib/fallbackData";
+import { getSupabaseCredentials, resetSupabaseClient, saveToSupabase, loadFromSupabase, testSupabaseConnection } from "../lib/supabaseClient";
 import {
   RankingYLChart,
   KomposisiProdukChart,
@@ -79,7 +80,8 @@ export function ManagerView({
   onRefresh,
   motivasiConfig,
   onUpdateMotivasi,
-    scriptUrl,
+  kontesConfig,
+  scriptUrl,
   onSaveScriptUrl,
   theme,
   onToggleTheme
@@ -118,6 +120,81 @@ export function ManagerView({
     const [isBreakdownSaving, setIsBreakdownSaving] = useState<boolean>(false);
   const [breakdownMsg, setBreakdownMsg] = useState<string>("");
   const [isGridFullScreen, setIsGridFullScreen] = useState<boolean>(false);
+  const jsonFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Supabase Cloud State
+  const [sbUrl, setSbUrl] = useState<string>(() => getSupabaseCredentials().url);
+  const [sbKey, setSbKey] = useState<string>(() => getSupabaseCredentials().key);
+  const [sbMsg, setSbMsg] = useState<string>("");
+  const [isSbSyncing, setIsSbSyncing] = useState<boolean>(false);
+
+  // Save Supabase credentials & test connection
+  const handleSaveSupabaseConfig = async () => {
+    localStorage.setItem("supabase_url", sbUrl.trim());
+    localStorage.setItem("supabase_key", sbKey.trim());
+    resetSupabaseClient();
+
+    if (!sbUrl.trim() || !sbKey.trim()) {
+      setSbMsg("⚠️ URL dan Key Supabase telah dikosongkan.");
+      return;
+    }
+
+    setSbMsg("⏳ Menguji koneksi Supabase...");
+    try {
+      const res = await testSupabaseConnection();
+      setSbMsg(res.message);
+    } catch (e: any) {
+      setSbMsg("❌ Error: " + (e.message || "Gagal tes koneksi"));
+    }
+  };
+
+  // Upload/Sync all local state to Supabase
+  const handleSyncAllToSupabase = async () => {
+    setIsSbSyncing(true);
+    setSbMsg("⏳ Mengunggah semua data ke Supabase Database Cloud...");
+    try {
+      await saveToSupabase(`bd_plan_${selectedBreakdownMonth}`, breakdownPlanMap);
+      await saveToSupabase(`bd_realisasi_${selectedBreakdownMonth}`, breakdownRealisasiMap);
+      await saveToSupabase("yl_list", ylList);
+      await saveToSupabase("target_tku", targetTKU);
+      await saveToSupabase("target_yl", targetYLMap);
+      await saveToSupabase("motivasi_config", motivasiConfig);
+      await saveToSupabase("kontes_config", kontesConfig);
+      if (localEval) await saveToSupabase("evaluasi_data", localEval);
+
+      setSbMsg("🎉 SINKRONISASI SUKSES! Seluruh data tersimpan aman di Supabase Cloud.");
+    } catch (e: any) {
+      setSbMsg("❌ Gagal sinkronisasi: " + e.message);
+    } finally {
+      setIsSbSyncing(false);
+    }
+  };
+
+  // Download/Load all data from Supabase
+  const handleLoadAllFromSupabase = async () => {
+    setIsSbSyncing(true);
+    setSbMsg("⏳ Mengunduh data dari Supabase Database Cloud...");
+    try {
+      const plan = await loadFromSupabase<BreakdownGridMap>(`bd_plan_${selectedBreakdownMonth}`);
+      if (plan && Object.keys(plan).length > 0) {
+        setBreakdownPlanMap(plan);
+        localStorage.setItem(`bd_plan_${selectedBreakdownMonth}`, JSON.stringify(plan));
+      }
+
+      const realisasi = await loadFromSupabase<BreakdownGridMap>(`bd_realisasi_${selectedBreakdownMonth}`);
+      if (realisasi && Object.keys(realisasi).length > 0) {
+        setBreakdownRealisasiMap(realisasi);
+        localStorage.setItem(`bd_realisasi_${selectedBreakdownMonth}`, JSON.stringify(realisasi));
+      }
+
+      setSbMsg("✅ DATA BERHASIL DITARIK DARI SUPABASE CLOUD!");
+      if (onRefresh) await onRefresh();
+    } catch (e: any) {
+      setSbMsg("❌ Gagal mengunduh dari Supabase: " + e.message);
+    } finally {
+      setIsSbSyncing(false);
+    }
+  };
 
   // Keyboard shortcut listener for ESC key to exit full screen mode
   useEffect(() => {
@@ -983,17 +1060,71 @@ export function ManagerView({
     });
   }, []);
 
-  // Fetch Breakdown Plan & Realisasi
+  // Local-First: Load from LocalStorage instantly on month change or tab change
+  useEffect(() => {
+    try {
+      const localPlan = localStorage.getItem(`bd_plan_${selectedBreakdownMonth}`);
+      const localRealisasi = localStorage.getItem(`bd_realisasi_${selectedBreakdownMonth}`);
+      if (localPlan) {
+        const parsed = JSON.parse(localPlan);
+        if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+          setBreakdownPlanMap(parsed);
+        }
+      }
+      if (localRealisasi) {
+        const parsed = JSON.parse(localRealisasi);
+        if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
+          setBreakdownRealisasiMap(parsed);
+        }
+      }
+    } catch (e) {
+      console.warn("Gagal membaca cache lokal breakdown:", e);
+    }
+  }, [selectedBreakdownMonth]);
+
+  // Sync state to LocalStorage immediately whenever breakdown maps update
+  useEffect(() => {
+    try {
+      if (Object.keys(breakdownPlanMap).length > 0) {
+        localStorage.setItem(`bd_plan_${selectedBreakdownMonth}`, JSON.stringify(breakdownPlanMap));
+      }
+      if (Object.keys(breakdownRealisasiMap).length > 0) {
+        localStorage.setItem(`bd_realisasi_${selectedBreakdownMonth}`, JSON.stringify(breakdownRealisasiMap));
+      }
+    } catch (e) {
+      console.warn("Gagal menyimpan cache lokal breakdown:", e);
+    }
+  }, [breakdownPlanMap, breakdownRealisasiMap, selectedBreakdownMonth]);
+
+  // Fetch Breakdown Plan & Realisasi from server & Supabase in background
   const fetchBreakdownPlan = async (month: string = selectedBreakdownMonth) => {
     try {
+      // 1. Check Supabase cloud first
+      const sbPlan = await loadFromSupabase<BreakdownGridMap>(`bd_plan_${month}`);
+      const sbRealisasi = await loadFromSupabase<BreakdownGridMap>(`bd_realisasi_${month}`);
+      if (sbPlan && Object.keys(sbPlan).length > 0) {
+        setBreakdownPlanMap(sbPlan);
+        localStorage.setItem(`bd_plan_${month}`, JSON.stringify(sbPlan));
+      }
+      if (sbRealisasi && Object.keys(sbRealisasi).length > 0) {
+        setBreakdownRealisasiMap(sbRealisasi);
+        localStorage.setItem(`bd_realisasi_${month}`, JSON.stringify(sbRealisasi));
+      }
+
+      // 2. Check local server API
       const res = await safeFetchJson(`/api/getBreakdownPlan?month=${month}`);
       if (res && res.ok) {
-        if (res.breakdownPlan) setBreakdownPlanMap(res.breakdownPlan);
-        if (res.breakdownRealisasi) setBreakdownRealisasiMap(res.breakdownRealisasi);
+        if (!sbPlan && res.breakdownPlan && Object.keys(res.breakdownPlan).length > 0) {
+          setBreakdownPlanMap(res.breakdownPlan);
+          localStorage.setItem(`bd_plan_${month}`, JSON.stringify(res.breakdownPlan));
+        }
+        if (!sbRealisasi && res.breakdownRealisasi && Object.keys(res.breakdownRealisasi).length > 0) {
+          setBreakdownRealisasiMap(res.breakdownRealisasi);
+          localStorage.setItem(`bd_realisasi_${month}`, JSON.stringify(res.breakdownRealisasi));
+        }
       }
     } catch (e) {
       console.error("Error fetching breakdown plan:", e);
-    } finally {
     }
   };
 
@@ -1042,6 +1173,16 @@ export function ManagerView({
   const handleSaveBreakdownPlan = async () => {
     setIsBreakdownSaving(true);
     try {
+      // Local storage is already updated synchronously
+
+      // Save to Supabase Cloud if configured
+      if (Object.keys(breakdownPlanMap).length > 0) {
+        saveToSupabase(`bd_plan_${selectedBreakdownMonth}`, breakdownPlanMap).catch(() => {});
+      }
+      if (Object.keys(breakdownRealisasiMap).length > 0) {
+        saveToSupabase(`bd_realisasi_${selectedBreakdownMonth}`, breakdownRealisasiMap).catch(() => {});
+      }
+
       const res = await fetch("/api/saveBreakdownPlan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1055,13 +1196,99 @@ export function ManagerView({
       if (resData && resData.ok) {
         if (onRefresh) await onRefresh();
       } else {
-        console.error("Gagal menyimpan data breakdown.");
+        console.error("Gagal menyimpan data breakdown ke server.");
       }
     } catch (e: any) {
       console.error("Error: " + (e.message || "Gagal menyimpan"));
     } finally {
       setIsBreakdownSaving(false);
     }
+  };
+
+  // Export full JSON Backup file
+  const handleExportBackupJson = () => {
+    try {
+      const backupData = {
+        app: "Yakult Lady Management System DP Jember 1",
+        version: "2.0-Hybrid",
+        exportedAt: new Date().toISOString(),
+        month: selectedBreakdownMonth,
+        breakdownPlan: breakdownPlanMap,
+        breakdownRealisasi: breakdownRealisasiMap,
+        ylList,
+        targetTKU,
+        targetYL: targetYLMap,
+        motivasiConfig,
+        kontesConfig
+      };
+
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `Backup_Yakult_Jember1_${selectedBreakdownMonth}_${new Date().toISOString().slice(0,10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      setBreakdownMsg("✅ Backup file JSON berhasil diunduh!");
+      setTimeout(() => setBreakdownMsg(""), 3500);
+    } catch (e: any) {
+      alert("Gagal mengekspor backup JSON: " + e.message);
+    }
+  };
+
+  // Import JSON Backup file
+  const handleImportBackupJson = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const content = evt.target?.result as string;
+        const data = JSON.parse(content);
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Format file JSON tidak valid.");
+        }
+
+        let monthToUse = selectedBreakdownMonth;
+        if (data.month) {
+          monthToUse = data.month;
+          setSelectedBreakdownMonth(data.month);
+        }
+
+        if (data.breakdownPlan) {
+          setBreakdownPlanMap(data.breakdownPlan);
+          localStorage.setItem(`bd_plan_${monthToUse}`, JSON.stringify(data.breakdownPlan));
+        }
+        if (data.breakdownRealisasi) {
+          setBreakdownRealisasiMap(data.breakdownRealisasi);
+          localStorage.setItem(`bd_realisasi_${monthToUse}`, JSON.stringify(data.breakdownRealisasi));
+        }
+
+        // Send to server
+        fetch("/api/saveBreakdownPlan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            month: monthToUse,
+            breakdownPlan: data.breakdownPlan || breakdownPlanMap,
+            breakdownRealisasi: data.breakdownRealisasi || breakdownRealisasiMap
+          })
+        }).catch(() => {});
+
+        if (onRefresh) await onRefresh();
+
+        setBreakdownMsg("🎉 Restore data dari file JSON berhasil!");
+        setTimeout(() => setBreakdownMsg(""), 4000);
+        alert("Restore Berhasil! Data dari file backup JSON telah diterapkan.");
+      } catch (err: any) {
+        alert("Gagal memproses file JSON: " + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
   // Handler: Change single cell in breakdown grid
@@ -1680,7 +1907,7 @@ export function ManagerView({
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20 text-slate-800 dark:text-slate-100 transition-colors duration-200">
       {/* Dynamic Header */}
       <header className="bg-gradient-to-r from-red-950 to-red-800 border-b-4 border-red-600 text-white p-4 sticky top-0 z-50 shadow-md">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="bg-red-600 text-white font-black px-2.5 py-1 text-lg rounded-lg shadow">Y</span>
             <div>
@@ -1690,24 +1917,10 @@ export function ManagerView({
               <p className="text-[10px] text-red-200 mt-1 font-medium">Yakult Lady Management System Pro</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <button
-              onClick={handleDownloadExcel}
-              className="bg-emerald-700/80 hover:bg-emerald-600 text-emerald-50 text-[10px] sm:text-xs font-bold px-2.5 py-1.5 rounded-lg border border-emerald-600/50 transition-all flex items-center gap-1 shadow-sm"
-              title="Download Laporan Excel (DP1)"
-            >
-              📥 Laporan Excel
-            </button>
-            <button
-              onClick={handleClearCache}
-              className="bg-red-800/50 hover:bg-red-800 text-red-100 text-[10px] sm:text-xs font-bold px-2.5 py-1.5 rounded-lg border border-red-700/50 transition-all flex items-center gap-1"
-              title="Bersihkan cache lokal"
-            >
-              🧹 Pembersih Cache
-            </button>
+          <div className="flex items-center gap-2">
             <button
               onClick={onLogout}
-              className="bg-slate-900/60 hover:bg-slate-950 text-slate-200 text-[10px] sm:text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-800 transition-all"
+              className="bg-slate-900/80 hover:bg-slate-950 text-slate-100 text-xs font-bold px-3.5 py-1.5 rounded-xl border border-slate-700 transition-all cursor-pointer shadow-sm"
             >
               Keluar
             </button>
@@ -2544,6 +2757,22 @@ export function ManagerView({
                         <span>📥 TEMPEL (PASTE)</span>
                       </button>
 
+                      <button
+                        onClick={handleExportBackupJson}
+                        className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-xs px-2.5 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
+                        title="Download File Backup JSON ke HP"
+                      >
+                        <span>💾 BACKUP JSON</span>
+                      </button>
+
+                      <button
+                        onClick={() => jsonFileInputRef.current?.click()}
+                        className="bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-black text-xs px-2.5 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
+                        title="Restore Data dari File Backup JSON"
+                      >
+                        <span>📂 RESTORE JSON</span>
+                      </button>
+
                       {gridSelection && (
                         <button
                           onClick={handleClearSelectedGridCells}
@@ -3200,6 +3429,57 @@ export function ManagerView({
         {/* ================= TAB 5: SETTING ================= */}
         {activeTab === "setting" && (
           <div className="space-y-4">
+            {/* BACKUP, RESTORE & EKSPOR DATA (FILE LOCAL & EXCEL) */}
+            <div className="bg-white rounded-2xl p-4 border border-indigo-100 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-indigo-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-indigo-600 pl-2">
+                📦 Backup, Restore & Ekspor Data (JSON / Excel / Cache)
+              </h2>
+              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
+                Unduh salinan cadangan data dalam bentuk file JSON, lakukan pemulihan data (restore), cetak Laporan Excel DP, atau bersihkan cache browser lokal.
+              </p>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+                <button
+                  onClick={handleExportBackupJson}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
+                  title="Download File Backup Data JSON"
+                >
+                  📥 Backup (JSON)
+                </button>
+
+                <button
+                  onClick={() => jsonFileInputRef.current?.click()}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
+                  title="Restore Data dari File Backup JSON"
+                >
+                  📤 Restore (JSON)
+                </button>
+                <input
+                  type="file"
+                  ref={jsonFileInputRef}
+                  onChange={handleImportBackupJson}
+                  accept=".json"
+                  className="hidden"
+                />
+
+                <button
+                  onClick={handleDownloadExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
+                  title="Download Laporan Excel (DP1)"
+                >
+                  📊 Laporan Excel
+                </button>
+
+                <button
+                  onClick={handleClearCache}
+                  className="bg-slate-800 hover:bg-slate-900 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
+                  title="Bersihkan cache lokal"
+                >
+                  🧹 Pembersih Cache
+                </button>
+              </div>
+            </div>
+
             {/* Reset Data Bawaan / Inisialisasi Ulang YL & PIN */}
             <div className="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm space-y-3">
               <h2 className="text-xs font-black text-emerald-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-emerald-600 pl-2">
@@ -3404,6 +3684,122 @@ export function ManagerView({
                     💾 Simpan TKU
                   </button>
                 </div>
+              </div>
+            </div>
+
+            {/* KONEKSI CLOUD DATABASE (SUPABASE) */}
+            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-4 border border-indigo-500/30 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-indigo-500/20 pb-3">
+                <h2 className="text-xs font-black uppercase tracking-wider flex items-center gap-2 text-emerald-400">
+                  <span className="p-1 bg-emerald-500/20 rounded-lg text-emerald-400">⚡</span>
+                  Integrasi Database Cloud (Supabase Gratis)
+                </h2>
+                <span className="text-[9px] font-mono font-bold bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-400/30">
+                  Permanen & Antidesain Hilang
+                </span>
+              </div>
+
+              <p className="text-[10px] text-slate-300 leading-relaxed">
+                Hubungkan ke Supabase (100% Gratis) agar seluruh data (Breakdown, Realisasi, Evaluasi, & Profil YL) tersimpan abadi di cloud. Data tidak akan hilang saat Netlify direfresh atau di-redeploy!
+              </p>
+
+              <div className="space-y-3 bg-slate-950/60 p-3 rounded-xl border border-indigo-500/20">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                    Supabase Project URL
+                  </label>
+                  <input
+                    type="text"
+                    value={sbUrl}
+                    onChange={(e) => setSbUrl(e.target.value)}
+                    placeholder="https://xyzabcdefg.supabase.co"
+                    className="w-full p-2.5 text-xs bg-slate-900 border border-slate-700 rounded-xl text-emerald-300 font-mono outline-none focus:border-emerald-500 placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                    Supabase Anon API Key
+                  </label>
+                  <input
+                    type="password"
+                    value={sbKey}
+                    onChange={(e) => setSbKey(e.target.value)}
+                    placeholder="eyJhY2Nlc3NfdG9rZW4iOi..."
+                    className="w-full p-2.5 text-xs bg-slate-900 border border-slate-700 rounded-xl text-emerald-300 font-mono outline-none focus:border-emerald-500 placeholder:text-slate-600"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    onClick={handleSaveSupabaseConfig}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    🔌 Tes & Simpan Koneksi
+                  </button>
+
+                  <button
+                    onClick={handleSyncAllToSupabase}
+                    disabled={isSbSyncing}
+                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    ⬆️ Upload Semua Data ke Cloud
+                  </button>
+
+                  <button
+                    onClick={handleLoadAllFromSupabase}
+                    disabled={isSbSyncing}
+                    className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    ⬇️ Download Data dari Cloud
+                  </button>
+                </div>
+
+                {sbMsg && (
+                  <div className="p-2.5 bg-slate-900/90 rounded-xl border border-indigo-500/30 text-[10px] font-bold text-emerald-300 text-center animate-fade-in">
+                    {sbMsg}
+                  </div>
+                )}
+              </div>
+
+              {/* Petunjuk Pembuatan Tabel Supabase */}
+              <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-amber-400 block uppercase">
+                    📋 Langkah 1 Kali di Supabase SQL Editor (10 Detik):
+                  </span>
+                  <button
+                    onClick={() => {
+                      const sql = `CREATE TABLE IF NOT EXISTS public.app_store (\n  key TEXT PRIMARY KEY,\n  data JSONB NOT NULL,\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\nALTER TABLE public.app_store ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public access" ON public.app_store;\nCREATE POLICY "Allow public access" ON public.app_store FOR ALL USING (true) WITH CHECK (true);`;
+                      navigator.clipboard.writeText(sql);
+                      alert("✅ Kode SQL telah disalin! Tinggal Paste di Supabase SQL Editor.");
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[9px] px-2.5 py-1 rounded-lg transition-all shadow cursor-pointer flex items-center gap-1"
+                  >
+                    📋 Salin Kode SQL
+                  </button>
+                </div>
+                <ol className="text-[9.5px] text-slate-400 space-y-1 list-decimal pl-4">
+                  <li>Buka dashboard Supabase Anda di <code className="text-cyan-300">supabase.com</code></li>
+                  <li>Klik menu <b className="text-white">SQL Editor</b> di bilah kiri (ikon &gt;_)</li>
+                  <li>Klik <b className="text-white">New Query</b>, lalu klik tombol <b className="text-indigo-400">"Salin Kode SQL"</b> di atas, dan Paste (Tempel) di layar SQL Editor</li>
+                  <li>Klik tombol <b className="text-emerald-400">Run</b> (layar kanan bawah)</li>
+                </ol>
+                <pre className="bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-[9px] font-mono text-cyan-300 overflow-x-auto select-all">
+{`CREATE TABLE IF NOT EXISTS public.app_store (
+  key TEXT PRIMARY KEY,
+  data JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.app_store ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public access" ON public.app_store;
+CREATE POLICY "Allow public access" ON public.app_store FOR ALL USING (true) WITH CHECK (true);`}
+                </pre>
+                <p className="text-[9px] text-slate-500 italic">
+                  *Setelah klik "Run" di SQL Editor Supabase, database Anda siap digunakan selamanya!
+                </p>
               </div>
             </div>
 
