@@ -72,7 +72,7 @@ function YlRealisasiPotensiTabInner({
               <span>🏘️ Tabel Realisasi Potensi Sektor (Pertanggal)</span>
             </h2>
             <p className="text-xs text-slate-500 font-bold leading-relaxed mt-0.5">
-              Data realisasi potensi penjualan per sektor (Rumah, Pasar, Sekolah, Kantor, Toko, IB) otomatis tersimpan pertanggal sesuai input YL.
+              Data realisasi potensi penjualan per sektor (Rumah, Pasar, Sekolah, Kantor, Toko, IB - Instan Buyer) otomatis tersimpan pertanggal sesuai input YL.
             </p>
           </div>
           <div className="flex items-center gap-2">

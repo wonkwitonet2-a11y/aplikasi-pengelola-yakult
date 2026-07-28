@@ -973,7 +973,7 @@ export function YLView({
                   { key: "skh", label: "Sekolah", val: mSkh, pct: getPct(mSkh), bg: "bg-pink-50 border-pink-200 text-pink-950", bar: "bg-pink-500" },
                   { key: "ktr", label: "Kantor", val: mKtr, pct: getPct(mKtr), bg: "bg-purple-50 border-purple-200 text-purple-950", bar: "bg-purple-500" },
                   { key: "tk", label: "Toko", val: mTk, pct: getPct(mTk), bg: "bg-teal-50 border-teal-200 text-teal-950", bar: "bg-teal-500" },
-                  { key: "ib", label: "IB (Instalasi)", val: mIb, pct: getPct(mIb), bg: "bg-indigo-50 border-indigo-200 text-indigo-950", bar: "bg-indigo-500" }
+                  { key: "ib", label: "IB (Instan Buyer)", val: mIb, pct: getPct(mIb), bg: "bg-indigo-50 border-indigo-200 text-indigo-950", bar: "bg-indigo-500" }
                 ];
 
                 return (
