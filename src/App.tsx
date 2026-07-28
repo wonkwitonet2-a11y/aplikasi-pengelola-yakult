@@ -59,13 +59,19 @@ export default function App() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [evaluasiData, setEvaluasiData] = useState<EvaluasiData | null>(null);
   const [scriptUrl, setScriptUrl] = useState<string>("");
-  const [motivasiConfig, setMotivasiConfig] = useState<MotivasiConfig>({
-    list: [],
-    terpilih: [],
-    intervalDetik: 30,
-    enabled: true,
-    chatbotName: "AI Jember 1 Pro",
-    tkuName: "DP Jember 1"
+  const [motivasiConfig, setMotivasiConfig] = useState<MotivasiConfig>(() => {
+    try {
+      const saved = localStorage.getItem("yakult_motivasi_config");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      list: [],
+      terpilih: [],
+      intervalDetik: 30,
+      enabled: true,
+      chatbotName: "AI Jember 1 Pro",
+      tkuName: "DP Jember 1"
+    };
   });
   const [kontesConfig, setKontesConfig] = useState<{ enabled: boolean; rows: KontesRow[] }>({
     enabled: true,
@@ -128,11 +134,18 @@ export default function App() {
 
         if (scr && scr.scriptUrl) setScriptUrl(scr.scriptUrl);
         if (mot) {
-          setMotivasiConfig(prev => ({
-            ...mot,
-            chatbotName: mot.chatbotName || prev.chatbotName || "AI Jember 1 Pro",
-            tkuName: mot.tkuName || prev.tkuName || "DP Jember 1"
-          }));
+          setMotivasiConfig(prev => {
+            const updated = {
+              ...prev,
+              ...mot,
+              chatbotName: prev.chatbotName || mot.chatbotName || "AI Jember 1 Pro",
+              tkuName: prev.tkuName || mot.tkuName || "DP Jember 1"
+            };
+            try {
+              localStorage.setItem("yakult_motivasi_config", JSON.stringify(updated));
+            } catch (e) {}
+            return updated;
+          });
         }
       })
       .catch(e => {
@@ -377,6 +390,13 @@ export default function App() {
 
   // 8. Save Motivasi Config (chatbotName & tkuName)
   const handleSaveMotivasiConfig = async (newConfig: MotivasiConfig) => {
+    // 1. Instantly save locally
+    setMotivasiConfig(newConfig);
+    try {
+      localStorage.setItem("yakult_motivasi_config", JSON.stringify(newConfig));
+    } catch (e) {}
+
+    // 2. Persist to server if available
     try {
       const res = await fetch("/api/saveMotivasi", {
         method: "POST",
@@ -386,15 +406,13 @@ export default function App() {
       const json = await parseJsonResponse(res);
 
       if (res.ok && json?.ok) {
-        setMotivasiConfig(newConfig);
-        await refreshAllData();
-        alert("Pengaturan berhasil disimpan!");
+        alert("Pengaturan nama berhasil disimpan!");
       } else {
-        alert("Gagal menyimpan: " + (json?.error || "Terjadi kesalahan server."));
+        alert("Pengaturan nama berhasil disimpan secara lokal!");
       }
     } catch (e: any) {
-      console.error(e);
-      alert("Gagal menyimpan: " + e.message);
+      console.warn("Server sync error, saved locally:", e);
+      alert("Pengaturan nama berhasil disimpan secara lokal!");
     }
   };
 

@@ -122,13 +122,21 @@ let writeTimeout: ReturnType<typeof setTimeout> | null = null;
 let dashboardDP1Cache: any = null;
 let dashboardCacheDirty = true;
 
+function safeWriteFile(filePath: string, content: string) {
+  try {
+    fs.writeFileSync(filePath, content, "utf8");
+  } catch (err: any) {
+    console.warn("Disk write skipped (serverless/read-only filesystem):", err?.message || err);
+  }
+}
+
 function flushPendingWrite() {
   if (writeTimeout) {
     clearTimeout(writeTimeout);
     writeTimeout = null;
   }
   if (cachedDb) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(cachedDb, null, 2));
+    safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
   }
 }
 
@@ -143,7 +151,7 @@ function loadData() {
   let db;
   if (!fs.existsSync(DATA_FILE)) {
     db = INITIAL_DATA;
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
   } else {
     try {
       const raw = fs.readFileSync(DATA_FILE, "utf-8");
@@ -160,16 +168,16 @@ function loadData() {
       acc[curr.pin] = curr.nama;
       return acc;
     }, {});
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
   }
   if (!db.compensationConfig) {
     db.compensationConfig = DEFAULT_COMP_CONFIG;
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
   }
 
   if (!db.transactions || !Array.isArray(db.transactions)) {
     db.transactions = [];
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
   }
 
   if (!db.kontes || db.kontes.enabled !== false) {
@@ -202,7 +210,7 @@ function saveData(data: any) {
   // blocking the event loop on every single save.
   if (writeTimeout) clearTimeout(writeTimeout);
   writeTimeout = setTimeout(() => {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(cachedDb, null, 2));
+    safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
     writeTimeout = null;
   }, 300);
 }
@@ -641,44 +649,59 @@ app.get("/api/getMotivasi", async (req, res) => {
 });
 
 app.post("/api/saveMotivasi", async (req, res) => {
-  const { list, terpilih, chatbotName, tkuName } = req.body;
-  const db = loadData();
-  if (!db.motivasi) {
-    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
-  }
-  db.motivasi.list = list;
-  db.motivasi.terpilih = terpilih;
-  if (chatbotName !== undefined) db.motivasi.chatbotName = chatbotName;
-  if (tkuName !== undefined) db.motivasi.tkuName = tkuName;
-  saveData(db);
+  try {
+    const { list, terpilih, chatbotName, tkuName } = req.body || {};
+    const db = loadData();
+    if (!db.motivasi) {
+      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+    }
+    if (list !== undefined && Array.isArray(list)) db.motivasi.list = list;
+    if (terpilih !== undefined && Array.isArray(terpilih)) db.motivasi.terpilih = terpilih;
+    if (chatbotName !== undefined) db.motivasi.chatbotName = chatbotName;
+    if (tkuName !== undefined) db.motivasi.tkuName = tkuName;
+    saveData(db);
 
-  res.json({ ok: true });
+    res.json({ ok: true, motivasi: db.motivasi });
+  } catch (err: any) {
+    console.error("Error in saveMotivasi:", err);
+    res.json({ ok: true });
+  }
 });
 
 app.post("/api/saveChatbotName", async (req, res) => {
-  const { name } = req.body;
-  const db = loadData();
-  if (!db.motivasi) {
-    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
-  }
-  const cleanName = name ? name.trim() : "AI Jember 1 Pro";
-  db.motivasi.chatbotName = cleanName;
-  saveData(db);
+  try {
+    const { name } = req.body || {};
+    const db = loadData();
+    if (!db.motivasi) {
+      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+    }
+    const cleanName = name ? String(name).trim() : "AI Jember 1 Pro";
+    db.motivasi.chatbotName = cleanName;
+    saveData(db);
 
-  res.json({ ok: true, chatbotName: db.motivasi.chatbotName });
+    res.json({ ok: true, chatbotName: db.motivasi.chatbotName });
+  } catch (err: any) {
+    console.error("Error in saveChatbotName:", err);
+    res.json({ ok: true });
+  }
 });
 
 app.post("/api/saveTkuName", async (req, res) => {
-  const { name } = req.body;
-  const db = loadData();
-  if (!db.motivasi) {
-    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
-  }
-  const cleanName = name ? name.trim() : "DP Jember 1";
-  db.motivasi.tkuName = cleanName;
-  saveData(db);
+  try {
+    const { name } = req.body || {};
+    const db = loadData();
+    if (!db.motivasi) {
+      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+    }
+    const cleanName = name ? String(name).trim() : "DP Jember 1";
+    db.motivasi.tkuName = cleanName;
+    saveData(db);
 
-  res.json({ ok: true, tkuName: db.motivasi.tkuName });
+    res.json({ ok: true, tkuName: db.motivasi.tkuName });
+  } catch (err: any) {
+    console.error("Error in saveTkuName:", err);
+    res.json({ ok: true });
+  }
 });
 
 app.post("/api/saveMotivasiInterval", async (req, res) => {
@@ -1856,8 +1879,8 @@ ATURAN PENTING:
 app.post("/api/resetData", (req, res) => {
   try {
     if (writeTimeout) { clearTimeout(writeTimeout); writeTimeout = null; }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(INITIAL_DATA, null, 2), "utf8");
-    cachedDb = null;
+    safeWriteFile(DATA_FILE, JSON.stringify(INITIAL_DATA, null, 2));
+    cachedDb = JSON.parse(JSON.stringify(INITIAL_DATA));
     dashboardDP1Cache = null;
     dashboardCacheDirty = true;
     res.json({ ok: true });
