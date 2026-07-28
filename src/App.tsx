@@ -199,9 +199,15 @@ export default function App() {
     if (!document.hidden) startPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    const handleBdUpdated = () => {
+      refreshAllData(true);
+    };
+    window.addEventListener("bd_realisasi_updated", handleBdUpdated);
+
     return () => {
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("bd_realisasi_updated", handleBdUpdated);
     };
   }, [session, scriptUrl]);
 
@@ -243,11 +249,15 @@ export default function App() {
         safeFetchJson("/api/getYlList")
       ]);
 
-      const finalDb = db || getFallbackDashboardData();
+      const activeMonth = new Date().toISOString().substring(0, 7) || "2026-07";
+      const fallbackDb = getFallbackDashboardData(activeMonth);
+      const finalDb = (db && db.totalPenjualan > 0) ? db : (fallbackDb.totalPenjualan > 0 ? fallbackDb : (db || fallbackDb));
       setIfChanged("dashboard", finalDb, setDashboardData);
 
       const rawEv = ev && ev.evaluasiData ? ev.evaluasiData : (ev && ev.dataRows ? ev : null);
-      const finalEv = rawEv || getFallbackEvaluasiData();
+      const fallbackEv = getFallbackEvaluasiData(activeMonth);
+      const hasEvData = rawEv && rawEv.dataRows && rawEv.dataRows.some((r: any) => (r[8] || 0) > 0);
+      const finalEv = hasEvData ? rawEv : (fallbackEv.dataRows.some(r => (r[8] as number) > 0) ? fallbackEv : (rawEv || fallbackEv));
       setIfChanged("evaluasi", finalEv, setEvaluasiData);
       if (mot) {
         const motChanged = setIfChanged("motivasi", mot, () => {});

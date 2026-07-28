@@ -1090,6 +1090,7 @@ export function ManagerView({
       }
       if (Object.keys(breakdownRealisasiMap).length > 0) {
         localStorage.setItem(`bd_realisasi_${selectedBreakdownMonth}`, JSON.stringify(breakdownRealisasiMap));
+        window.dispatchEvent(new Event("bd_realisasi_updated"));
       }
     } catch (e) {
       console.warn("Gagal menyimpan cache lokal breakdown:", e);

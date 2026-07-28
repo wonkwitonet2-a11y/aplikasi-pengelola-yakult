@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { Transaction, MotivasiConfig, cleanYlName } from "../types";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
+import { getStoredBreakdownPlan, getStoredBreakdownRealisasi } from "../lib/fallbackData";
 import { NumberInput } from "./NumberInput";
 import { useSimpleGrid } from "./useSimpleGrid";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
@@ -263,30 +264,34 @@ export function YLView({
     setIsBreakdownLoading(true);
     safeFetchJson(`/api/getBreakdownPlan?month=${month}`)
       .then(res => {
-        if (res && res.ok) {
-          const findData = (objMap: any) => {
-            if (!objMap || typeof objMap !== "object") return null;
-            if (objMap[area]) return objMap[area];
-            if (objMap[ylName]) return objMap[ylName];
-            const keys = Object.keys(objMap);
-            const matchKey = keys.find(k =>
-              k === area ||
-              k.startsWith(area) ||
-              area.startsWith(k) ||
-              k.toLowerCase().includes(ylName.toLowerCase()) ||
-              ylName.toLowerCase().includes(k.toLowerCase())
-            );
-            return matchKey ? objMap[matchKey] : null;
-          };
+        let planMap = res && res.ok && res.breakdownPlan && Object.keys(res.breakdownPlan).length > 0 ? res.breakdownPlan : null;
+        let realMap = res && res.ok && res.breakdownRealisasi && Object.keys(res.breakdownRealisasi).length > 0 ? res.breakdownRealisasi : null;
 
-          if (res.breakdownPlan) {
-            const planData = findData(res.breakdownPlan);
-            if (planData) setYlBreakdownPlan(planData);
-          }
-          if (res.breakdownRealisasi) {
-            const realData = findData(res.breakdownRealisasi);
-            if (realData) setYlBreakdownRealisasi(realData);
-          }
+        if (!planMap) planMap = getStoredBreakdownPlan(month);
+        if (!realMap) realMap = getStoredBreakdownRealisasi(month);
+
+        const findData = (objMap: any) => {
+          if (!objMap || typeof objMap !== "object") return null;
+          if (objMap[area]) return objMap[area];
+          if (objMap[ylName]) return objMap[ylName];
+          const keys = Object.keys(objMap);
+          const matchKey = keys.find(k =>
+            k === area ||
+            k.startsWith(area) ||
+            area.startsWith(k) ||
+            k.toLowerCase().includes(ylName.toLowerCase()) ||
+            ylName.toLowerCase().includes(k.toLowerCase())
+          );
+          return matchKey ? objMap[matchKey] : null;
+        };
+
+        if (planMap) {
+          const planData = findData(planMap);
+          if (planData) setYlBreakdownPlan(planData);
+        }
+        if (realMap) {
+          const realData = findData(realMap);
+          if (realData) setYlBreakdownRealisasi(realData);
         }
       })
       .catch(err => console.error("Error loading YL breakdown plan & realisasi:", err))
