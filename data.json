@@ -1,0 +1,343 @@
+{
+  "scriptUrl": "",
+  "managerPin": "1111",
+  "ylList": [
+    {
+      "area": "201",
+      "nama": "201 Gusrina",
+      "pin": "201",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "202",
+      "nama": "202 Dewi Ati Ani",
+      "pin": "202",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "203",
+      "nama": "203 Gusrini",
+      "pin": "203",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "204",
+      "nama": "204 Umi Maisaroh",
+      "pin": "204",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "205",
+      "nama": "205 Suyik Rahmawati",
+      "pin": "205",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "206",
+      "nama": "206 Ria Resti W",
+      "pin": "206",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "207",
+      "nama": "207 Endang Setiowati",
+      "pin": "207",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "208",
+      "nama": "208 Wakiah",
+      "pin": "208",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "209",
+      "nama": "209 Titis",
+      "pin": "209",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    },
+    {
+      "area": "210",
+      "nama": "210 Eni",
+      "pin": "210",
+      "status": "Aktif",
+      "tanggalDaftar": "2026-01-01"
+    }
+  ],
+  "ylPins": {
+    "201": "201 Gusrina",
+    "202": "202 Dewi Ati Ani",
+    "203": "203 Gusrini",
+    "204": "204 Umi Maisaroh",
+    "205": "205 Suyik Rahmawati",
+    "206": "206 Ria Resti W",
+    "207": "207 Endang Setiowati",
+    "208": "208 Wakiah",
+    "209": "209 Titis",
+    "210": "210 Eni"
+  },
+  "compensationConfig": {
+    "tiers": [
+      {
+        "threshold": 0,
+        "rate": 338
+      },
+      {
+        "threshold": 200,
+        "rate": 374
+      },
+      {
+        "threshold": 250,
+        "rate": 409
+      },
+      {
+        "threshold": 280,
+        "rate": 417
+      },
+      {
+        "threshold": 300,
+        "rate": 424
+      },
+      {
+        "threshold": 330,
+        "rate": 428
+      },
+      {
+        "threshold": 350,
+        "rate": 432
+      }
+    ],
+    "pphRate": 2.5,
+    "jkkJkm": 18800,
+    "jht": 24000
+  },
+  "motivasi": {
+    "list": [
+      "Setiap botol yang terjual adalah langkah menuju target bulan ini!",
+      "Senyum ke pelanggan hari ini, rezeki mengikuti besok.",
+      "Yakult Lady hebat bukan yang paling cepat, tapi yang paling konsisten.",
+      "Capaian kecil tiap hari, jadi kemenangan besar tiap bulan.",
+      "Semangat pagi ini menentukan hasil sore nanti!",
+      "Pelanggan setia lahir dari pelayanan yang tulus.",
+      "Jangan bandingkan hari ini dengan kemarin, kalahkan diri sendiri.",
+      "Rute boleh sama, tapi semangat harus selalu baru.",
+      "Kerja keras hari ini, bonus manis akhir bulan.",
+      "Satu sapaan ramah bisa membuka satu pelanggan baru."
+    ],
+    "terpilih": [
+      "Setiap botol yang terjual adalah langkah menuju target bulan ini!",
+      "Senyum ke pelanggan hari ini, rezeki mengikuti besok.",
+      "Yakult Lady hebat bukan yang paling cepat, tapi yang paling konsisten.",
+      "Capaian kecil tiap hari, jadi kemenangan besar tiap bulan.",
+      "Semangat pagi ini menentukan hasil sore nanti!",
+      "Pelanggan setia lahir dari pelayanan yang tulus.",
+      "Jangan bandingkan hari ini dengan kemarin, kalahkan diri sendiri.",
+      "Rute boleh sama, tapi semangat harus selalu baru.",
+      "Kerja keras hari ini, bonus manis akhir bulan.",
+      "Satu sapaan ramah bisa membuka satu pelanggan baru."
+    ],
+    "intervalDetik": 30,
+    "enabled": true,
+    "chatbotName": "Suhu",
+    "tkuName": "DP"
+  },
+  "kontes": {
+    "enabled": true,
+    "rows": [
+      {
+        "nama": "201 Gusrina",
+        "area": "201",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "202 Dewi Ati Ani",
+        "area": "202",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "203 Gusrini",
+        "area": "203",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "204 Umi Maisaroh",
+        "area": "204",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "205 Suyik Rahmawati",
+        "area": "205",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "206 Ria Resti W",
+        "area": "206",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "207 Endang Setiowati",
+        "area": "207",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "208 Wakiah",
+        "area": "208",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "209 Titis",
+        "area": "209",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      },
+      {
+        "nama": "210 Eni",
+        "area": "210",
+        "hasil": "-",
+        "vsTarget": 0,
+        "totalPb": 0,
+        "totalSampah": 0,
+        "poinHarian": 0,
+        "poinKenaikan": 0,
+        "poinSampah": 0,
+        "poinYt": 0,
+        "totalPoin": 0
+      }
+    ]
+  },
+  "ca25": 25,
+  "bl38": 0,
+  "targetYL": {
+    "201": {
+      "target": 0,
+      "bln_lalu": 0,
+      "thn_lalu": 0
+    },
+    "201_2026-07": {
+      "target": 0,
+      "bln_lalu": 0,
+      "thn_lalu": 0
+    }
+  },
+  "transactions": [],
+  "sheetsConfig": {
+    "spreadsheetId": "",
+    "spreadsheetName": "",
+    "lastSynced": ""
+  },
+  "breakdownPlan": {},
+  "breakdownRealisasi": {},
+  "pembagiTanggal": 25,
+  "targetTKU": {
+    "target": 0,
+    "target_yo": 0,
+    "target_om": 0,
+    "target_os": 0,
+    "target_yt": 0,
+    "bln_lalu": 0,
+    "bln_lalu_yo": 0,
+    "bln_lalu_om": 0,
+    "bln_lalu_os": 0,
+    "bln_lalu_yt": 0,
+    "thn_lalu": 0,
+    "thn_lalu_yo": 0,
+    "thn_lalu_om": 0,
+    "thn_lalu_os": 0,
+    "thn_lalu_yt": 0
+  },
+  "lhppRealisasi": {},
+  "managerRealisasi": {},
+  "plgPjlManual": {},
+  "potensiTembus": {
+    "2026-07": {
+      "201 Gusrina": {
+        "skhTotal": 5,
+        "skhTembus": 5,
+        "kntrTotal": 5,
+        "kntrTembus": 0,
+        "tkoTotal": 0,
+        "tkoTembus": 0
+      }
+    }
+  }
+}
