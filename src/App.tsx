@@ -8,6 +8,10 @@ import {
   getStoredYlList,
   saveStoredYlData
 } from "./lib/storage";
+import {
+  getFallbackDashboardData,
+  getFallbackEvaluasiData
+} from "./lib/fallbackData";
 
 // Lazy-loaded: masing-masing hanya di-download & di-parse browser saat memang
 // akan dirender (setelah login berhasil dan role diketahui). Sebelumnya semua
@@ -56,8 +60,8 @@ export default function App() {
   const toggleTheme = () => setTheme(prev => prev === "light" ? "dark" : "light");
 
   // Global Datasets
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [evaluasiData, setEvaluasiData] = useState<EvaluasiData | null>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(() => getFallbackDashboardData());
+  const [evaluasiData, setEvaluasiData] = useState<EvaluasiData | null>(() => getFallbackEvaluasiData());
   const [scriptUrl, setScriptUrl] = useState<string>("");
   const [motivasiConfig, setMotivasiConfig] = useState<MotivasiConfig>(() => {
     try {
@@ -239,9 +243,12 @@ export default function App() {
         safeFetchJson("/api/getYlList")
       ]);
 
-      if (db) setIfChanged("dashboard", db, setDashboardData);
-      const evData = ev && ev.evaluasiData ? ev.evaluasiData : ev;
-      if (evData) setIfChanged("evaluasi", evData, setEvaluasiData);
+      const finalDb = db || getFallbackDashboardData();
+      setIfChanged("dashboard", finalDb, setDashboardData);
+
+      const rawEv = ev && ev.evaluasiData ? ev.evaluasiData : (ev && ev.dataRows ? ev : null);
+      const finalEv = rawEv || getFallbackEvaluasiData();
+      setIfChanged("evaluasi", finalEv, setEvaluasiData);
       if (mot) {
         const motChanged = setIfChanged("motivasi", mot, () => {});
         if (motChanged) {

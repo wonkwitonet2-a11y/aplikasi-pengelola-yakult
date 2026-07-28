@@ -32,6 +32,7 @@ import { YlProfileRow } from "./YlProfileRow";
 import { ManagerDashboardTab } from "./ManagerDashboardTab";
 import { ManagerLadyTab } from "./ManagerLadyTab";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
+import { getFallbackEvaluasiData } from "../lib/fallbackData";
 import {
   RankingYLChart,
   KomposisiProdukChart,
@@ -100,6 +101,9 @@ export function ManagerView({
       safeFetchJson("/api/getEvaluasi").then(res => {
         if (res && res.evaluasiData) setLocalEval(res.evaluasiData);
         else if (res && res.dataRows) setLocalEval(res);
+        else setLocalEval(prev => prev || getFallbackEvaluasiData());
+      }).catch(() => {
+        setLocalEval(prev => prev || getFallbackEvaluasiData());
       });
     }
   }, [activeTab]);
