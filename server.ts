@@ -3,15 +3,39 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const DATA_FILE = path.join(process.cwd(), "data.json");
 
 app.use(express.json());
+
+// --- Supabase (database persisten) -----------------------------------------
+// Server ini yang menjadi satu-satunya jalur baca/tulis data aplikasi
+// (dashboard, ringkasan YL, evaluasi, transaksi, target, dst). Memakai tabel
+// app_store yang sama dengan panel "Test Koneksi Supabase" di menu Setting
+// Admin (key/data/updated_at) — seluruh data aplikasi disimpan sebagai SATU
+// baris JSON di bawah key SUPABASE_DB_KEY. Ini memakai SUPABASE_SERVICE_ROLE_KEY
+// (bukan anon key) supaya aman dipakai di sisi server dan tidak tergantung
+// pada policy RLS. Kalau env belum diisi, server tetap jalan pakai data.json
+// lokal seperti sebelumnya (dev/Termux) — tapi TIDAK persisten di Netlify.
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
+const SUPABASE_SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
+const SUPABASE_DB_KEY = "main_db";
+const supabase = (SUPABASE_URL && SUPABASE_SERVICE_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
+  : null;
+
+if (!supabase) {
+  console.warn(
+    "[Supabase] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diset di environment variables — " +
+    "server memakai data.json lokal, yang TIDAK persisten kalau dihosting di Netlify."
+  );
+}
 
 // Initialize Gemini
 const ai = new GoogleGenAI({
@@ -145,51 +169,30 @@ process.on("exit", flushPendingWrite);
 process.on("SIGINT", () => { flushPendingWrite(); process.exit(0); });
 process.on("SIGTERM", () => { flushPendingWrite(); process.exit(0); });
 
-function loadData() {
-  if (cachedDb) return cachedDb;
-
-  let db;
-  if (!fs.existsSync(DATA_FILE)) {
-    db = INITIAL_DATA;
-    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
-  } else {
-    try {
-      const raw = fs.readFileSync(DATA_FILE, "utf-8");
-      db = JSON.parse(raw);
-    } catch (e) {
-      db = INITIAL_DATA;
-    }
-  }
-
-  // Ensure ylList, ylPins, and compensationConfig are always present
+// Pastikan field wajib selalu ada, baik data berasal dari Supabase maupun
+// dari data.json lokal (dev tanpa Supabase). Data contoh bulan 2026-07 hanya
+// dipakai sebagai isian awal kalau memang belum ada data BD/Realisasi sama
+// sekali (pemakaian pertama kali).
+function normalizeDb(db: any) {
   if (!db.ylList || !Array.isArray(db.ylList)) {
     db.ylList = INITIAL_YL_LIST;
     db.ylPins = INITIAL_YL_LIST.reduce((acc: any, curr) => {
       acc[curr.pin] = curr.nama;
       return acc;
     }, {});
-    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
   }
   if (!db.compensationConfig) {
     db.compensationConfig = DEFAULT_COMP_CONFIG;
-    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
   }
-
   if (!db.transactions || !Array.isArray(db.transactions)) {
     db.transactions = [];
-    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
   }
-
   if (!db.kontes || db.kontes.enabled !== false) {
     db.kontes = { enabled: false, rows: [] };
   }
-
-  // Ensure breakdownPlan storage exists
   if (!db.breakdownPlan || typeof db.breakdownPlan !== "object") {
     db.breakdownPlan = {};
   }
-
-  // Ensure breakdownRealisasi storage exists
   if (!db.breakdownRealisasi || typeof db.breakdownRealisasi !== "object") {
     db.breakdownRealisasi = {};
   }
@@ -213,24 +216,115 @@ function loadData() {
     db.breakdownPlan[sampleMonth] = JSON.parse(JSON.stringify(db.breakdownRealisasi[sampleMonth]));
   }
 
-  cachedDb = db;
   return db;
 }
 
-function saveData(data: any) {
-  // Update the in-memory copy immediately so the very next request (even in
-  // the same tick) sees the new data without touching the disk.
+// Baca data.json lokal (fallback kalau Supabase belum dikonfigurasi, atau
+// untuk dev lokal/Termux tanpa Supabase sama sekali).
+function buildDbFromLocal() {
+  let db;
+  if (!fs.existsSync(DATA_FILE)) {
+    db = INITIAL_DATA;
+    safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
+  } else {
+    try {
+      const raw = fs.readFileSync(DATA_FILE, "utf-8");
+      db = JSON.parse(raw);
+    } catch (e) {
+      db = INITIAL_DATA;
+    }
+  }
+  return normalizeDb(db);
+}
+
+// Baca data dari Supabase (tabel app_store, satu baris JSON di bawah key
+// SUPABASE_DB_KEY — tabel yang sama dipakai panel "Test Koneksi" di Setting
+// Admin). Return null kalau Supabase belum dikonfigurasi, tabelnya kosong,
+// atau terjadi error (supaya bisa fallback ke data lokal).
+async function loadDataFromSupabase(): Promise<any | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("app_store")
+      .select("data")
+      .eq("key", SUPABASE_DB_KEY)
+      .maybeSingle();
+    if (error) {
+      console.error("[Supabase] Gagal membaca data awal, fallback ke data.json lokal:", error.message);
+      return null;
+    }
+    if (!data || !data.data) return null; // belum pernah ada data tersimpan di Supabase
+    return data.data;
+  } catch (e: any) {
+    console.error("[Supabase] Exception membaca data awal, fallback ke data.json lokal:", e?.message || e);
+    return null;
+  }
+}
+
+// Simpan seluruh db sebagai satu baris JSON ke Supabase. Dipanggil dan
+// DITUNGGU (awaited) oleh saveData() SEBELUM endpoint membalas response —
+// ini penting di Netlify Functions, karena proses bisa "dibekukan" tepat
+// setelah response terkirim, sehingga penulisan yang tidak ditunggu
+// (mis. lewat setTimeout) berisiko tidak sempat selesai / datanya hilang.
+async function persistToSupabase(db: any) {
+  if (!supabase) return;
+  try {
+    const { error } = await supabase
+      .from("app_store")
+      .upsert({ key: SUPABASE_DB_KEY, data: db, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    if (error) console.error("[Supabase] Gagal menyimpan data:", error.message);
+  } catch (e: any) {
+    console.error("[Supabase] Exception menyimpan data:", e?.message || e);
+  }
+}
+
+let dbReadyPromise: Promise<void> | null = null;
+
+// Dipanggil sekali sebelum server mulai melayani request (lihat startServer()
+// di bawah untuk dev/Termux, dan netlify/functions/api.ts untuk produksi).
+// Mengisi cachedDb dari Supabase kalau sudah dikonfigurasi (env SUPABASE_URL
+// + SUPABASE_SERVICE_ROLE_KEY), atau dari data.json lokal kalau belum.
+function ensureDbReady(): Promise<void> {
+  if (!dbReadyPromise) {
+    dbReadyPromise = (async () => {
+      const remote = await loadDataFromSupabase();
+      if (remote) {
+        cachedDb = normalizeDb(remote);
+      } else {
+        cachedDb = buildDbFromLocal();
+        if (supabase) {
+          // Supabase sudah dikonfigurasi tapi tabelnya masih kosong (baru
+          // pertama kali pakai) — simpan data awal ini supaya jadi acuan.
+          await persistToSupabase(cachedDb);
+        }
+      }
+    })();
+  }
+  return dbReadyPromise;
+}
+
+function loadData() {
+  if (!cachedDb) {
+    // Jalur cadangan: seharusnya ensureDbReady() sudah dipanggil sebelum
+    // request pertama masuk (lihat startServer() & netlify/functions/api.ts).
+    // Kalau sampai ke sini, pakai data lokal supaya server tidak crash.
+    cachedDb = buildDbFromLocal();
+  }
+  return cachedDb;
+}
+
+async function saveData(data: any) {
+  // Update salinan in-memory dulu supaya request berikutnya (bahkan di tick
+  // yang sama) langsung melihat data terbaru.
   cachedDb = data;
   dashboardCacheDirty = true;
 
-  // Debounce the actual disk write: if several saves happen in quick
-  // succession (common during data entry), we only write once instead of
-  // blocking the event loop on every single save.
-  if (writeTimeout) clearTimeout(writeTimeout);
-  writeTimeout = setTimeout(() => {
-    safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
-    writeTimeout = null;
-  }, 300);
+  // Tetap tulis ke data.json lokal — berguna untuk dev lokal/Termux; di
+  // Netlify ini otomatis di-skip diam-diam (filesystem read-only).
+  safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
+
+  // Simpan ke Supabase dan DITUNGGU (lihat komentar di persistToSupabase).
+  await persistToSupabase(cachedDb);
 }
 
 // PROXY FUNCTION DISABLED TO PREVENT SPREADSHEET CONFLICTS AND DATA LOSS
@@ -480,11 +574,11 @@ app.get("/api/getScriptUrl", (req, res) => {
   res.json({ scriptUrl: db.scriptUrl || "" });
 });
 
-app.post("/api/saveScriptUrl", (req, res) => {
+app.post("/api/saveScriptUrl", async (req, res) => {
   const { scriptUrl } = req.body;
   const db = loadData();
   db.scriptUrl = scriptUrl;
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true });
 });
 
@@ -547,7 +641,7 @@ app.post("/api/savePins", async (req, res) => {
   const db = loadData();
   db.managerPin = managerPin;
   db.ylPins = ylPins;
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true });
 });
 
@@ -677,7 +771,7 @@ app.post("/api/saveMotivasi", async (req, res) => {
     if (terpilih !== undefined && Array.isArray(terpilih)) db.motivasi.terpilih = terpilih;
     if (chatbotName !== undefined) db.motivasi.chatbotName = chatbotName;
     if (tkuName !== undefined) db.motivasi.tkuName = tkuName;
-    saveData(db);
+    await saveData(db);
 
     res.json({ ok: true, motivasi: db.motivasi });
   } catch (err: any) {
@@ -695,7 +789,7 @@ app.post("/api/saveChatbotName", async (req, res) => {
     }
     const cleanName = name ? String(name).trim() : "AI Jember 1 Pro";
     db.motivasi.chatbotName = cleanName;
-    saveData(db);
+    await saveData(db);
 
     res.json({ ok: true, chatbotName: db.motivasi.chatbotName });
   } catch (err: any) {
@@ -713,7 +807,7 @@ app.post("/api/saveTkuName", async (req, res) => {
     }
     const cleanName = name ? String(name).trim() : "DP Jember 1";
     db.motivasi.tkuName = cleanName;
-    saveData(db);
+    await saveData(db);
 
     res.json({ ok: true, tkuName: db.motivasi.tkuName });
   } catch (err: any) {
@@ -729,7 +823,7 @@ app.post("/api/saveMotivasiInterval", async (req, res) => {
     db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
   }
   db.motivasi.intervalDetik = detik;
-  saveData(db);
+  await saveData(db);
 
   res.json({ ok: true });
 });
@@ -741,7 +835,7 @@ app.post("/api/saveMotivasiEnabled", async (req, res) => {
     db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
   }
   db.motivasi.enabled = enabled;
-  saveData(db);
+  await saveData(db);
 
   res.json({ ok: true });
 });
@@ -759,7 +853,7 @@ app.post("/api/resetMotivasiDefault", async (req, res) => {
     chatbotName: existingChatbotName,
     tkuName: existingTkuName
   };
-  saveData(db);
+  await saveData(db);
 
   res.json({ ok: true });
 });
@@ -831,7 +925,7 @@ app.get("/api/getBreakdownPlan", (req, res) => {
 });
 
 // POST /api/saveBreakdownPlan
-app.post("/api/saveBreakdownPlan", (req, res) => {
+app.post("/api/saveBreakdownPlan", async (req, res) => {
   const { month = "2026-07", breakdownPlan, breakdownRealisasi } = req.body;
 
   const db = loadData();
@@ -844,7 +938,7 @@ app.post("/api/saveBreakdownPlan", (req, res) => {
     db.breakdownRealisasi[month] = breakdownRealisasi;
   }
 
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true, message: "Data Breakdown Rencana & Realisasi berhasil disimpan." });
 });
 
@@ -857,12 +951,12 @@ app.get("/api/getLhppRealisasi", (req, res) => {
 });
 
 // POST /api/saveLhppRealisasi
-app.post("/api/saveLhppRealisasi", (req, res) => {
+app.post("/api/saveLhppRealisasi", async (req, res) => {
   const { date = "2026-07-24", rows, summary } = req.body;
   const db = loadData();
   if (!db.lhppRealisasi) db.lhppRealisasi = {};
   db.lhppRealisasi[date] = { rows, summary };
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true, message: "Data LHPP & LPPBJ Realisasi berhasil disimpan." });
 });
 
@@ -961,14 +1055,14 @@ app.get("/api/getAttention", (req, res) => {
   res.json({ attention: db.attention || {} });
 });
 
-app.post("/api/saveAttention", (req, res) => {
+app.post("/api/saveAttention", async (req, res) => {
   const { area, text } = req.body;
   const db = loadData();
   if (!db.attention) db.attention = {};
   if (area) {
     db.attention[area] = text || "";
   }
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true, attention: db.attention });
 });
 
@@ -978,7 +1072,7 @@ app.get("/api/getYlList", (req, res) => {
   res.json({ ylList: db.ylList || INITIAL_YL_LIST, managerPin: db.managerPin || "1111" });
 });
 
-app.post("/api/saveYlList", (req, res) => {
+app.post("/api/saveYlList", async (req, res) => {
   const { ylList, managerPin } = req.body;
   const db = loadData();
   const oldList = db.ylList || INITIAL_YL_LIST;
@@ -1079,7 +1173,7 @@ app.post("/api/saveYlList", (req, res) => {
   }
 
   if (managerPin) db.managerPin = managerPin;
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true, ylList: db.ylList, managerPin: db.managerPin, ylPins: db.ylPins });
 });
 
@@ -1092,7 +1186,7 @@ app.get("/api/getSettingTargets", (req, res) => {
   res.json({ pembagiTanggal, targetTKU, targetYL });
 });
 
-app.post("/api/saveSettingTargets", (req, res) => {
+app.post("/api/saveSettingTargets", async (req, res) => {
   const { pembagiTanggal, targetTKU, targetYL } = req.body;
   const db = loadData();
   if (pembagiTanggal !== undefined) {
@@ -1105,7 +1199,7 @@ app.post("/api/saveSettingTargets", (req, res) => {
   if (targetYL) {
     db.targetYL = { ...(db.targetYL || {}), ...targetYL };
   }
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true, pembagiTanggal: db.pembagiTanggal, targetTKU: db.targetTKU, targetYL: db.targetYL });
 });
 
@@ -1115,18 +1209,18 @@ app.get("/api/getCompensationConfig", (req, res) => {
   res.json({ config: db.compensationConfig || DEFAULT_COMP_CONFIG });
 });
 
-app.post("/api/saveCompensationConfig", (req, res) => {
+app.post("/api/saveCompensationConfig", async (req, res) => {
   const { config } = req.body;
   const db = loadData();
   if (config && Array.isArray(config.tiers)) {
     db.compensationConfig = config;
-    saveData(db);
+    await saveData(db);
   }
   res.json({ ok: true, config: db.compensationConfig });
 });
 
 // Manager Input Realisasi Penjualan & Breakdown Tim
-app.post("/api/saveManagerRealisasi", (req, res) => {
+app.post("/api/saveManagerRealisasi", async (req, res) => {
   const { tanggal, nama, tot_yo, tot_om, tot_os, tot_yt, plan_yo, plan_om, plan_os, plan_yt } = req.body;
   if (!tanggal || !nama) return res.status(400).json({ error: "Tanggal dan nama YL wajib diisi." });
   const db = loadData();
@@ -1166,7 +1260,7 @@ app.post("/api/saveManagerRealisasi", (req, res) => {
     if (plan_yt !== undefined) tx.plan_yt = Number(plan_yt);
   }
 
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true, transaction: tx });
 });
 
@@ -1237,7 +1331,7 @@ app.post("/api/saveTransaction", async (req, res) => {
     db.transactions.push(data);
   }
 
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true });
 });
 
@@ -1256,7 +1350,7 @@ app.post("/api/saveTargetYL", async (req, res) => {
   if (bulan) {
     db.targetYL[`${area}_${bulan}`] = targetObj;
   }
-  saveData(db);
+  await saveData(db);
 
   res.json({ ok: true, targetYL: db.targetYL });
 });
@@ -1497,7 +1591,7 @@ app.post("/api/saveRealisasiPotensiYL", async (req, res) => {
     });
   }
   
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true });
 });
 
@@ -1514,7 +1608,7 @@ app.post("/api/savePotensiTembus", async (req, res) => {
     tkoTotal: data.tkoTotal || 0, tkoTembus: data.tkoTembus || 0
   };
   
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true });
 });
 
@@ -1765,7 +1859,7 @@ app.post("/api/savePlgPjlManual", async (req, res) => {
     tko_tembus: Number(tko_tembus || 0)
   };
 
-  saveData(db);
+  await saveData(db);
   res.json({ ok: true, plgPjlManual: db.plgPjlManual });
 });
 
@@ -1894,13 +1988,14 @@ ATURAN PENTING:
 });
 
 // 10. Reset Data to defaults
-app.post("/api/resetData", (req, res) => {
+app.post("/api/resetData", async (req, res) => {
   try {
-    if (writeTimeout) { clearTimeout(writeTimeout); writeTimeout = null; }
-    safeWriteFile(DATA_FILE, JSON.stringify(INITIAL_DATA, null, 2));
-    cachedDb = JSON.parse(JSON.stringify(INITIAL_DATA));
+    const freshDb = JSON.parse(JSON.stringify(INITIAL_DATA));
+    safeWriteFile(DATA_FILE, JSON.stringify(freshDb, null, 2));
+    cachedDb = freshDb;
     dashboardDP1Cache = null;
     dashboardCacheDirty = true;
+    await persistToSupabase(cachedDb);
     res.json({ ok: true });
   } catch (err: any) {
     console.error("Error resetting data:", err);
@@ -1909,7 +2004,7 @@ app.post("/api/resetData", (req, res) => {
 });
 
 // Reset Data Khusus (4 Kategori)
-app.post("/api/resetDataTargeted", (req, res) => {
+app.post("/api/resetDataTargeted", async (req, res) => {
   try {
     const { scope, currentMonth } = req.body;
     const db = loadData();
@@ -1949,7 +2044,7 @@ app.post("/api/resetDataTargeted", (req, res) => {
       return res.status(400).json({ error: "Parameter tidak valid." });
     }
 
-    saveData(db);
+    await saveData(db);
     return res.json({ ok: true, message: `Data PLG & PJL, Input PJL, BD & Realisasi, dan Target (${scope === "all" ? "SEMUA RIWAYAT" : "BULAN " + activeMonth}) berhasil dihapus.` });
   } catch (err: any) {
     console.error("Error in resetDataTargeted:", err);
@@ -1973,8 +2068,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // VITE MIDDLEWARE FOR DEVELOPMENT / STATIC SERVING FOR PRODUCTION
 async function startServer() {
-  // Ensure data store is initialized on boot
-  loadData();
+  // Ensure data store is initialized on boot (menunggu Supabase kalau sudah
+  // dikonfigurasi, atau fallback ke data.json lokal)
+  await ensureDbReady();
 
   const distPath = path.join(process.cwd(), "dist");
   const distIndexHtml = path.join(distPath, "index.html");
@@ -2006,7 +2102,7 @@ async function startServer() {
   });
 }
 
-export { app, loadData };
+export { app, loadData, ensureDbReady };
 
 if (!process.env.NETLIFY) {
   startServer();
