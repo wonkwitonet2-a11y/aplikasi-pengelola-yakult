@@ -19,6 +19,8 @@ interface BreakdownGridRowProps {
   handleTouchMoveGrid: (e: React.TouchEvent) => void;
   handleBreakdownCellChange: (area: string, day: number, item: "yo" | "om" | "os" | "yt", val: number) => void;
   handlePasteIntoGrid: (text: string, origin: { r: number; c: number }) => void;
+  setIsBreakdownMenuOpen?: (open: boolean) => void;
+  setBreakdownMenuPos?: (pos: { x: number; y: number } | null) => void;
 }
 
 // This is the heaviest part of ManagerView: one <tr> per YL, each with up to
@@ -46,7 +48,10 @@ function BreakdownGridRowInner({
   handleTouchMoveGrid,
   handleBreakdownCellChange,
   handlePasteIntoGrid,
+  setIsBreakdownMenuOpen,
+  setBreakdownMenuPos,
 }: BreakdownGridRowProps) {
+  const clickStartRef = React.useRef<{ r: number; c: number; x: number; y: number; wasInside: boolean; isMoved: boolean } | null>(null);
   const area = String(yl.area).substring(0, 3);
   const ylPlan = activeGridMap[area] || { pembagiTanggal: 25, days: {} };
 
@@ -147,14 +152,23 @@ function BreakdownGridRowInner({
               }`}
               onMouseDown={(e) => {
                 if (touchStartRef.current) return;
+                const wasInside = Boolean(isSelected);
+                clickStartRef.current = { r: rIdx, c: cIdx, x: e.clientX, y: e.clientY, wasInside, isMoved: false };
+                if (!wasInside) {
+                  setIsBreakdownMenuOpen?.(false);
+                }
                 if (e.shiftKey && gridSelection) {
                   setGridSelection(prev => prev ? { ...prev, endR: rIdx, endC: cIdx } : { startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx });
-                } else {
+                } else if (!wasInside) {
                   setGridSelection({ startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx });
+                  setIsGridDragging(true);
+                } else {
                   setIsGridDragging(true);
                 }
               }}
               onMouseEnter={() => {
+                if (clickStartRef.current) clickStartRef.current.isMoved = true;
+                setIsBreakdownMenuOpen?.(false);
                 if (isFillDragging) {
                   setFillHoverCell(prev => (prev && prev.r === rIdx && prev.c === cIdx) ? prev : { r: rIdx, c: cIdx });
                 } else if (isGridDragging) {
@@ -165,17 +179,25 @@ function BreakdownGridRowInner({
                   });
                 }
               }}
+              onClick={(e) => {
+                if (clickStartRef.current && clickStartRef.current.wasInside && !clickStartRef.current.isMoved) {
+                  setIsBreakdownMenuOpen?.(true);
+                  setBreakdownMenuPos?.({ x: e.clientX || clickStartRef.current.x, y: e.clientY || clickStartRef.current.y });
+                }
+                clickStartRef.current = null;
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (!isSelected) {
+                  setGridSelection({ startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx });
+                }
+                setIsBreakdownMenuOpen?.(true);
+                setBreakdownMenuPos?.({ x: e.clientX, y: e.clientY });
+              }}
               onTouchStart={(e) => {
                 if (!e.touches || e.touches.length === 0) return;
                 const touch = e.touches[0];
-                let isInside = false;
-                if (gridSelection) {
-                  const minR = Math.min(gridSelection.startR, gridSelection.endR);
-                  const maxR = Math.max(gridSelection.startR, gridSelection.endR);
-                  const minC = Math.min(gridSelection.startC, gridSelection.endC);
-                  const maxC = Math.max(gridSelection.startC, gridSelection.endC);
-                  isInside = rIdx >= minR && rIdx <= maxR && cIdx >= minC && cIdx <= maxC;
-                }
+                let isInside = Boolean(isSelected);
                 touchStartRef.current = {
                   clientX: touch.clientX,
                   clientY: touch.clientY,
@@ -184,11 +206,19 @@ function BreakdownGridRowInner({
                   isInsideSelection: isInside,
                   hasMoved: false
                 };
-                if (isInside) {
-                  setIsGridDragging(true);
-                } else {
+                if (!isInside) {
+                  setIsBreakdownMenuOpen?.(false);
                   setIsGridDragging(false);
+                } else {
+                  setIsGridDragging(true);
                 }
+              }}
+              onTouchEnd={() => {
+                if (touchStartRef.current && !touchStartRef.current.hasMoved && touchStartRef.current.isInsideSelection) {
+                  setIsBreakdownMenuOpen?.(true);
+                  setBreakdownMenuPos?.({ x: touchStartRef.current.clientX, y: touchStartRef.current.clientY });
+                }
+                touchStartRef.current = null;
               }}
               onTouchMove={handleTouchMoveGrid}
             >
@@ -220,34 +250,72 @@ function BreakdownGridRowInner({
       })}
 
       {/* AKUMULASI 4 ITEM + TOTAL */}
-      <td className="p-1 text-center font-bold text-red-700 bg-red-50/50">{totYo}</td>
-      <td className="p-1 text-center font-bold text-amber-700 bg-amber-50/50">{totOm}</td>
-      <td className="p-1 text-center font-bold text-pink-700 bg-pink-50/50">{totOs}</td>
-      <td className="p-1 text-center font-bold text-blue-700 bg-blue-50/50">{totYt}</td>
-      <td className="p-1 text-center font-black text-white bg-red-800">{grandTotal}</td>
+      <td className="p-1 text-center font-bold text-red-700 bg-red-50/50 select-text cursor-text">{totYo}</td>
+      <td className="p-1 text-center font-bold text-amber-700 bg-amber-50/50 select-text cursor-text">{totOm}</td>
+      <td className="p-1 text-center font-bold text-pink-700 bg-pink-50/50 select-text cursor-text">{totOs}</td>
+      <td className="p-1 text-center font-bold text-blue-700 bg-blue-50/50 select-text cursor-text">{totYt}</td>
+      <td className="p-1 text-center font-black text-white bg-red-800 select-text cursor-text">{grandTotal}</td>
 
       {/* RATA-RATA 4 ITEM + TOTAL */}
-      <td className="p-1 text-center font-bold text-red-800 bg-amber-50/30">{avgYo}</td>
-      <td className="p-1 text-center font-bold text-amber-800 bg-amber-50/30">{avgOm}</td>
-      <td className="p-1 text-center font-bold text-pink-800 bg-amber-50/30">{avgOs}</td>
-      <td className="p-1 text-center font-bold text-blue-800 bg-amber-50/30">{avgYt}</td>
-      <td className="p-1 text-center font-black text-amber-950 bg-amber-200">{avgTotal}</td>
+      <td className="p-1 text-center font-bold text-red-800 bg-amber-50/30 select-text cursor-text">{avgYo}</td>
+      <td className="p-1 text-center font-bold text-amber-800 bg-amber-50/30 select-text cursor-text">{avgOm}</td>
+      <td className="p-1 text-center font-bold text-pink-800 bg-amber-50/30 select-text cursor-text">{avgOs}</td>
+      <td className="p-1 text-center font-bold text-blue-800 bg-amber-50/30 select-text cursor-text">{avgYt}</td>
+      <td className="p-1 text-center font-black text-amber-950 bg-amber-200 select-text cursor-text">{avgTotal}</td>
 
       {/* VALUASI vs TARGET MANAGER */}
-      <td className="p-1 text-center font-bold text-purple-900 bg-purple-50">{targetTotal}</td>
-      <td className={`p-1 text-center font-black ${diffTarget >= 0 ? "text-emerald-700 bg-emerald-100" : "text-rose-700 bg-rose-100"}`}>
+      <td className="p-1 text-center font-bold text-purple-900 bg-purple-50 select-text cursor-text">{targetTotal}</td>
+      <td className={`p-1 text-center font-black select-text cursor-text ${diffTarget >= 0 ? "text-emerald-700 bg-emerald-100" : "text-rose-700 bg-rose-100"}`}>
         {diffTarget >= 0 ? `+${diffTarget}` : diffTarget}
       </td>
-      <td className="p-1 text-center font-bold text-indigo-900 bg-indigo-50">{blnLaluTotal}</td>
-      <td className={`p-1 text-center font-black ${diffLM >= 0 ? "text-emerald-700 bg-emerald-50" : "text-rose-700 bg-rose-50"}`}>
+      <td className="p-1 text-center font-bold text-indigo-900 bg-indigo-50 select-text cursor-text">{blnLaluTotal}</td>
+      <td className={`p-1 text-center font-black select-text cursor-text ${diffLM >= 0 ? "text-emerald-700 bg-emerald-50" : "text-rose-700 bg-rose-50"}`}>
         {diffLM >= 0 ? `+${diffLM}` : diffLM}
       </td>
-      <td className="p-1 text-center font-bold text-teal-900 bg-teal-50">{thnLaluTotal}</td>
-      <td className={`p-1 text-center font-black ${diffLY >= 0 ? "text-emerald-700 bg-emerald-50" : "text-rose-700 bg-rose-50"}`}>
+      <td className="p-1 text-center font-bold text-teal-900 bg-teal-50 select-text cursor-text">{thnLaluTotal}</td>
+      <td className={`p-1 text-center font-black select-text cursor-text ${diffLY >= 0 ? "text-emerald-700 bg-emerald-50" : "text-rose-700 bg-rose-50"}`}>
         {diffLY >= 0 ? `+${diffLY}` : diffLY}
       </td>
     </tr>
   );
 }
 
-export const BreakdownGridRow = React.memo(BreakdownGridRowInner);
+
+function areEqual(prev, next) {
+  if (prev.yl.area !== next.yl.area) return false;
+  if (prev.breakdownDateRange !== next.breakdownDateRange) return false;
+  
+  const area = String(prev.yl.area).substring(0, 3);
+  if (prev.activeGridMap[area] !== next.activeGridMap[area]) return false;
+  if (prev.targetYLMap[area] !== next.targetYLMap[area]) return false;
+
+  const isRowInSelection = (sel, rIdx) => {
+    if (!sel) return false;
+    return rIdx >= Math.min(sel.startR, sel.endR) && rIdx <= Math.max(sel.startR, sel.endR);
+  };
+  
+  const wasSelected = isRowInSelection(prev.gridSelection, prev.rIdx);
+  const isSelected = isRowInSelection(next.gridSelection, next.rIdx);
+  
+  // If selection changed and this row is involved in either the old or new selection
+  if ((wasSelected || isSelected) && prev.gridSelection !== next.gridSelection) return false;
+
+  const isRowInFill = (sel, hover, rIdx) => {
+    if (!sel || !hover) return false;
+    const baseMin = Math.min(sel.startR, sel.endR);
+    const baseMax = Math.max(sel.startR, sel.endR);
+    const actMin = Math.min(baseMin, hover.r);
+    const actMax = Math.max(baseMax, hover.r);
+    return rIdx >= actMin && rIdx <= actMax;
+  };
+
+  const wasInFill = prev.isFillDragging && isRowInFill(prev.gridSelection, prev.fillHoverCell, prev.rIdx);
+  const isInFill = next.isFillDragging && isRowInFill(next.gridSelection, next.fillHoverCell, next.rIdx);
+  
+  if ((wasInFill || isInFill) && (prev.fillHoverCell !== next.fillHoverCell || prev.isFillDragging !== next.isFillDragging)) return false;
+
+  return true;
+}
+
+export const BreakdownGridRow = React.memo(BreakdownGridRowInner, areEqual);
+

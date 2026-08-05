@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Send, Sparkles, Bot, TrendingUp } from "lucide-react";
+import { X, Send, Sparkles, Bot, Trash2, History } from "lucide-react";
 import { motion } from "motion/react";
 import { parseJsonResponse } from "../lib/safeFetch";
 
@@ -7,7 +7,7 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  timestamp: Date;
+  timestamp: Date | string;
 }
 
 interface AIChatBotProps {
@@ -18,23 +18,113 @@ interface AIChatBotProps {
 
 function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
   const isDraggingRef = useRef(false);
 
-  // Update initial welcome message when role, userName, or botName changes
-  useEffect(() => {
-    setMessages([
-      {
-        id: "welcome",
-        role: "assistant",
-        content: `Halo ${role === "manager" ? "Manager Ahmad" : "Ibu " + userName}! Saya adalah **${botName}** 🚀. Saya terhubung langsung dengan database Jember 1 Anda.\n\nAnda bisa meminta saya untuk **menganalisa penjualan**, **mengevaluasi kinerja rute**, atau bahkan **bertanya apa saja di luar pekerjaan** seperti resep makanan, tips kesehatan, atau topik lainnya secara bebas. Ada yang bisa saya bantu hari ini?`,
-        timestamp: new Date(),
+  // Dynamic storage key for chat history based on user role and username
+  const storageKey = `yakult_chat_history_${role}_${(userName || "user").trim().toLowerCase().replace(/\s+/g, "_")}`;
+
+  // Helper to construct default welcome message
+  const createWelcomeMessage = (): Message => ({
+    id: "welcome",
+    role: "assistant",
+    content: `Halo ${role === "manager" ? "Manager Ahmad" : "Ibu " + userName}! Saya adalah **${botName}** 🚀. Saya terhubung langsung dengan database Jember 1 Anda.\n\nAnda bisa meminta saya untuk **menganalisa penjualan**, **mengevaluasi kinerja rute**, atau bahkan **bertanya apa saja di luar pekerjaan** seperti resep makanan, tips kesehatan, atau topik lainnya secara bebas. Ada yang bisa saya bantu hari ini?`,
+    timestamp: new Date(),
+  });
+
+  // Initialize messages state from localStorage or fallback to welcome message
+  const [messages, setMessages] = useState<Message[]>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((m: any) => ({
+            ...m,
+            timestamp: m.timestamp ? new Date(m.timestamp) : new Date()
+          }));
+        }
       }
-    ]);
-  }, [role, userName, botName]);
+    } catch (e) {
+      console.warn("Gagal memuat histori chat:", e);
+    }
+    return [createWelcomeMessage()];
+  });
+
+  // Re-sync messages when role, userName, or botName changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed.map((m: any) => ({
+            ...m,
+            timestamp: m.timestamp ? new Date(m.timestamp) : new Date()
+          })));
+          return;
+        }
+      }
+    } catch (e) {}
+
+    setMessages([createWelcomeMessage()]);
+  }, [role, userName, botName, storageKey]);
+
+  // Persist messages to localStorage on every update
+  useEffect(() => {
+    if (messages && messages.length > 0) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(messages));
+      } catch (e) {
+        console.warn("Gagal menyimpan histori chat ke localStorage", e);
+      }
+    }
+  }, [messages, storageKey]);
+
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showClearSuccess, setShowClearSuccess] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+
+  // Clear total chat history handler (No window.confirm to avoid iframe blocks)
+  const handleOpenConfirmDelete = () => {
+    setShowConfirmModal(true);
+  };
+
+  const confirmDeleteChat = () => {
+    try {
+      localStorage.removeItem(storageKey);
+    } catch (e) {
+      console.warn("Gagal hapus localStorage chat:", e);
+    }
+
+    const resetMsg: Message = {
+      id: "reset_" + Date.now(),
+      role: "assistant",
+      content: `Halo ${role === "manager" ? "Manager Ahmad" : "Ibu " + userName}! Saya adalah **${botName}** 🚀. Seluruh riwayat percakapan sebelumnya telah **dihapus total** 🧹.\n\nAda yang ingin ditanyakan lagi hari ini?`,
+      timestamp: new Date()
+    };
+
+    setMessages([resetMsg]);
+    setShowConfirmModal(false);
+    setShowClearSuccess(true);
+    setTimeout(() => setShowClearSuccess(false), 4000);
+  };
+
+  // Keep the chat window locked to the real, visible screen height on mobile
+  useEffect(() => {
+    const updateHeight = () => {
+      setViewportHeight(window.visualViewport ? window.visualViewport.height : window.innerHeight);
+    };
+    updateHeight();
+    window.addEventListener("resize", updateHeight);
+    window.visualViewport?.addEventListener("resize", updateHeight);
+    return () => {
+      window.removeEventListener("resize", updateHeight);
+      window.visualViewport?.removeEventListener("resize", updateHeight);
+    };
+  }, []);
 
   // Quick suggestions based on user role
   const quickPrompts = role === "manager" ? [
@@ -122,14 +212,14 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
     <>
       {/* Floating Toggle Button (Draggable) */}
       <motion.div
-        drag
+        drag={!isOpen}
         dragMomentum={false}
         dragElastic={0.05}
         onDragStart={() => { isDraggingRef.current = true; }}
         onDragEnd={() => {
           setTimeout(() => { isDraggingRef.current = false; }, 100);
         }}
-        className="fixed bottom-24 right-4 z-[9999] touch-none cursor-grab active:cursor-grabbing"
+        className={`fixed bottom-24 right-4 z-[9999] touch-none cursor-grab active:cursor-grabbing ${isOpen ? "hidden" : ""}`}
         id="ai-chatbot-toggle-btn-container"
       >
         <button
@@ -161,74 +251,150 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
       {/* Expanded Chat Window (Draggable by Header) */}
       {isOpen && (
         <motion.div
-          drag
-          dragHandleClassName="chat-drag-handle"
-          dragMomentum={false}
-          dragElastic={0.05}
           id="ai-chatbot-window"
-          className="fixed bottom-36 right-4 z-[9999] w-[92vw] sm:w-[380px] h-[500px] bg-white rounded-2xl shadow-2xl border border-slate-150 flex flex-col overflow-hidden animate-fadeInUp touch-none"
+          className="fixed inset-0 z-[9999] w-screen h-screen h-dvh bg-white flex flex-col overflow-hidden animate-fadeInUp"
           style={{
             display: "flex",
             flexDirection: "column",
-            boxShadow: "0 20px 40px rgba(127, 29, 29, 0.15)"
+            ...(viewportHeight ? { height: viewportHeight } : {})
           }}
         >
-          {/* Header (Drag Handle) */}
-          <div className="chat-drag-handle p-3.5 bg-gradient-to-r from-red-800 to-rose-950 border-b border-red-700 flex justify-between items-center text-white cursor-grab active:cursor-grabbing shrink-0 touch-none">
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 bg-red-600 rounded-lg">
-                <Sparkles className="w-4 h-4 text-yellow-300" />
+          {/* Header */}
+          <div className="p-3.5 sm:p-4 pt-safe bg-gradient-to-r from-red-800 via-rose-900 to-rose-950 border-b border-red-700 flex justify-between items-center text-white shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-red-600 rounded-lg shadow-inner">
+                <Sparkles className="w-5 h-5 text-yellow-300" />
               </div>
               <div>
-                <h3 className="text-xs font-black tracking-wide uppercase">{botName}</h3>
-                <p className="text-[9px] text-red-250 font-bold">Asisten Pintar & Analis Data</p>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base sm:text-lg font-black tracking-wide uppercase">{botName}</h3>
+                  <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-400/30 font-bold hidden sm:inline-flex items-center gap-1">
+                    <History className="w-2.5 h-2.5" /> Histori Tersimpan
+                  </span>
+                </div>
+                <p className="text-xs text-red-200 font-bold">Asisten Pintar & Analis Data</p>
               </div>
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="p-1 hover:bg-white/10 rounded-lg text-red-100 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleOpenConfirmDelete}
+                className="px-2.5 py-1.5 bg-red-950/90 hover:bg-red-900 text-rose-100 rounded-lg border border-red-600/70 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+                title="Hapus Total Seluruh Riwayat Chat"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-300" />
+                <span className="text-xs">Hapus Chat</span>
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="p-2 hover:bg-white/10 rounded-lg text-red-100 transition-colors cursor-pointer"
+                title="Tutup Chat"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
-          {/* Messages Body */}
-          <div className="flex-1 p-3.5 overflow-y-auto bg-slate-50 space-y-3.5">
-            {(messages || []).map((m) => (
-              <div
-                key={m.id}
-                className={`flex gap-2 max-w-[85%] ${m.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"}`}
-              >
-                {m.role === "assistant" && (
-                  <div className="w-6 h-6 rounded-lg bg-red-100 text-red-700 flex items-center justify-center shrink-0 border border-red-200">
-                    <Bot className="w-3.5 h-3.5" />
+          {/* Modal Konfirmasi Hapus Chat Custom */}
+          {showConfirmModal && (
+            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-[999] flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-slate-900 border border-red-500/40 text-white rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+                <div className="flex items-center gap-3 text-red-400">
+                  <div className="p-3 bg-red-500/20 rounded-xl border border-red-500/30">
+                    <Trash2 className="w-6 h-6 text-red-400" />
                   </div>
-                )}
-                <div
-                  className={`p-2.5 rounded-xl text-[11px] leading-relaxed shadow-sm border ${
-                    m.role === "user"
-                      ? "bg-red-600 text-white border-red-500 rounded-tr-none"
-                      : "bg-white text-slate-800 border-slate-150 rounded-tl-none"
-                  }`}
-                >
-                  {/* Simplistic markdown bold parser to keep code fully static and robust */}
-                  {m.content.split("\n").map((para, pIdx) => (
-                    <p key={pIdx} className={pIdx > 0 ? "mt-1.5" : ""}>
-                      {para.split("**").map((text, tIdx) => 
-                        tIdx % 2 === 1 ? <strong key={tIdx} className="font-extrabold text-red-950 bg-red-50 px-0.5 rounded">{text}</strong> : text
-                      )}
-                    </p>
-                  ))}
+                  <div>
+                    <h4 className="font-black text-sm uppercase tracking-wide text-white">Hapus Total Chat?</h4>
+                    <p className="text-[11px] text-slate-300">Riwayat percakapan akan dibersihkan</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-200 leading-relaxed bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                  Apakah {role === "yl" ? "Ibu " + userName : "Anda"} yakin ingin menghapus SELURUH riwayat percakapan dengan <strong className="text-amber-400">{botName}</strong> secara permanen?
+                </p>
+
+                <div className="flex gap-2.5 pt-1">
+                  <button
+                    onClick={() => setShowConfirmModal(false)}
+                    className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs py-2.5 rounded-xl transition-all border border-slate-700 cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={confirmDeleteChat}
+                    className="flex-1 bg-red-600 hover:bg-red-500 text-white font-black text-xs py-2.5 rounded-xl transition-all shadow-lg shadow-red-600/30 cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Ya, Hapus Semua
+                  </button>
                 </div>
               </div>
-            ))}
+            </div>
+          )}
+
+          {/* Toast Notification when chat cleared */}
+          {showClearSuccess && (
+            <div className="bg-emerald-600 text-white text-xs font-bold px-4 py-2 text-center animate-fade-in flex items-center justify-center gap-1.5 shrink-0 shadow-md">
+              <span>🧹</span>
+              <span>Seluruh riwayat chat berhasil dihapus total!</span>
+            </div>
+          )}
+
+          {/* Messages Body */}
+          <div className="flex-1 min-h-0 p-3.5 overflow-y-auto bg-slate-50 space-y-3.5">
+            {(messages || []).map((m) => {
+              const formattedTime = (() => {
+                try {
+                  const d = new Date(m.timestamp);
+                  if (isNaN(d.getTime())) return "";
+                  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                } catch (e) {
+                  return "";
+                }
+              })();
+
+              return (
+                <div
+                  key={m.id}
+                  className={`flex gap-2 max-w-[88%] sm:max-w-[85%] ${m.role === "user" ? "ml-auto flex-row-reverse" : "mr-auto"}`}
+                >
+                  {m.role === "assistant" && (
+                    <div className="w-6 h-6 rounded-lg bg-red-100 text-red-700 flex items-center justify-center shrink-0 border border-red-200 mt-1">
+                      <Bot className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                  <div
+                    className={`p-3 rounded-xl text-base leading-relaxed shadow-sm border ${
+                      m.role === "user"
+                        ? "bg-red-600 text-white border-red-500 rounded-tr-none"
+                        : "bg-white text-slate-800 border-slate-150 rounded-tl-none"
+                    }`}
+                  >
+                    {/* Simplistic markdown bold parser to keep code fully static and robust */}
+                    {m.content.split("\n").map((para, pIdx) => (
+                      <p key={pIdx} className={pIdx > 0 ? "mt-1.5" : ""}>
+                        {para.split("**").map((text, tIdx) => 
+                          tIdx % 2 === 1 ? <strong key={tIdx} className={`font-extrabold px-0.5 rounded ${m.role === "user" ? "text-yellow-200 bg-red-700/80" : "text-red-950 bg-red-50"}`}>{text}</strong> : text
+                        )}
+                      </p>
+                    ))}
+
+                    {formattedTime && (
+                      <div className={`text-[9.5px] font-mono font-medium mt-1.5 text-right ${m.role === "user" ? "text-red-200" : "text-slate-400"}`}>
+                        {formattedTime}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
 
             {isLoading && (
               <div className="flex gap-2 max-w-[80%] mr-auto items-center">
                 <div className="w-6 h-6 rounded-lg bg-red-100 text-red-700 flex items-center justify-center border border-red-200">
                   <Bot className="w-3.5 h-3.5 animate-bounce" />
                 </div>
-                <div className="p-3 bg-white text-slate-500 rounded-xl rounded-tl-none shadow-sm border border-slate-150 text-[10px] font-bold flex items-center gap-1.5">
+                <div className="p-3 bg-white text-slate-500 rounded-xl rounded-tl-none shadow-sm border border-slate-150 text-sm font-bold flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
                   <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
                   <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
@@ -240,13 +406,13 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
           </div>
 
           {/* Quick suggestions */}
-          <div className="px-3 py-2 bg-white border-t border-slate-100 overflow-x-auto whitespace-nowrap flex gap-1.5 scrollbar-thin">
+          <div className="px-3 py-2 bg-white border-t border-slate-100 overflow-x-auto whitespace-nowrap flex gap-1.5 scrollbar-thin shrink-0">
             {quickPrompts.map((p, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSendMessage(p.text)}
                 disabled={isLoading}
-                className="inline-flex items-center gap-1 bg-slate-50 hover:bg-red-50 hover:text-red-700 border border-slate-200 hover:border-red-200 rounded-lg px-2.5 py-1 text-[10px] font-bold text-slate-600 transition-all cursor-pointer whitespace-nowrap active:scale-95 disabled:opacity-50"
+                className="inline-flex items-center gap-1 bg-slate-50 hover:bg-red-50 hover:text-red-700 border border-slate-200 hover:border-red-200 rounded-lg px-3 py-1.5 text-sm font-bold text-slate-600 transition-all cursor-pointer whitespace-nowrap active:scale-95 disabled:opacity-50"
               >
                 {p.label}
               </button>
@@ -259,7 +425,7 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
               e.preventDefault();
               handleSendMessage(inputValue);
             }}
-            className="p-2 border-t border-slate-100 bg-white flex gap-2"
+            className="p-2 pb-safe border-t border-slate-100 bg-white flex gap-2 shrink-0"
           >
             <input
               type="text"
@@ -267,7 +433,7 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
               onChange={(e) => setInputValue(e.target.value)}
               placeholder={`Tanya ${botName} (Contoh: analisa penjualan / resep bakso)...`}
               disabled={isLoading}
-              className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:bg-white disabled:opacity-50"
+              className="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base font-medium text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 focus:bg-white disabled:opacity-50"
             />
             <button
               type="submit"

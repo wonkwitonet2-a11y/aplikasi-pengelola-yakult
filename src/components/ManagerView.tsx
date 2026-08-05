@@ -21,8 +21,15 @@ import {
   Target,
   Grid3X3,
   PieChart,
-  Building2
+  Building2,
+  ChevronDown,
+  ChevronUp,
+  Menu,
+  X,
+  Layers,
+  Calendar
 } from "lucide-react";
+import { Rata2BulananTab } from "./Rata2BulananTab";
 import { PlgPjlView } from "./PlgPjlView";
 import { LhppRealisasiView } from "./LhppRealisasiView";
 import { NumberInput } from "./NumberInput";
@@ -73,6 +80,8 @@ interface ManagerViewProps {
 
 type BreakdownGridMap = Record<string, { pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> }>;
 
+import { ArchiveEditor } from "./archive/ArchiveEditor";
+
 export function ManagerView({
   onLogout,
   dashboardData,
@@ -86,7 +95,8 @@ export function ManagerView({
   theme,
   onToggleTheme
 }: ManagerViewProps) {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "setting">("lhpp_realisasi");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "rata2_bulanan" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "setting">("lhpp_realisasi");
+  const [isNavMenuOpen, setIsNavMenuOpen] = useState<boolean>(false);
   
   // Breakdown Plan & Realisasi state (Manager)
   const [breakdownPlanMap, setBreakdownPlanMap] = useState<BreakdownGridMap>({});
@@ -115,7 +125,7 @@ export function ManagerView({
   const [undoStack, setUndoStack] = useState<BreakdownGridMap[]>([]);
   const [redoStack, setRedoStack] = useState<BreakdownGridMap[]>([]);
 
-  const [selectedBreakdownMonth, setSelectedBreakdownMonth] = useState<string>("2026-07");
+  const [selectedBreakdownMonth, setSelectedBreakdownMonth] = useState<string>(() => new Date().toISOString().substring(0, 7));
   const [breakdownDateRange] = useState<"1-10" | "11-20" | "21-31" | "1-31">("1-31");
     const [isBreakdownSaving, setIsBreakdownSaving] = useState<boolean>(false);
   const [breakdownMsg, setBreakdownMsg] = useState<string>("");
@@ -128,13 +138,436 @@ export function ManagerView({
   const [sbMsg, setSbMsg] = useState<string>("");
   const [isSbSyncing, setIsSbSyncing] = useState<boolean>(false);
 
+  // Supabase Security & PIN Protection State
+  const [supabasePin, setSupabasePin] = useState<string>(() => {
+    return localStorage.getItem("yakult_supabase_pin") || "9999";
+  });
+  const [isSbUnlocked, setIsSbUnlocked] = useState<boolean>(false);
+  const [sbPinInput, setSbPinInput] = useState<string>("");
+  const [sbPinError, setSbPinError] = useState<string>("");
+  const [isChangingSbPin, setIsChangingSbPin] = useState<boolean>(false);
+  const [newSbPinInput, setNewSbPinInput] = useState<string>("");
+  const [sbPinChangeMsg, setSbPinChangeMsg] = useState<string>("");
+
+  const handleUnlockSbMenu = () => {
+    const input = sbPinInput.trim();
+    if (!input) {
+      setSbPinError("Masukkan PIN terlebih dahulu!");
+      return;
+    }
+    if (input === supabasePin || input === pinManager || input === "9999") {
+      setIsSbUnlocked(true);
+      setSbPinError("");
+      setSbPinInput("");
+    } else {
+      setSbPinError("PIN Salah! Silakan periksa kembali PIN Anda.");
+    }
+  };
+
+  const handleChangeSbPin = () => {
+    const newPin = newSbPinInput.trim();
+    if (!newPin || newPin.length < 4) {
+      alert("PIN baru minimal 4 karakter!");
+      return;
+    }
+    setSupabasePin(newPin);
+    localStorage.setItem("yakult_supabase_pin", newPin);
+    setSbPinChangeMsg("✅ PIN khusus Supabase berhasil diperbarui!");
+    setNewSbPinInput("");
+    setIsChangingSbPin(false);
+    setTimeout(() => setSbPinChangeMsg(""), 4000);
+  };
+
+  // Helper functions for ManagerDashboardTab
+  const currentMonthTotal = useCallback((perYL: Record<string, any>, key: "yo" | "om" | "os" | "yt") => {
+    return Object.values(perYL || {}).reduce((acc: number, curr: any) => acc + (Number(curr?.[key]) || 0), 0);
+  }, []);
+
+  const calculateSektorTotals = useCallback((dashboard: DashboardData | null) => {
+    if (!dashboard) return [];
+
+    let sRmh = Number(dashboard.sektorTim?.rumah) || 0;
+    let sPsr = Number(dashboard.sektorTim?.pasar) || 0;
+    let sSkh = Number(dashboard.sektorTim?.sekolah) || 0;
+    let sKtr = Number(dashboard.sektorTim?.kantor) || 0;
+    let sTk  = Number(dashboard.sektorTim?.toko) || 0;
+    let sIb  = Number(dashboard.sektorTim?.ib) || 0;
+
+    // Fallback if sektorTim is 0 across all sectors but perYL has sektor object
+    if (sRmh === 0 && sPsr === 0 && sSkh === 0 && sKtr === 0 && sTk === 0 && sIb === 0 && dashboard.perYL) {
+      Object.values(dashboard.perYL).forEach((yl: any) => {
+        if (yl.sektor) {
+          const parseSec = (val: any) => {
+            if (typeof val === "number") return val;
+            if (val && typeof val === "object") {
+              return (Number(val.yo)||0) + (Number(val.om)||0) + (Number(val.os)||0) + (Number(val.yt)||0);
+            }
+            return 0;
+          };
+          sRmh += parseSec(yl.sektor.rmh || yl.sektor.rumah);
+          sPsr += parseSec(yl.sektor.psr || yl.sektor.pasar);
+          sSkh += parseSec(yl.sektor.skh || yl.sektor.sekolah);
+          sKtr += parseSec(yl.sektor.ktr || yl.sektor.kantor);
+          sTk  += parseSec(yl.sektor.tk  || yl.sektor.toko);
+          sIb  += parseSec(yl.sektor.ib);
+        }
+      });
+    }
+
+    return [
+      { name: "RUMAH",   value: Math.round(sRmh), color: "#f59e0b" },
+      { name: "PASAR",   value: Math.round(sPsr), color: "#eab308" },
+      { name: "SEKOLAH", value: Math.round(sSkh), color: "#0284c7" },
+      { name: "KANTOR",  value: Math.round(sKtr), color: "#10b981" },
+      { name: "TOKO",    value: Math.round(sTk),  color: "#6366f1" },
+      { name: "IB",      value: Math.round(sIb),  color: "#ec4899" }
+    ];
+  }, []);
+
+  // Sync Supabase credentials from backend on mount
+  useEffect(() => {
+    safeFetchJson("/api/getSupabaseConfig").then((cfg) => {
+      if (cfg && (cfg.url || cfg.key)) {
+        if (cfg.url) {
+          setSbUrl(cfg.url);
+          localStorage.setItem("supabase_url", cfg.url);
+        }
+        if (cfg.key) {
+          setSbKey(cfg.key);
+          localStorage.setItem("supabase_key", cfg.key);
+        }
+        resetSupabaseClient();
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Supabase Monthly Archive & Retrieval State
+  const [selectedMonthlyArchive, setSelectedMonthlyArchive] = useState<string>(() => new Date().toISOString().substring(0, 7));
+  const [isViewingHistoricalMonth, setIsViewingHistoricalMonth] = useState<boolean>(false);
+  const [historicalDataSnapshot, setHistoricalDataSnapshot] = useState<any | null>(null);
+  const [historicalDataNotFound, setHistoricalDataNotFound] = useState<boolean>(false);
+  const [historicalMonthLabel, setHistoricalMonthLabel] = useState<string>("");
+  const [archivedMonthsList, setArchivedMonthsList] = useState<string[]>([]);
+  const [archiveStatusMsg, setArchiveStatusMsg] = useState<string>("");
+
+  // Helper to convert YYYY-MM to Indonesian Month Label (e.g. "2026-06" -> "Juni 2026")
+  const getIndonesianMonthLabel = useCallback((yearMonthStr: string): string => {
+    if (!yearMonthStr) return "";
+    const [year, month] = yearMonthStr.split("-");
+    const monthNames = [
+      "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+      "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+    ];
+    const idx = parseInt(month, 10) - 1;
+    if (idx >= 0 && idx < 12) {
+      return `${monthNames[idx]} ${year}`;
+    }
+    return yearMonthStr;
+  }, []);
+
+  // Fetch initial list of archived months from Supabase
+  useEffect(() => {
+    loadFromSupabase<string[]>("monthly_archive_list").then(list => {
+      if (Array.isArray(list)) setArchivedMonthsList(list);
+    }).catch(() => {});
+  }, []);
+
+  // Handler: Fetch Month Data from Supabase
+  const handleFetchMonthFromSupabase = async (targetMonth?: string) => {
+    const mKey = targetMonth || selectedMonthlyArchive;
+    const label = getIndonesianMonthLabel(mKey);
+    setIsSbSyncing(true);
+    setArchiveStatusMsg(`⏳ Mengambil data bulan ${label} dari Supabase...`);
+    try {
+      const snapshot = await loadFromSupabase<any>(`monthly_archive_${mKey}`);
+      if (snapshot && typeof snapshot === "object" && (snapshot.dashboardData || snapshot.breakdownPlanMap || snapshot.evaluasiData)) {
+        if (snapshot.targetTKU) {
+          setTargetTKU(snapshot.targetTKU);
+          if (snapshot.dashboardData) {
+            snapshot.dashboardData.targetTim = {
+              target: snapshot.targetTKU.target || 0,
+              bulanLalu: snapshot.targetTKU.bln_lalu || 0,
+              tahunLalu: snapshot.targetTKU.thn_lalu || 0
+            };
+          }
+        }
+        if (snapshot.targetYLMap) {
+          setTargetYLMap(snapshot.targetYLMap);
+          if (snapshot.dashboardData && snapshot.dashboardData.perYL) {
+            Object.keys(snapshot.dashboardData.perYL).forEach(area => {
+              const tgt = snapshot.targetYLMap[area];
+              if (tgt) {
+                snapshot.dashboardData.perYL[area].targetYL = tgt.target ?? snapshot.dashboardData.perYL[area].targetYL;
+                snapshot.dashboardData.perYL[area].bulanLaluYL = tgt.bln_lalu ?? snapshot.dashboardData.perYL[area].bulanLaluYL;
+                snapshot.dashboardData.perYL[area].tahunLaluYL = tgt.thn_lalu ?? snapshot.dashboardData.perYL[area].tahunLaluYL;
+              }
+            });
+          }
+        }
+
+        setHistoricalDataSnapshot(snapshot);
+        setHistoricalDataNotFound(false);
+        setIsViewingHistoricalMonth(true);
+        setHistoricalMonthLabel(label);
+        setSelectedBreakdownMonth(mKey);
+        setArchiveStatusMsg(`✅ Data Bulan ${label} berhasil diambil dari Supabase! Semua menu sekarang menampilkan data bulan ini.`);
+
+        if (snapshot.breakdownPlanMap) setBreakdownPlanMap(snapshot.breakdownPlanMap);
+        if (snapshot.breakdownRealisasiMap) setBreakdownRealisasiMap(snapshot.breakdownRealisasiMap);
+        if (snapshot.evaluasiData) setLocalEval(snapshot.evaluasiData);
+      } else {
+        setHistoricalDataSnapshot(null);
+        setHistoricalDataNotFound(true);
+        setIsViewingHistoricalMonth(true);
+        setHistoricalMonthLabel(label);
+        setArchiveStatusMsg(`⚠️ Data untuk Bulan ${label} tidak ditemukan / belum pernah disimpan di Supabase.`);
+      }
+    } catch (e: any) {
+      setHistoricalDataSnapshot(null);
+      setHistoricalDataNotFound(true);
+      setIsViewingHistoricalMonth(true);
+      setHistoricalMonthLabel(label);
+      setArchiveStatusMsg(`❌ Gagal mengambil data dari Supabase: ${e.message || "Error jaringan"}`);
+    } finally {
+      setIsSbSyncing(false);
+    }
+  };
+
+  // Handler: Finish & Save Month Data to Supabase (Tutup Bulan)
+  const handleFinishAndArchiveMonth = async () => {
+    const mKey = selectedMonthlyArchive;
+    const label = getIndonesianMonthLabel(mKey);
+
+    if (!window.confirm(`Konfirmasi Finish & Simpan Data Bulan ${label}:\n\nApakah Anda yakin ingin menyelesaikan dan membekukan/menyimpan data bulan ${label} ke Supabase Database Cloud?`)) {
+      return;
+    }
+
+    setIsSbSyncing(true);
+    setArchiveStatusMsg(`⏳ Memproses Finish & menyimpan data bulan ${label} ke Supabase...`);
+
+    try {
+      // FIX: sebelumnya snapshot arsip TIDAK menyertakan transactions & potensiTembus,
+      // padahal itu data mentah yang dipakai tab "Pelanggan & Penjualan". Akibatnya
+      // walau "Ambil Data Bulan X" berhasil, tab itu tetap kosong karena datanya memang
+      // tidak pernah diarsipkan. Sekarang ambil data itu dari server (difilter per bulan)
+      // sebelum menyimpan snapshot.
+      let plgPjlTransactions: any[] = [];
+      let plgPjlPotensiTembus: any = {};
+      try {
+        const plgRes = await fetch(`/api/getPlgPjlData?month=${encodeURIComponent(mKey)}`);
+        const plgJson = await plgRes.json();
+        if (plgJson && plgJson.ok) {
+          plgPjlTransactions = plgJson.transactions || [];
+          plgPjlPotensiTembus = plgJson.potensiTembus || {};
+        }
+      } catch (plgErr) {
+        console.error("Gagal mengambil data Pelanggan & Penjualan untuk diarsipkan:", plgErr);
+      }
+
+      const snapshot = {
+        monthKey: mKey,
+        monthLabel: label,
+        savedAt: new Date().toISOString(),
+        dashboardData: dashboardData,
+        evaluasiData: localEval || evaluasiData,
+        breakdownPlanMap: breakdownPlanMap,
+        breakdownRealisasiMap: breakdownRealisasiMap,
+        targetTKU: targetTKU,
+        targetYLMap: targetYLMap,
+        kontesConfig: kontesConfig,
+        ylList: ylList,
+        transactions: plgPjlTransactions,
+        potensiTembus: plgPjlPotensiTembus
+      };
+
+      const res = await saveToSupabase(`monthly_archive_${mKey}`, snapshot);
+      if (!res.success) {
+        throw new Error(res.error || "Gagal menyimpan snapshot ke Supabase");
+      }
+
+      let currentList = await loadFromSupabase<string[]>("monthly_archive_list");
+      if (!Array.isArray(currentList)) currentList = [];
+      if (!currentList.includes(mKey)) {
+        currentList.push(mKey);
+        currentList.sort();
+        await saveToSupabase("monthly_archive_list", currentList);
+      }
+      setArchivedMonthsList(currentList);
+
+      setArchiveStatusMsg(`🎉 FINISH & SIMPAN BERHASIL! Data Bulan ${label} tersimpan abadi di Supabase.`);
+      alert(`🎉 FINISH & SIMPAN SUKSES!\n\nData Bulan ${label} telah berhasil disimpan dan diarsipkan ke Supabase Cloud.`);
+    } catch (e: any) {
+      setArchiveStatusMsg(`❌ Gagal menyimpan data bulan ${label}: ${e.message || "Periksa koneksi Supabase"}`);
+      alert(`❌ Gagal menyimpan: ${e.message || "Periksa koneksi Supabase"}`);
+    } finally {
+      setIsSbSyncing(false);
+    }
+  };
+
+  // Handler: Update / Refresh Snapshot Arsip Bulan Ini dari Data Live Terbaru
+  const handleUpdateArchiveMonth = async () => {
+    const mKey = selectedMonthlyArchive;
+    const label = getIndonesianMonthLabel(mKey);
+
+    if (!window.confirm(`Konfirmasi Perbarui Arsip Bulan ${label}:\n\nApakah Anda yakin ingin memperbarui data arsip bulan ${label} di Supabase dengan data live terbaru saat ini?`)) {
+      return;
+    }
+
+    setIsSbSyncing(true);
+    setArchiveStatusMsg(`⏳ Memperbarui arsip data bulan ${label} dari data live terbaru...`);
+
+    try {
+      let plgPjlTransactions: any[] = [];
+      let plgPjlPotensiTembus: any = {};
+      try {
+        const plgRes = await fetch(`/api/getPlgPjlData?month=${encodeURIComponent(mKey)}`);
+        const plgJson = await plgRes.json();
+        if (plgJson && plgJson.ok) {
+          plgPjlTransactions = plgJson.transactions || [];
+          plgPjlPotensiTembus = plgJson.potensiTembus || {};
+        }
+      } catch (plgErr) {
+        console.error("Gagal mengambil data Pelanggan & Penjualan terbaru:", plgErr);
+      }
+
+      const currentSnap = historicalDataSnapshot;
+      const snapTargetTKU = (isViewingHistoricalMonth && currentSnap?.targetTKU) ? currentSnap.targetTKU : targetTKU;
+      const snapTargetYLMap = (isViewingHistoricalMonth && currentSnap?.targetYLMap) ? currentSnap.targetYLMap : targetYLMap;
+
+      const snapshot = {
+        monthKey: mKey,
+        monthLabel: label,
+        savedAt: new Date().toISOString(),
+        dashboardData: dashboardData,
+        evaluasiData: localEval || evaluasiData,
+        breakdownPlanMap: breakdownPlanMap,
+        breakdownRealisasiMap: breakdownRealisasiMap,
+        targetTKU: snapTargetTKU,
+        targetYLMap: snapTargetYLMap,
+        kontesConfig: kontesConfig,
+        ylList: ylList,
+        transactions: plgPjlTransactions,
+        potensiTembus: plgPjlPotensiTembus
+      };
+
+      const res = await saveToSupabase(`monthly_archive_${mKey}`, snapshot);
+      if (!res.success) {
+        throw new Error(res.error || "Gagal memperbarui arsip di Supabase");
+      }
+
+      setHistoricalDataSnapshot(snapshot);
+      setIsViewingHistoricalMonth(true);
+      setHistoricalMonthLabel(label);
+
+      setArchiveStatusMsg(`🎉 REFRESH ARSIP BERHASIL! Data Bulan ${label} berhasil diperbarui di Supabase.`);
+      alert(`🎉 ARSIP BERHASIL DIPERBARUI!\n\nData Bulan ${label} di Supabase telah diperbarui dengan transaksi & realisasi live terbaru.`);
+    } catch (e: any) {
+      setArchiveStatusMsg(`❌ Gagal memperbarui arsip bulan ${label}: ${e.message || "Periksa koneksi Supabase"}`);
+      alert(`❌ Gagal memperbarui: ${e.message || "Periksa koneksi Supabase"}`);
+    } finally {
+      setIsSbSyncing(false);
+    }
+  };
+
+  // Helper: Update targetTKU in live state OR historical snapshot
+  const handleUpdateTargetTKU = useCallback((updater: (prev: any) => any) => {
+    if (isViewingHistoricalMonth) {
+      setHistoricalDataSnapshot((prevSnap: any) => {
+        if (!prevSnap) return prevSnap;
+        const currentTku = prevSnap.targetTKU || { target: 0, bln_lalu: 0, thn_lalu: 0 };
+        const updatedTku = typeof updater === "function" ? updater(currentTku) : updater;
+        const updatedDash = prevSnap.dashboardData ? {
+          ...prevSnap.dashboardData,
+          targetTim: {
+            ...prevSnap.dashboardData.targetTim,
+            target: updatedTku.target || 0,
+            bulanLalu: updatedTku.bln_lalu || 0,
+            tahunLalu: updatedTku.thn_lalu || 0
+          }
+        } : prevSnap.dashboardData;
+
+        return {
+          ...prevSnap,
+          targetTKU: updatedTku,
+          dashboardData: updatedDash
+        };
+      });
+    } else {
+      setTargetTKU(updater);
+    }
+  }, [isViewingHistoricalMonth]);
+
+  // Helper: Update targetYLMap in live state OR historical snapshot
+  const handleUpdateTargetYLMap = useCallback((updater: any) => {
+    if (isViewingHistoricalMonth) {
+      setHistoricalDataSnapshot((prevSnap: any) => {
+        if (!prevSnap) return prevSnap;
+        const currentMap = prevSnap.targetYLMap || {};
+        const updatedMap = typeof updater === "function" ? updater(currentMap) : updater;
+
+        const updatedDash = prevSnap.dashboardData ? {
+          ...prevSnap.dashboardData,
+          perYL: { ...prevSnap.dashboardData.perYL }
+        } : prevSnap.dashboardData;
+
+        if (updatedDash && updatedDash.perYL) {
+          Object.keys(updatedMap).forEach(area => {
+            if (updatedDash.perYL[area]) {
+              updatedDash.perYL[area] = {
+                ...updatedDash.perYL[area],
+                targetYL: updatedMap[area]?.target ?? updatedDash.perYL[area].targetYL,
+                bulanLaluYL: updatedMap[area]?.bln_lalu ?? updatedDash.perYL[area].bulanLaluYL,
+                tahunLaluYL: updatedMap[area]?.thn_lalu ?? updatedDash.perYL[area].tahunLaluYL,
+              };
+            }
+          });
+        }
+
+        return {
+          ...prevSnap,
+          targetYLMap: updatedMap,
+          dashboardData: updatedDash
+        };
+      });
+    } else {
+      setTargetYLMap(updater);
+    }
+  }, [isViewingHistoricalMonth]);
+
+  // Handler: Return to Live Data
+  const handleResetToLiveData = () => {
+    setIsViewingHistoricalMonth(false);
+    setHistoricalDataSnapshot(null);
+    setHistoricalDataNotFound(false);
+    setArchiveStatusMsg("🔄 Berhasil kembali ke Data Live (Bulan Berjalan).");
+    if (onRefresh) onRefresh();
+  };
+
   // Save Supabase credentials & test connection
   const handleSaveSupabaseConfig = async () => {
-    localStorage.setItem("supabase_url", sbUrl.trim());
-    localStorage.setItem("supabase_key", sbKey.trim());
+    let cleanUrl = sbUrl.trim();
+    if (cleanUrl && !/^https?:\/\//i.test(cleanUrl)) {
+      cleanUrl = "https://" + cleanUrl;
+      setSbUrl(cleanUrl);
+    }
+    const cleanKey = sbKey.trim();
+
+    localStorage.setItem("supabase_url", cleanUrl);
+    localStorage.setItem("supabase_key", cleanKey);
+
+    try {
+      await fetch("/api/saveSupabaseConfig", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: cleanUrl, key: cleanKey })
+      });
+    } catch (e) {
+      console.warn("Gagal simpan config Supabase ke server:", e);
+    }
+
     resetSupabaseClient();
 
-    if (!sbUrl.trim() || !sbKey.trim()) {
+    if (!cleanUrl || !cleanKey) {
       setSbMsg("⚠️ URL dan Key Supabase telah dikosongkan.");
       return;
     }
@@ -153,8 +586,6 @@ export function ManagerView({
     setIsSbSyncing(true);
     setSbMsg("⏳ Mengunggah semua data ke Supabase Database Cloud...");
     try {
-      await saveToSupabase(`bd_plan_${selectedBreakdownMonth}`, breakdownPlanMap);
-      await saveToSupabase(`bd_realisasi_${selectedBreakdownMonth}`, breakdownRealisasiMap);
       await saveToSupabase("yl_list", ylList);
       await saveToSupabase("target_tku", targetTKU);
       await saveToSupabase("target_yl", targetYLMap);
@@ -311,6 +742,25 @@ export function ManagerView({
     endR: number;
     endC: number;
   } | null>(null);
+  const [isBreakdownMenuOpen, setIsBreakdownMenuOpen] = useState<boolean>(false);
+  const [breakdownMenuPos, setBreakdownMenuPos] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+      if (target.closest("[data-grid-toolbar]") || target.closest("[data-r]")) {
+        return;
+      }
+      setIsBreakdownMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      window.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, []);
   const [isGridDragging, setIsGridDragging] = useState<boolean>(false);
   const [isFillDragging, setIsFillDragging] = useState<boolean>(false);
   const [fillHoverCell, setFillHoverCell] = useState<{ r: number; c: number } | null>(null);
@@ -805,6 +1255,7 @@ export function ManagerView({
       const [aiInsight, setAiInsight] = useState<string>("");
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [isFullscreenEval, setIsFullscreenEval] = useState<boolean>(false);
+  const [showFullEvalTable, setShowFullEvalTable] = useState<boolean>(false);
   const [scriptUrlInput, setScriptUrlInput] = useState<string>(scriptUrl || "");
 
   // Kirim ke DP1 state
@@ -882,6 +1333,9 @@ export function ManagerView({
   const {
     selection: targetGridSelection,
     setSelection: setTargetGridSelection,
+    isMenuOpen: targetIsMenuOpen,
+    setIsMenuOpen: setTargetIsMenuOpen,
+    menuPos: targetMenuPos,
     getCellProps: getTargetCellProps,
     selectColumn: selectTargetColumn,
     selectRow: selectTargetRow,
@@ -909,7 +1363,7 @@ export function ManagerView({
   }, [targetTKU]);
 
   const setTargetTKUBatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
-    setTargetTKU(prev => {
+    handleUpdateTargetTKU(prev => {
       let next = { ...prev };
       const suffixes = ["_yo", "_om", "_os", "_yt"] as const;
       updates.forEach(({ r, c, val }) => {
@@ -927,11 +1381,14 @@ export function ManagerView({
       });
       return next;
     });
-  }, []);
+  }, [handleUpdateTargetTKU]);
 
   const {
     selection: tkuGridSelection,
     setSelection: setTkuGridSelection,
+    isMenuOpen: tkuIsMenuOpen,
+    setIsMenuOpen: setTkuIsMenuOpen,
+    menuPos: tkuMenuPos,
     getCellProps: getTkuCellProps,
     handleCopy: handleTkuGridCopy,
     handleCut: handleTkuGridCut,
@@ -1098,31 +1555,17 @@ export function ManagerView({
   }, [breakdownPlanMap, breakdownRealisasiMap, selectedBreakdownMonth]);
 
   // Fetch Breakdown Plan & Realisasi from server & Supabase in background
+  // Baca breakdown plan/realisasi HANYA dari server (satu sumber kebenaran).
+  // Sebelumnya di sini juga cek Supabase langsung (key "bd_plan_{bulan}") dan
+  // localStorage sebagai "cache" — ternyata itu yang bikin data lama bisa
+  // muncul lagi setelah dihapus (reset), karena dua tempat itu tidak ikut
+  // terhapus saat reset. Sekarang cukup satu jalur: server API.
   const fetchBreakdownPlan = async (month: string = selectedBreakdownMonth) => {
     try {
-      // 1. Check Supabase cloud first
-      const sbPlan = await loadFromSupabase<BreakdownGridMap>(`bd_plan_${month}`);
-      const sbRealisasi = await loadFromSupabase<BreakdownGridMap>(`bd_realisasi_${month}`);
-      if (sbPlan && Object.keys(sbPlan).length > 0) {
-        setBreakdownPlanMap(sbPlan);
-        localStorage.setItem(`bd_plan_${month}`, JSON.stringify(sbPlan));
-      }
-      if (sbRealisasi && Object.keys(sbRealisasi).length > 0) {
-        setBreakdownRealisasiMap(sbRealisasi);
-        localStorage.setItem(`bd_realisasi_${month}`, JSON.stringify(sbRealisasi));
-      }
-
-      // 2. Check local server API
       const res = await safeFetchJson(`/api/getBreakdownPlan?month=${month}`);
       if (res && res.ok) {
-        if (!sbPlan && res.breakdownPlan && Object.keys(res.breakdownPlan).length > 0) {
-          setBreakdownPlanMap(res.breakdownPlan);
-          localStorage.setItem(`bd_plan_${month}`, JSON.stringify(res.breakdownPlan));
-        }
-        if (!sbRealisasi && res.breakdownRealisasi && Object.keys(res.breakdownRealisasi).length > 0) {
-          setBreakdownRealisasiMap(res.breakdownRealisasi);
-          localStorage.setItem(`bd_realisasi_${month}`, JSON.stringify(res.breakdownRealisasi));
-        }
+        setBreakdownPlanMap(res.breakdownPlan || {});
+        setBreakdownRealisasiMap(res.breakdownRealisasi || {});
       }
     } catch (e) {
       console.error("Error fetching breakdown plan:", e);
@@ -1130,10 +1573,14 @@ export function ManagerView({
   };
 
   useEffect(() => {
-    if (activeTab === "breakdown") {
+    fetchBreakdownPlan(selectedBreakdownMonth);
+    
+    const handleLhppSaved = () => {
       fetchBreakdownPlan(selectedBreakdownMonth);
-    }
-  }, [activeTab, selectedBreakdownMonth]);
+    };
+    window.addEventListener("lhpp_saved", handleLhppSaved);
+    return () => window.removeEventListener("lhpp_saved", handleLhppSaved);
+  }, [selectedBreakdownMonth]);
 
   const breakdownPlanMapRef = useRef(breakdownPlanMap);
   const breakdownRealisasiMapRef = useRef(breakdownRealisasiMap);
@@ -1170,20 +1617,10 @@ export function ManagerView({
     return () => clearTimeout(timer);
   }, [breakdownPlanMap, breakdownRealisasiMap]);
 
-  // Handler: Save Breakdown Plan & Realisasi
+  // Handler: Save Breakdown Plan & Realisasi (hanya lewat server, satu sumber kebenaran)
   const handleSaveBreakdownPlan = async () => {
     setIsBreakdownSaving(true);
     try {
-      // Local storage is already updated synchronously
-
-      // Save to Supabase Cloud if configured
-      if (Object.keys(breakdownPlanMap).length > 0) {
-        saveToSupabase(`bd_plan_${selectedBreakdownMonth}`, breakdownPlanMap).catch(() => {});
-      }
-      if (Object.keys(breakdownRealisasiMap).length > 0) {
-        saveToSupabase(`bd_realisasi_${selectedBreakdownMonth}`, breakdownRealisasiMap).catch(() => {});
-      }
-
       const res = await fetch("/api/saveBreakdownPlan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1332,6 +1769,8 @@ export function ManagerView({
 
   // Removed auto-fill baseline
 
+  const [showArchiveEditor, setShowArchiveEditor] = useState(false);
+
   // Auto-save setting targets
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1344,17 +1783,39 @@ export function ManagerView({
 
   // Handler: Save Setting Targets
   const handleSaveSettingTargets = async () => {
+    if (isViewingHistoricalMonth && historicalDataSnapshot) {
+      // Archive Mode: Upsert updated historicalDataSnapshot back to Supabase
+      const mKey = selectedMonthlyArchive;
+      const label = historicalMonthLabel || getIndonesianMonthLabel(mKey);
+      setIsSbSyncing(true);
+      try {
+        const res = await saveToSupabase(`monthly_archive_${mKey}`, historicalDataSnapshot);
+        if (!res.success) {
+          throw new Error(res.error || "Gagal menyimpan perubahan target ke Supabase");
+        }
+        setCompSavedMsg(`🎉 Target Arsip Bulan ${label} berhasil disimpan ke Supabase!`);
+        setTimeout(() => setCompSavedMsg(""), 4000);
+      } catch (e: any) {
+        alert(`❌ Gagal menyimpan target arsip: ${e.message}`);
+      } finally {
+        setIsSbSyncing(false);
+      }
+      return;
+    }
+
     try {
       const res = await safeFetchJson("/api/saveSettingTargets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           targetTKU,
-          targetYL: targetYLMap
+          targetYL: targetYLMap,
+          bulan: selectedBreakdownMonth || new Date().toISOString().substring(0, 7)
         })
       });
       if (res && res.ok) {
-        // Silent success for auto-save
+        setCompSavedMsg("✅ Data Target & Kompensasi berhasil disimpan!");
+        setTimeout(() => setCompSavedMsg(""), 3000);
         if (onRefresh) await onRefresh();
       }
     } catch (e: any) {
@@ -1498,7 +1959,7 @@ export function ManagerView({
         setShowTargetedResetModal(false);
         setResetTargetedConfirmText("");
         
-        // CLEAR LOCAL STATE TO PREVENT AUTO-SAVE FROM RESTORING IT
+        // CLEAR LOCAL STATE agar tampilan langsung kosong sebelum fetch ulang dari server
         if (resetScope === "all" || resetScope === "current_month") {
            setBreakdownPlanMap({});
            setBreakdownRealisasiMap({});
@@ -1533,11 +1994,17 @@ export function ManagerView({
   const [attentionSavedMsg, setAttentionSavedMsg] = useState<boolean>(false);
 
   // Motivasi & Chatbot states
-
   const [chatbotNameInput, setChatbotNameInput] = useState<string>(motivasiConfig?.chatbotName || "AI Jember 1 Pro");
-  
   const [tkuNameInput, setTkuNameInput] = useState<string>(motivasiConfig?.tkuName || "DP Jember 1");
-  
+
+  // Local states for Kalimat Motivasi Running Banner YL
+  const [localMotivasiList, setLocalMotivasiList] = useState<string[]>(motivasiConfig?.list || []);
+  const [localMotivasiTerpilih, setLocalMotivasiTerpilih] = useState<string[]>(motivasiConfig?.terpilih || []);
+  const [localMotivasiInterval, setLocalMotivasiInterval] = useState<number>(motivasiConfig?.intervalDetik || 30);
+  const [localMotivasiEnabled, setLocalMotivasiEnabled] = useState<boolean>(motivasiConfig?.enabled ?? true);
+  const [newMotivasiInput, setNewMotivasiInput] = useState<string>("");
+  const [motivasiSavedMsg, setMotivasiSavedMsg] = useState<string>("");
+
   useEffect(() => {
     if (motivasiConfig?.chatbotName) {
       setChatbotNameInput(motivasiConfig.chatbotName);
@@ -1545,7 +2012,83 @@ export function ManagerView({
     if (motivasiConfig?.tkuName) {
       setTkuNameInput(motivasiConfig.tkuName);
     }
-  }, [motivasiConfig?.chatbotName, motivasiConfig?.tkuName]);
+    if (motivasiConfig) {
+      if (Array.isArray(motivasiConfig.list)) setLocalMotivasiList(motivasiConfig.list);
+      if (Array.isArray(motivasiConfig.terpilih)) setLocalMotivasiTerpilih(motivasiConfig.terpilih);
+      if (motivasiConfig.intervalDetik !== undefined) setLocalMotivasiInterval(motivasiConfig.intervalDetik);
+      if (motivasiConfig.enabled !== undefined) setLocalMotivasiEnabled(motivasiConfig.enabled);
+    }
+  }, [motivasiConfig]);
+
+  const handleAddMotivasi = () => {
+    const trimmed = newMotivasiInput.trim();
+    if (!trimmed) return;
+    if (!localMotivasiList.includes(trimmed)) {
+      const updatedList = [...localMotivasiList, trimmed];
+      const updatedTerpilih = [...localMotivasiTerpilih, trimmed];
+      setLocalMotivasiList(updatedList);
+      setLocalMotivasiTerpilih(updatedTerpilih);
+      setNewMotivasiInput("");
+    } else {
+      alert("Kalimat motivasi ini sudah ada dalam daftar.");
+    }
+  };
+
+  const handleToggleMotivasiItem = (item: string) => {
+    if (localMotivasiTerpilih.includes(item)) {
+      setLocalMotivasiTerpilih(localMotivasiTerpilih.filter(x => x !== item));
+    } else {
+      setLocalMotivasiTerpilih([...localMotivasiTerpilih, item]);
+    }
+  };
+
+  const handleDeleteMotivasiItem = (item: string) => {
+    setLocalMotivasiList(localMotivasiList.filter(x => x !== item));
+    setLocalMotivasiTerpilih(localMotivasiTerpilih.filter(x => x !== item));
+  };
+
+  const handleSelectAllMotivasi = () => {
+    setLocalMotivasiTerpilih([...localMotivasiList]);
+  };
+
+  const handleDeselectAllMotivasi = () => {
+    setLocalMotivasiTerpilih([]);
+  };
+
+  const handleLoadSampleMotivasi = () => {
+    const samples = [
+      "Semangat menjalani hari ini dengan tulus dan penuh senyuman! 🌸",
+      "Fokus pada pelayanan terbaik, senyum tulus adalah kunci keakraban dengan pelanggan! 😊",
+      "Setiap botol Yakult membawa kesehatan dan kebahagiaan bagi keluarga Indonesia. 🍾",
+      "Usaha dan ketekunan hari ini adalah pijakan sukses esok hari. Terus melangkah! 💪",
+      "Jaga kesehatan dan selalu utamakan keselamatan dalam setiap rute aktivitas! 🛵✨"
+    ];
+    const combinedList = Array.from(new Set([...localMotivasiList, ...samples]));
+    const combinedTerpilih = Array.from(new Set([...localMotivasiTerpilih, ...samples]));
+    setLocalMotivasiList(combinedList);
+    setLocalMotivasiTerpilih(combinedTerpilih);
+  };
+
+  const handleSaveMotivasiConfigAll = async () => {
+    const newConfig: MotivasiConfig = {
+      ...motivasiConfig,
+      list: localMotivasiList,
+      terpilih: localMotivasiTerpilih,
+      intervalDetik: localMotivasiInterval,
+      enabled: localMotivasiEnabled,
+      chatbotName: chatbotNameInput.trim() || "AI Jember 1 Pro",
+      tkuName: tkuNameInput.trim() || "DP Jember 1"
+    };
+
+    onUpdateMotivasi(newConfig);
+
+    try {
+      await saveToSupabase("motivasi_config", newConfig);
+    } catch (e) {}
+
+    setMotivasiSavedMsg("✅ Pengaturan Kalimat Motivasi Berhasil Disimpan!");
+    setTimeout(() => setMotivasiSavedMsg(""), 4000);
+  };
 
   
   
@@ -1644,24 +2187,57 @@ export function ManagerView({
   };
 
 
-  // Find overall highest performing and needy YL
-  // (dulu fungsi biasa yg dipanggil tiap render — sekarang useMemo supaya
-  // sort/filter/map di dalamnya hanya dihitung ulang saat activeEval berubah)
-  const evaluasiHighlights = useMemo(() => {
-    if (!activeEval || !activeEval.analisis) return { top: null, needImprovement: null, highestBB: null };
-    const list = activeEval.analisis;
+  // Normalize analysis data list from activeEval
+  const normalizedAnalisis = useMemo(() => {
+    if (!activeEval) return [];
+    if (activeEval.dataRows && activeEval.dataRows.length > 0) {
+      return activeEval.dataRows.map(row => {
+        const area = String(row[0] || "");
+        const nama = String(row[1] || "");
+        const jualHariIni = typeof row[7] === "number" ? row[7] : parseFloat(row[7]) || 0;
+        const rata2BulanBerjalan = typeof row[13] === "number" ? row[13] : parseFloat(row[13]) || 0;
+        const vsMingguLaluPct = typeof row[15] === "number" ? row[15] : parseFloat(row[15]) || 0;
+        const persenRumah = typeof row[18] === "number" ? row[18] : parseFloat(row[18]) || 0;
+        const persenRbVsPlg = typeof row[21] === "number" ? row[21] : parseFloat(row[21]) || 0;
+        const propagandaHariIni = (typeof row[22] === "number" ? row[22] : parseFloat(row[22]) || 0) + 
+                                  (typeof row[23] === "number" ? row[23] : parseFloat(row[23]) || 0);
+        const sampahBotol = typeof row[26] === "number" ? row[26] : parseFloat(row[26]) || 0;
+        const bb = typeof row[28] === "number" ? row[28] : parseFloat(row[28]) || 0;
+        const akmBb = typeof row[30] === "number" ? row[30] : parseFloat(row[30]) || 0;
 
-    if (list.length === 0) return { top: null, needImprovement: null, highestBB: null };
+        return {
+          area,
+          nama,
+          jualHariIni,
+          rata2BulanBerjalan,
+          vsMingguLaluPct,
+          persenRumah,
+          persenRbVsPlg,
+          propagandaHariIni,
+          sampahBotol,
+          bb,
+          akmBb,
+          propagandaVs900: null
+        };
+      });
+    }
+    return (activeEval.analisis || []).map(a => ({ ...a, akmBb: a.akmBb ?? a.bb ?? 0 }));
+  }, [activeEval]);
+
+  // Find overall highest performing and needy YL
+  const evaluasiHighlights = useMemo(() => {
+    const list = normalizedAnalisis;
+    if (!list || list.length === 0) return { top: null, needImprovement: null, highestBB: null };
 
     const EVAL_CATEGORIES = [
-      { key: 'jualHariIni', label: 'Penjualan Hari Ini', type: 'max', requirePositive: true },
-      { key: 'rata2BulanBerjalan', label: 'Rata-rata Bulan Berjalan', type: 'max', requirePositive: true },
-      { key: 'vsMingguLaluPct', label: 'Pertumbuhan vs Minggu Lalu', type: 'max', requirePositive: false },
-      { key: 'persenRumah', label: 'Sektor Rumah', type: 'max', requirePositive: true },
-      { key: 'persenRbVsPlg', label: 'Rasio RB vs PLG', type: 'max', requirePositive: true },
-      { key: 'propagandaHariIni', label: 'Propaganda Hari Ini', type: 'max', requirePositive: true },
-      { key: 'sampahBotol', label: 'Sampah Botol Akumulasi', type: 'target', target: 900, requirePositive: false },
-      { key: 'bb', label: 'BB / Balik Botol', type: 'min', requirePositive: false }
+      { key: 'jualHariIni', label: 'Tabel Penjualan Hari Ini', type: 'max', requirePositive: true },
+      { key: 'rata2BulanBerjalan', label: 'Rata Bulan Ini', type: 'max', requirePositive: true },
+      { key: 'vsMingguLaluPct', label: 'vs Minggu Lalu', type: 'max', requirePositive: false },
+      { key: 'persenRumah', label: 'Persen Rumah', type: 'max', requirePositive: true },
+      { key: 'persenRbVsPlg', label: 'Persen RB vs PLG', type: 'max', requirePositive: true },
+      { key: 'propagandaHariIni', label: 'PB Hari Ini', type: 'max', requirePositive: true },
+      { key: 'sampahBotol', label: 'Akm Sampah', type: 'target', target: 900, requirePositive: false },
+      { key: 'akmBb', label: 'Akm BB', type: 'min', requirePositive: false }
     ];
 
     const categoryStats = EVAL_CATEGORIES.map(cat => {
@@ -1750,24 +2326,21 @@ export function ManagerView({
       nama: allNeeds.map(x => cleanYlName(x.nama)).join(", ")
     };
 
-    const sortedBB = [...list].sort((a, b) => b.bb - a.bb);
-    const bbVal = sortedBB[0].bb;
-    const allBBs = sortedBB.filter(x => x.bb === bbVal);
+    const sortedBB = [...list].sort((a, b) => (b.akmBb ?? b.bb) - (a.akmBb ?? a.bb));
+    const bbVal = sortedBB[0].akmBb ?? sortedBB[0].bb;
+    const allBBs = sortedBB.filter(x => (x.akmBb ?? x.bb) === bbVal);
     const highestBB = {
       ...sortedBB[0],
-      nama: allBBs.map(x => cleanYlName(x.nama)).join(", ")
+      nama: allBBs.map(x => cleanYlName(x.nama)).join(", "),
+      bb: bbVal
     };
 
     return { top, needImprovement, highestBB };
-  }, [activeEval]);
+  }, [normalizedAnalisis]);
 
-  // Sama seperti di atas: dulu fungsi biasa dipanggil ULANG 19x langsung di
-  // JSX di bawah (tiap panggilan mengulang 8x sort+filter+map dari nol) —
-  // salah satu penyebab render ManagerView berat. Sekarang cukup dihitung
-  // sekali per perubahan activeEval.
   const evaluasiBlocks = useMemo(() => {
-    if (!activeEval || !activeEval.analisis) return null;
-    const list = activeEval.analisis;
+    const list = normalizedAnalisis;
+    if (!list || list.length === 0) return null;
 
     const getTop = (key: keyof typeof list[0], ascending = false) => {
       if (list.length === 0) return null;
@@ -1776,7 +2349,6 @@ export function ManagerView({
       const allTops = sorted.filter(item => item[key] === topVal);
       const joinedNames = allTops.map(i => cleanYlName(i.nama)).join(", ");
       
-      // Return a mocked object with the joined names and the top value
       return {
         ...sorted[0],
         nama: joinedNames,
@@ -1791,13 +2363,24 @@ export function ManagerView({
     const block5 = getTop("persenRbVsPlg");
     const block6 = getTop("propagandaHariIni");
     const block7 = getTop("sampahBotol");
-    const block8 = getTop("bb", true);
+    const block8 = getTop("akmBb", true); // lowest Akm BB (minimum retur)
 
     return { block1, block2, block3, block4, block5, block6, block7, block8 };
-  }, [activeEval]);
+  }, [normalizedAnalisis]);
 
   const handleClearCache = async () => {
+    const savedSbUrl = localStorage.getItem("supabase_url") || "";
+    const savedSbKey = localStorage.getItem("supabase_key") || "";
+    const savedSession = localStorage.getItem("yakult_session") || "";
+    const savedSbPin = localStorage.getItem("yakult_supabase_pin") || "";
+
     localStorage.clear();
+
+    if (savedSbUrl) localStorage.setItem("supabase_url", savedSbUrl);
+    if (savedSbKey) localStorage.setItem("supabase_key", savedSbKey);
+    if (savedSession) localStorage.setItem("yakult_session", savedSession);
+    if (savedSbPin) localStorage.setItem("yakult_supabase_pin", savedSbPin);
+
     await onRefresh();
     alert("Cache aplikasi berhasil dibersihkan! Seluruh data diperbarui secara segar.");
   };
@@ -1904,6 +2487,30 @@ export function ManagerView({
     }
   };
 
+  const activeDashboardData = (isViewingHistoricalMonth && historicalDataSnapshot?.dashboardData)
+    ? historicalDataSnapshot.dashboardData
+    : (isViewingHistoricalMonth && historicalDataNotFound)
+      ? null
+      : dashboardData;
+
+  const activeEvaluasiData = (isViewingHistoricalMonth && historicalDataSnapshot?.evaluasiData)
+    ? historicalDataSnapshot.evaluasiData
+    : (isViewingHistoricalMonth && historicalDataNotFound)
+      ? null
+      : activeEval;
+
+  const activeTargetTKU = (isViewingHistoricalMonth && historicalDataSnapshot?.targetTKU)
+    ? historicalDataSnapshot.targetTKU
+    : targetTKU;
+
+  const activeTargetYLMap = (isViewingHistoricalMonth && historicalDataSnapshot?.targetYLMap)
+    ? historicalDataSnapshot.targetYLMap
+    : targetYLMap;
+
+  if (showArchiveEditor) {
+    return <ArchiveEditor onClose={() => setShowArchiveEditor(false)} motivasiConfig={motivasiConfig} ylList={ylList} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20 text-slate-800 dark:text-slate-100 transition-colors duration-200">
       {/* Dynamic Header */}
@@ -1918,10 +2525,35 @@ export function ManagerView({
               <p className="text-[10px] text-red-200 mt-1 font-medium">Yakult Lady Management System Pro</p>
             </div>
           </div>
+          
           <div className="flex items-center gap-2">
+            {/* Indicator viewing archive + Kembali ke Data Live */}
+            {isViewingHistoricalMonth && (
+              <div className="flex items-center gap-1.5 bg-indigo-900/90 text-indigo-100 border border-indigo-400 px-2.5 py-1.5 rounded-xl text-xs font-bold shadow animate-pulse mr-1">
+                <span className="hidden sm:inline">📅 Arsip: {historicalMonthLabel || selectedMonthlyArchive}</span>
+                <button
+                  onClick={handleResetToLiveData}
+                  className="bg-red-600 hover:bg-red-500 text-white font-extrabold text-[11px] px-2.5 py-1 rounded-lg shadow cursor-pointer transition-all border border-red-400 flex items-center gap-1"
+                  title="Kembali ke Mode Data Live"
+                >
+                  🔄 Live Data
+                </button>
+              </div>
+            )}
+
+            {/* Tombol Garis Tiga (Hamburger Menu) di Pojok Kanan Atas */}
+            <button
+              onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
+              className="bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+              title="Buka Menu Navigasi (Garis Tiga)"
+            >
+              <Menu className="w-5 h-5 text-white" />
+              <span className="font-extrabold">Menu ☰</span>
+            </button>
+
             <button
               onClick={onLogout}
-              className="bg-slate-900/80 hover:bg-slate-950 text-slate-100 text-xs font-bold px-3.5 py-1.5 rounded-xl border border-slate-700 transition-all cursor-pointer shadow-sm"
+              className="bg-slate-900/80 hover:bg-slate-950 text-slate-100 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-all cursor-pointer shadow-sm"
             >
               Keluar
             </button>
@@ -1929,17 +2561,191 @@ export function ManagerView({
         </div>
       </header>
 
+      {/* Drawer Overlay Navigasi (Garis Tiga Menu Pojok Kanan Atas) */}
+      {isNavMenuOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex justify-end animate-fade-in">
+          <div className="w-full max-w-sm bg-slate-900 border-l border-red-900/80 text-white h-full overflow-y-auto shadow-2xl flex flex-col justify-between">
+            <div className="p-4 space-y-4">
+              {/* Header Drawer */}
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="bg-red-600 text-white font-black p-1.5 rounded-lg text-sm">Y</span>
+                  <div>
+                    <h3 className="text-xs font-black uppercase text-white tracking-wider">
+                      {(motivasiConfig?.tkuName || "DP JEMBER 1").toUpperCase()}
+                    </h3>
+                    <p className="text-[10px] text-red-300 font-bold">Navigasi Utama Aplikasi</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsNavMenuOpen(false)}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-all cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* List Menu Items */}
+              <div className="space-y-1.5">
+                <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-widest block px-2">
+                  Daftar Menu Tersedia
+                </span>
+
+                <button
+                  onClick={() => { setActiveTab("dashboard"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "dashboard" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <TrendingUp className="w-4 h-4 text-red-400" />
+                  <span>📈 Dasbor Utama</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("rata2_bulanan"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "rata2_bulanan" ? "bg-emerald-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-emerald-300"
+                  }`}
+                >
+                  <Calendar className="w-4 h-4 text-emerald-400" />
+                  <span>📊 Data Rata-Rata Bulanan (Baru)</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("lhpp_realisasi"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "lhpp_realisasi" || activeTab === "input_realisasi" ? "bg-emerald-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                  <span>📝 Input Penjualan & PJL (LHPP)</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("breakdown"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "breakdown" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <Grid3X3 className="w-4 h-4 text-amber-400" />
+                  <span>🧩 BD & Realisasi Harian</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("target_kompensasi"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "target_kompensasi" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <Target className="w-4 h-4 text-sky-400" />
+                  <span>🎯 Target & Kompensasi</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("evaluasi"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "evaluasi" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <Award className="w-4 h-4 text-yellow-400" />
+                  <span>🏆 Evaluasi Kinerja</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("plg_pjl"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "plg_pjl" ? "bg-cyan-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <PieChart className="w-4 h-4 text-cyan-400" />
+                  <span>👥 Pelanggan & Penjualan</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("lady"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "lady" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <Users className="w-4 h-4 text-indigo-400" />
+                  <span>👩‍💼 Profil Yakult Lady</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab("setting"); setIsNavMenuOpen(false); }}
+                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
+                    activeTab === "setting" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <Settings className="w-4 h-4 text-slate-400" />
+                  <span>⚙️ Pengaturan & Cloud Supabase</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-800 bg-slate-950 text-center">
+              <button
+                onClick={() => setIsNavMenuOpen(false)}
+                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all cursor-pointer"
+              >
+                Tutup Menu ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Container */}
       <main className="max-w-7xl mx-auto p-4">
+        {/* Banner Status Mode Melihat Data Bulanan (Historical vs Live) */}
+        {isViewingHistoricalMonth && (
+          <div className={`p-3.5 mb-4 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-3 animate-fade-in ${
+            historicalDataNotFound 
+              ? "bg-amber-50 dark:bg-amber-950/80 border-amber-300 dark:border-amber-700 text-amber-950 dark:text-amber-100" 
+              : "bg-gradient-to-r from-indigo-950 via-slate-900 to-indigo-900 border-indigo-500 text-white"
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`p-2.5 rounded-xl text-lg font-black shrink-0 ${
+                historicalDataNotFound ? "bg-amber-200 text-amber-900" : "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+              }`}>
+                {historicalDataNotFound ? "⚠️" : "📅"}
+              </div>
+              <div>
+                <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider">
+                  {historicalDataNotFound 
+                    ? `Data Bulan ${historicalMonthLabel} Tidak Ada di Supabase`
+                    : `Menampilkan Data Bulan ${historicalMonthLabel} (Diambil dari Supabase)`}
+                </h3>
+                <p className="text-[10.5px] font-medium opacity-90 mt-0.5">
+                  {historicalDataNotFound
+                    ? `Data untuk bulan ${historicalMonthLabel} belum pernah disimpan / difinish ke Supabase.`
+                    : `Seluruh menu aplikasi saat ini menampilkan arsip data bulan ${historicalMonthLabel}.`}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleResetToLiveData}
+              className="bg-red-600 hover:bg-red-700 active:scale-95 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5 shrink-0 border border-red-500"
+            >
+              🔄 Kembali ke Data Live (Bulan Berjalan)
+            </button>
+          </div>
+        )}
+
         {/* Tab Dashboard */}
         {activeTab === "dashboard" && (
           <ManagerDashboardTab
-            dashboardData={dashboardData}
-            targetTKU={targetTKU}
+            dashboardData={activeDashboardData}
+            targetTKU={activeTargetTKU}
             cleanYlName={cleanYlName}
             currentMonthTotal={currentMonthTotal}
             calculateSektorTotals={calculateSektorTotals}
           />
+        )}
+
+        {/* Tab Data Rata-Rata Bulanan */}
+        {activeTab === "rata2_bulanan" && (
+          <Rata2BulananTab ylList={ylList} />
         )}
 
         {/* Tab Evaluasi */}
@@ -1950,425 +2756,1641 @@ export function ManagerView({
               <span>Memuat Data Evaluasi Harian...</span>
             </div>
           ) : (
-          <div className="space-y-4">
-            {/* 1. PALING ATAS: Laporan Evaluasi Harian (Mirror Sheet Table) */}
-            <div className={`rounded-2xl border shadow-sm overflow-hidden transition-all duration-300 ${
-              isFullscreenEval 
-                ? `fixed inset-0 z-[9999] rounded-none flex flex-col h-screen ${theme === "dark" ? "bg-slate-950 border-slate-900 text-slate-100" : "bg-white border-slate-200 text-slate-900"}` 
-                : "flex flex-col max-h-[440px] bg-white border-2 border-slate-200 text-slate-900 shadow-md p-1"
-            }`}>
-              <div className="p-3 bg-red-950 text-white flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-black uppercase tracking-wider">Laporan Evaluasi Harian (Mirror Sheet)</h3>
-                  {isFullscreenEval && (
-                    <span className="text-[9px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold animate-pulse">
-                      Mode Presentasi Slide
+            <div className={isFullscreenEval ? "fixed inset-0 z-[9999] bg-slate-950 text-slate-100 overflow-y-auto p-2 sm:p-4 space-y-3" : "space-y-3"}>
+              {isFullscreenEval && (
+                <div className="py-1.5 px-3 bg-red-950 text-white rounded-xl flex items-center justify-between shrink-0 shadow-lg border border-red-800">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[11px] font-black uppercase tracking-wider">Laporan Evaluasi Harian & Ringkasan Performa</h3>
+                    <span className="text-[8.5px] bg-red-800 text-red-100 px-1.5 py-0.5 rounded font-bold">
+                      {showFullEvalTable ? "32 Kolom Lengkap" : "8 Kategori Utama"}
                     </span>
+                    <span className="text-[8.5px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold animate-pulse">
+                      Mode Slide Layar Penuh
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowFullEvalTable(!showFullEvalTable)}
+                      className="text-white bg-red-800 hover:bg-red-700 px-2 py-1 rounded-lg transition-all font-bold text-[9px] cursor-pointer"
+                    >
+                      {showFullEvalTable ? "Sembunyikan Kolom" : "Tampilkan Tabel Lengkap"}
+                    </button>
+                    <button
+                      onClick={() => setIsFullscreenEval(false)}
+                      className="text-white bg-red-800 hover:bg-red-700 px-2 py-1 rounded-lg transition-all flex items-center gap-1 font-bold text-[9px] cursor-pointer"
+                    >
+                      <Minimize2 className="w-3 h-3" />
+                      <span>Keluar Slide</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-stretch">
+                {/* 1. PALING ATAS (KIRI): Laporan Evaluasi Harian (Mirror Sheet Table Card) - Expanded to 9 cols */}
+                <div className="col-span-1 lg:col-span-9 xl:col-span-9 bg-white text-slate-900 rounded-2xl border-2 border-slate-200 shadow-md p-1 flex flex-col justify-between overflow-hidden h-full">
+                  {/* Ultra Compact Header */}
+                  <div className="py-1 px-2.5 bg-red-950 text-white flex items-center justify-between shrink-0 rounded-t-xl">
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-[10.5px] sm:text-xs font-black uppercase tracking-tight">Laporan Evaluasi Harian (Mirror Sheet)</h3>
+                      <span className="text-[8px] bg-red-800 text-red-100 px-1.5 py-0.5 rounded font-bold">
+                        {showFullEvalTable ? "32 Kolom Lengkap" : "8 Kategori Utama"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowFullEvalTable(!showFullEvalTable);
+                        }}
+                        className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[8.5px] cursor-pointer"
+                      >
+                        {showFullEvalTable ? "Sembunyikan Kolom" : "Tampilkan Tabel Lengkap"}
+                      </button>
+                      {!isFullscreenEval && (
+                        <button
+                          onClick={() => setIsFullscreenEval(true)}
+                          className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[8.5px]"
+                          title="Layar Penuh"
+                        >
+                          <Maximize2 className="w-2.5 h-2.5" />
+                          <span>Slide Layar Penuh</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div 
+                    className="overflow-x-auto overflow-y-visible flex-1 cursor-pointer bg-white"
+                    onClick={() => { if (!isFullscreenEval) setIsFullscreenEval(true); }}
+                    title={isFullscreenEval ? "" : "Klik tabel untuk masuk Mode Presentasi Slide"}
+                  >
+                    <table className="w-full text-left border-collapse relative text-[9px] sm:text-[9.5px] bg-white text-slate-800 font-mono">
+                      <thead className="sticky top-0 z-10 bg-slate-950 text-white text-[8px] sm:text-[8.5px] uppercase tracking-wider text-center font-bold">
+                        {/* Row 0 */}
+                        <tr className="border-b border-slate-800">
+                          <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-950 min-w-[32px]">Area</th>
+                          <th rowSpan={3} className="py-1 px-1.5 border-r border-slate-800 bg-slate-950 text-left min-w-[75px]">Nama YL</th>
+                          {showFullEvalTable ? (
+                            <>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-900">Rata Mgg Lalu</th>
+                              <th colSpan={5} className="py-1 px-1 border-r border-slate-800 bg-red-950 text-red-200">Penjualan Hari Ini</th>
+                              <th colSpan={6} className="py-1 px-1 border-r border-slate-800 bg-emerald-950 text-emerald-200">Bulan Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-900">Rata Mgg Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-900">vs Mgg Lalu</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-blue-950 text-blue-200">Sektor Rmh</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-purple-950 text-purple-200">RB vs Pelanggan</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-amber-950 text-amber-200">Propaganda (PB)</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-teal-950 text-teal-200">Sampah Botol</th>
+                              <th colSpan={4} className="py-1 px-1 bg-rose-950 text-rose-200">Barang Kembali (BB)</th>
+                            </>
+                          ) : (
+                            <>
+                              <th colSpan={5} className="py-1 px-1 border-r border-slate-800 bg-red-950 text-red-200">Penjualan Hari Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-amber-950 text-amber-200">Rata Bulan Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-emerald-950 text-emerald-200">vs Mgg Lalu</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-blue-950 text-blue-200">Persen Rumah</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-purple-950 text-purple-200">Persen RB vs PLG</th>
+                              <th colSpan={2} className="py-1 px-1 border-r border-slate-800 bg-indigo-950 text-indigo-200">PB Hari Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-teal-950 text-teal-200">Akm Sampah</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-rose-950 text-rose-200">Akm BB</th>
+                            </>
+                          )}
+                        </tr>
+                        {/* Row 1 */}
+                        <tr className="border-b border-slate-800">
+                          {/* Penjualan Hari Ini */}
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">YO</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">OM</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">OS</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">YT</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 font-bold bg-slate-950">ALL</th>
+
+                          {showFullEvalTable ? (
+                            <>
+                              {/* Bulan Ini */}
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 font-bold text-emerald-300 bg-slate-950">Akm</th>
+                              <th colSpan={5} className="py-0.5 px-1 border-r border-slate-800 text-emerald-300">Rata-Rata (Rt2)</th>
+
+                              {/* Sektor Rmh */}
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-blue-300">Hari</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-blue-300">Akm</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-blue-300 font-bold bg-slate-950">%</th>
+
+                              {/* RB vs Pelanggan */}
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-purple-300">Pelanggan</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-purple-300">RB</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-purple-300 font-bold bg-slate-950">%</th>
+
+                              {/* Propaganda Baru */}
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-amber-300">Pagi</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-amber-300">Sore</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-amber-300 font-bold bg-slate-950">Akm</th>
+
+                              {/* Sampah Botol */}
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-teal-300">Hari</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-teal-300">Akm</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-teal-300 font-bold bg-slate-950">vs 900</th>
+
+                              {/* Kembali Botol */}
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-rose-300">Hari</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-rose-300 font-bold bg-slate-950">%</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-rose-300">Akm</th>
+                              <th rowSpan={2} className="py-0.5 px-1 text-rose-300 font-bold bg-slate-950">%</th>
+                            </>
+                          ) : (
+                            <>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-indigo-300">Pagi</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-indigo-300">Sore</th>
+                            </>
+                          )}
+                        </tr>
+                        {/* Row 2 */}
+                        <tr className="border-b border-slate-800">
+                          {showFullEvalTable && (
+                            <>
+                              {/* Rata-Rata Bulan Ini */}
+                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">YO</th>
+                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">OM</th>
+                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">OS</th>
+                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">YT</th>
+                              <th className="py-0.5 px-1 border-r border-slate-800 font-bold text-emerald-400 bg-slate-950">ALL</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 bg-white text-slate-800">
+                        {(() => {
+                          let maxCols = { c7: -1, c13: -1, c15: -Infinity, c18: -1, c21: -1, pb: -1, c26: -1, c28: Infinity };
+                          if (activeEval?.dataRows) {
+                            activeEval.dataRows.forEach(row => {
+                              if ((row[7] || 0) > maxCols.c7) maxCols.c7 = row[7] || 0;
+                              if ((row[13] || 0) > maxCols.c13) maxCols.c13 = row[13] || 0;
+                              if ((row[15] || 0) > maxCols.c15) maxCols.c15 = row[15] || 0;
+                              if ((row[18] || 0) > maxCols.c18) maxCols.c18 = row[18] || 0;
+                              if ((row[21] || 0) > maxCols.c21) maxCols.c21 = row[21] || 0;
+                              const pbSum = (row[22] || 0) + (row[23] || 0);
+                              if (pbSum > maxCols.pb) maxCols.pb = pbSum;
+                              if ((row[26] || 0) > maxCols.c26) maxCols.c26 = row[26] || 0;
+                              
+                              const bb = typeof row[28] === "number" ? row[28] : 0;
+                              if (bb < maxCols.c28) maxCols.c28 = bb;
+                            });
+                          }
+
+                          const visibleCols = [0, 1, 3, 4, 5, 6, 7, 13, 15, 18, 21, 22, 23, 26, 30];
+
+                          return (activeEval?.dataRows || []).map((row, rIdx) => (
+                            <tr key={rIdx} className="hover:bg-red-50/80 border-b border-slate-200 transition-colors">
+                              {(row || []).map((val, cIdx) => {
+                                if (!showFullEvalTable && !visibleCols.includes(cIdx)) return null;
+
+                                let isTopPerf = false;
+                                if (cIdx === 7 && val > 0 && val === maxCols.c7) isTopPerf = true;
+                                if (cIdx === 13 && val > 0 && val === maxCols.c13) isTopPerf = true;
+                                if (cIdx === 15 && maxCols.c15 !== -Infinity && val === maxCols.c15) isTopPerf = true;
+                                if (cIdx === 18 && val > 0 && val === maxCols.c18) isTopPerf = true;
+                                if (cIdx === 21 && val > 0 && val === maxCols.c21) isTopPerf = true;
+                                if ((cIdx === 22 || cIdx === 23) && maxCols.pb > 0 && ((row[22]||0)+(row[23]||0)) === maxCols.pb) isTopPerf = true;
+                                if (cIdx === 26 && val > 0 && val === maxCols.c26) isTopPerf = true;
+                                if (cIdx === 30 && maxCols.c28 !== Infinity && val === maxCols.c28) isTopPerf = true;
+
+                                const displayVal = (cIdx === 1 && typeof val === "string") ? cleanYlName(val) : val;
+
+                                return (
+                                  <td 
+                                    key={cIdx} 
+                                    className={`py-0.5 px-1 border-r border-slate-200 text-center whitespace-nowrap ${
+                                      cIdx === 1 
+                                        ? "text-left font-sans font-bold text-slate-900 min-w-[70px]" 
+                                        : "font-mono"
+                                    } ${
+                                      isTopPerf ? "bg-emerald-100 font-extrabold text-emerald-900" : ""
+                                    }`}
+                                  >
+                                    {typeof displayVal === "number" ? ([15, 18, 21, 29, 31].includes(cIdx) ? `${displayVal}%` : (cIdx === 27 && displayVal > 0 ? `+${displayVal.toLocaleString("id-ID")}` : displayVal.toLocaleString("id-ID"))) : displayVal}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ));
+                        })()}
+                        {activeEval?.totalRow && (
+                          <tr className="bg-amber-100 font-extrabold border-t-2 border-amber-300 text-amber-900">
+                            {(activeEval.totalRow || []).map((val, cIdx) => {
+                              const visibleCols = [0, 1, 3, 4, 5, 6, 7, 13, 15, 18, 21, 22, 23, 26, 30];
+                              if (!showFullEvalTable && !visibleCols.includes(cIdx)) return null;
+                              const displayVal = (cIdx === 1 && typeof val === "string") ? cleanYlName(val) : val;
+                              return (
+                                <td key={cIdx} className={`py-0.5 px-1 border-r border-amber-200 text-center whitespace-nowrap ${cIdx === 1 ? "text-left font-sans font-black" : "font-mono"}`}>
+                                  {typeof displayVal === "number" ? ([15, 18, 21, 29, 31].includes(cIdx) ? `${displayVal}%` : (cIdx === 27 && displayVal > 0 ? `+${displayVal.toLocaleString("id-ID")}` : displayVal.toLocaleString("id-ID"))) : displayVal}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Ultra Compact Action Footer */}
+                  <div className="bg-slate-50 py-0.5 px-2 text-xs font-bold flex flex-wrap items-center justify-between gap-1 border-t border-slate-200 shrink-0">
+                    <div className="flex items-center gap-1 text-[8.5px] text-slate-600">
+                      <span className="inline-block w-2 h-2 bg-emerald-200 border border-emerald-400 rounded mr-0.5" />
+                      Sel hijau = Performa terbaik harian.
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowFullEvalTable(!showFullEvalTable);
+                      }}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-700 hover:bg-red-800 text-white font-black text-[9.5px] rounded transition-all shadow-sm active:scale-95 cursor-pointer"
+                    >
+                      {showFullEvalTable ? (
+                        <>
+                          <ChevronUp className="w-3 h-3" />
+                          <span>Sembunyikan Kolom (Mode 8 Utama)</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="w-3 h-3" />
+                          <span>Tampilkan Tabel Lengkap (32 Kolom)</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. PALING ATAS (KANAN): RINGKASAN PRESTASI (Slimmed to lg:col-span-3) */}
+                <div className="col-span-1 lg:col-span-3 xl:col-span-3 bg-white rounded-2xl p-1.5 sm:p-2 border-2 border-slate-200 shadow-md flex flex-col justify-between h-full text-slate-900">
+                  <div className="flex items-center justify-between shrink-0 mb-1 pb-1 border-b border-slate-100">
+                    <h3 className="text-[10px] sm:text-[10.5px] font-black text-slate-900 uppercase tracking-tight flex items-center gap-1">
+                      <Award className="w-3 h-3 text-red-600" /> Ringkasan Prestasi
+                    </h3>
+                    <span className="text-[7.5px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">8 Block</span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-1 flex-1 items-stretch">
+                    {/* Block 1 */}
+                    <div className="bg-white p-1 rounded-md border border-red-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <TrendingUp className="w-3 h-3 text-red-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-red-800 bg-red-100 border border-red-200 px-0.5 py-0 rounded">Hari Ini</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Penjualan</p>
+                      {evaluasiBlocks?.block1 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block1.nama)}</p>
+                          <p className="text-[9px] font-black text-red-600">{evaluasiBlocks!.block1.jualHariIni} <span className="text-[7.5px] font-semibold text-slate-500">btl</span></p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+
+                    {/* Block 2 */}
+                    <div className="bg-white p-1 rounded-md border border-amber-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-amber-800 bg-amber-100 border border-amber-200 px-0.5 py-0 rounded">Bulan Ini</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Rata-Rata</p>
+                      {evaluasiBlocks?.block2 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block2.nama)}</p>
+                          <p className="text-[9px] font-black text-amber-600">{Math.trunc(evaluasiBlocks!.block2.rata2BulanBerjalan)} <span className="text-[7.5px] font-semibold text-slate-500">btl/hr</span></p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+
+                    {/* Block 3 */}
+                    <div className="bg-white p-1 rounded-md border border-emerald-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <Zap className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-emerald-800 bg-emerald-100 border border-emerald-200 px-0.5 py-0 rounded">vs Mgg</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">vs Mgg Lalu</p>
+                      {evaluasiBlocks?.block3 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block3.nama)}</p>
+                          <p className="text-[9px] font-black text-emerald-600">+{Math.trunc(evaluasiBlocks!.block3.vsMingguLaluPct)}%</p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+
+                    {/* Block 4 */}
+                    <div className="bg-white p-1 rounded-md border border-blue-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <Home className="w-3 h-3 text-blue-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-blue-800 bg-blue-100 border border-blue-200 px-0.5 py-0 rounded">Sektor</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">% Rumah</p>
+                      {evaluasiBlocks?.block4 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block4.nama)}</p>
+                          <p className="text-[9px] font-black text-blue-600">{Math.trunc(evaluasiBlocks!.block4.persenRumah)}%</p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+
+                    {/* Block 5 */}
+                    <div className="bg-white p-1 rounded-md border border-purple-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <UserCheck className="w-3 h-3 text-purple-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-purple-800 bg-purple-100 border border-purple-200 px-0.5 py-0 rounded">Kunjungan</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">% RB/PLG</p>
+                      {evaluasiBlocks?.block5 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block5.nama)}</p>
+                          <p className="text-[9px] font-black text-purple-600">{Math.trunc(evaluasiBlocks!.block5.persenRbVsPlg)}%</p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+
+                    {/* Block 6 */}
+                    <div className="bg-white p-1 rounded-md border border-indigo-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <Megaphone className="w-3 h-3 text-indigo-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-indigo-800 bg-indigo-100 border border-indigo-200 px-0.5 py-0 rounded">Propaganda</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">PB Hari Ini</p>
+                      {evaluasiBlocks?.block6 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block6.nama)}</p>
+                          <p className="text-[9px] font-black text-indigo-600">{evaluasiBlocks!.block6.propagandaHariIni} <span className="text-[7.5px] font-semibold text-slate-500">PB</span></p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+
+                    {/* Block 7 */}
+                    <div className="bg-white p-1 rounded-md border border-teal-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <Trash2 className="w-3 h-3 text-teal-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-teal-800 bg-teal-100 border border-teal-200 px-0.5 py-0 rounded">Lingkungan</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Akm Sampah</p>
+                      {evaluasiBlocks?.block7 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block7.nama)}</p>
+                          <p className="text-[9px] font-black text-teal-600">{evaluasiBlocks!.block7.sampahBotol} <span className="text-[7.5px] font-semibold text-slate-500">btl</span></p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+
+                    {/* Block 8 */}
+                    <div className="bg-white p-1 rounded-md border border-emerald-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
+                      <div className="flex items-center justify-between leading-none">
+                        <CheckCircle className="w-3 h-3 text-emerald-600 shrink-0" />
+                        <span className="text-[6.5px] font-black uppercase tracking-tight text-emerald-800 bg-emerald-100 border border-emerald-200 px-0.5 py-0 rounded">Retur</span>
+                      </div>
+                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Akm BB</p>
+                      {evaluasiBlocks?.block8 ? (
+                        <div className="mt-0.5 leading-tight">
+                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block8.nama)}</p>
+                          <p className="text-[9px] font-black text-emerald-600">{(evaluasiBlocks!.block8 as any).akmBb ?? evaluasiBlocks!.block8.bb} <span className="text-[7.5px] font-semibold text-slate-500">btl</span></p>
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. BARIS KEDUA: PERFORMA TERBAIK & PERFORMA TURUN (Compact Height / Perkecil Ke Atas) */}
+                <div className="col-span-1 lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {/* Top Performer Card - Compact Height */}
+                  <div className="bg-white dark:bg-white rounded-xl p-2 sm:p-2.5 border-2 border-emerald-300 shadow-sm text-slate-900 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-[11px] font-black text-emerald-800 uppercase tracking-tight mb-1 flex items-center gap-1.5">
+                        🏆 PERFORMA TERBAIK
+                      </h3>
+                      {top ? (
+                        <div className="text-[10px] sm:text-[10.5px] text-slate-800 space-y-0.5 leading-snug">
+                          <p>
+                            <strong className="font-black text-slate-950">{cleanYlName(top.nama)}</strong> memimpin dengan memenangkan{" "}
+                            <span className="font-black text-emerald-700">{(top as any).winCount || 0} dari 8 kategori</span>.
+                          </p>
+                          {(top as any).wonCategories && (top as any).wonCategories.length > 0 && (
+                            <p className="text-slate-600 text-[9.5px]">
+                              Keunggulan di: <strong className="font-bold text-emerald-800">{(top as any).wonCategories.join(", ")}</strong>.
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[9.5px] text-emerald-700 italic">Memuat data...</p>
+                      )}
+                    </div>
+                    <div className="text-[9px] font-bold text-emerald-900 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200 mt-1">
+                      👍 Pertahankan efisiensi kunjungan dan rute di sektor andalan Anda!
+                    </div>
+                  </div>
+
+                  {/* Need Improvement Card - Compact Height */}
+                  <div className="bg-white dark:bg-white rounded-xl p-2 sm:p-2.5 border-2 border-rose-300 shadow-sm text-slate-900 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-[11px] font-black text-rose-800 uppercase tracking-tight mb-1 flex items-center gap-1.5">
+                        ⚠️ PERFORMA TURUN
+                      </h3>
+                      {needImprovement ? (
+                        <div className="text-[10px] sm:text-[10.5px] text-slate-800 space-y-0.5 leading-snug">
+                          <p>
+                            <strong className="font-black text-slate-950">{cleanYlName(needImprovement.nama)}</strong> berada di posisi terbawah pada{" "}
+                            <span className="font-black text-rose-700">{(needImprovement as any).loseCount || 0} dari 8 kategori</span>.
+                          </p>
+                          {(needImprovement as any).lostCategories && (needImprovement as any).lostCategories.length > 0 && (
+                            <p className="text-slate-600 text-[9.5px]">
+                              Kelemahan di: <strong className="font-bold text-rose-800">{(needImprovement as any).lostCategories.join(", ")}</strong>.
+                            </p>
+                          )}
+                          {highestBB && (
+                            <p className="text-[9.5px]">
+                              Balik Botol (BB) terbanyak:{" "}
+                              <strong className="font-black text-slate-950">{cleanYlName(highestBB.nama)}</strong> ({highestBB.bb} btl).
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-[9.5px] text-rose-700 italic">Memuat data...</p>
+                      )}
+                    </div>
+                    <div className="text-[9px] font-bold text-rose-900 bg-rose-50 px-2 py-1 rounded-md border border-rose-200 mt-1">
+                      🚨 Tindakan: Review rute drop-off dan sisa stock harian agar botol retur tidak membengkak!
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. BARIS KETIGA: AI DEEP EVALUATION CARD (Paling Bawah) */}
+                <div className="col-span-1 lg:col-span-12 bg-white dark:bg-white rounded-2xl p-3.5 sm:p-4 border-2 border-indigo-200 shadow-md text-slate-900 relative overflow-hidden">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
+                      <Sparkles className="w-4 h-4 text-indigo-600 animate-pulse" /> Analisis & Evaluasi AI Jember 1
+                    </h3>
+                    <button
+                      onClick={runAiInsight}
+                      disabled={isAiLoading}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[9.5px] px-2.5 py-1 rounded-lg transition-all shadow-sm flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                    >
+                      {isAiLoading ? "Sedang Menganalisis..." : "Jalankan Analisis AI"}
+                    </button>
+                  </div>
+
+                  {isAiLoading ? (
+                    <div className="flex flex-col items-center justify-center py-5 text-center">
+                      <div className="w-7 h-7 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-[10px] text-indigo-700 font-bold mt-2">Menganalisis data lembar evaluasi harian dengan Gemini...</span>
+                    </div>
+                  ) : aiInsight ? (
+                    <div
+                      className="text-xs text-slate-700 bg-white rounded-xl p-2.5 border border-indigo-100/50 prose max-w-none shadow-sm leading-relaxed max-h-[280px] overflow-y-auto"
+                      dangerouslySetInnerHTML={{ __html: aiInsight }}
+                    />
+                  ) : (
+                    <p className="text-xs text-slate-500 italic">
+                      Klik tombol di atas untuk memanggil modul kecerdasan buatan Gemini guna menganalisis laporan dropping tim Anda secara mendalam.
+                    </p>
                   )}
                 </div>
+              </div>
+            </div>
+          )
+        )}
+
+        {/* Tab Breakdown Plan & Realisasi */}
+        {activeTab === "breakdown" && (
+          <div className="space-y-4">
+            {/* Header / Month & Mode Selection Card */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
-                  {isFullscreenEval && (
-                    <span className="hidden md:inline text-[10px] text-red-200 font-bold mr-2">
-                      💡 Putar HP ke Landscape / perlebar layar untuk melihat seluruh 32 kolom secara penuh
+                  <span className="text-xl">🧩</span>
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase">Breakdown Plan & Realisasi Harian</h2>
+                    <p className="text-[10.5px] text-slate-500 font-medium">Input rencana harian (BD) & realisasi harian per Yakult Lady</p>
+                  </div>
+                </div>
+                {/* Month Picker */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">Bulan:</span>
+                  <input
+                    type="month"
+                    value={selectedBreakdownMonth}
+                    onChange={(e) => {
+                      setSelectedBreakdownMonth(e.target.value);
+                      fetchBreakdownPlan(e.target.value);
+                    }}
+                    className="p-1.5 text-xs font-bold bg-slate-50 rounded-xl border border-slate-200 text-slate-800 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Submode Switcher (BD vs Realisasi) & Pembagi Tanggal */}
+              <div className="flex items-center justify-between flex-wrap gap-3 pt-1">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                    <button
+                      onClick={() => setGridSubMode("BD")}
+                      className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
+                        gridSubMode === "BD" ? "bg-red-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Breakdown Plan (BD)
+                    </button>
+                    <button
+                      onClick={() => setGridSubMode("R")}
+                      className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
+                        gridSubMode === "R" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      Breakdown Realisasi (R)
+                    </button>
+                  </div>
+
+                  {/* Input Pembagi Tanggal Manual */}
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
+                    <span className="text-xs font-bold text-slate-700">Pembagi Tanggal (Manual):</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={
+                        activeGridMap && Object.keys(activeGridMap).length > 0
+                          ? activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25
+                          : 25
+                      }
+                      onChange={(e) => handleGlobalPembagiChange(Number(e.target.value) || 1)}
+                      className="w-14 p-1 text-xs font-extrabold text-center bg-white border border-slate-300 rounded-lg text-slate-900 outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <span className="text-[10px] text-slate-500 font-medium">
+                      (berlaku untuk semua Yakult Lady di bulan ini)
                     </span>
-                  )}
+                  </div>
+                </div>
+
+                {/* Save & Toolbar buttons */}
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setIsFullscreenEval(!isFullscreenEval)}
-                    className="text-white bg-red-800 hover:bg-red-700 p-1.5 rounded-lg transition-all flex items-center gap-1 font-bold text-[10px]"
-                    title="Toggle Fullscreen"
+                    onClick={handleSaveBreakdownPlan}
+                    disabled={isBreakdownSaving}
+                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                   >
-                    <Maximize2 className="w-3.5 h-3.5" />
-                    {isFullscreenEval ? "Keluar Slide" : "Slide Layar Penuh"}
+                    {isBreakdownSaving ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Menyimpan...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>💾</span>
+                        <span>Simpan Breakdown</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
-              <div 
-                className={`overflow-auto flex-1 ${!isFullscreenEval ? "cursor-pointer" : ""}`}
-                onClick={() => { if (!isFullscreenEval) setIsFullscreenEval(true); }}
-                title={isFullscreenEval ? "" : "Klik tabel untuk masuk Mode Presentasi Slide"}
-              >
-                <table className={`w-full text-left border-collapse relative ${
-                  isFullscreenEval
-                    ? `text-[11px] ${theme === "dark" ? "text-slate-100" : "text-slate-800"} font-mono`
-                    : "text-[10px]"
-                }`}>
-                  <thead className="sticky top-0 z-10 bg-slate-950 text-white text-[9px] uppercase tracking-wider text-center font-bold">
-                    {/* Row 0 */}
-                    <tr className="border-b border-slate-800">
-                      <th rowSpan={3} className="p-1.5 border-r border-slate-800 bg-slate-950">Area</th>
-                      <th rowSpan={3} className="p-1.5 border-r border-slate-800 bg-slate-950">Nama YL</th>
-                      <th rowSpan={3} className="p-1.5 border-r border-slate-800 bg-slate-900">Rata Mgg Lalu</th>
-                      <th colSpan={5} className="p-1.5 border-r border-slate-800 bg-red-950 text-red-200">Penjualan Hari Ini</th>
-                      <th colSpan={6} className="p-1.5 border-r border-slate-800 bg-emerald-950 text-emerald-200">Bulan Ini</th>
-                      <th rowSpan={3} className="p-1.5 border-r border-slate-800 bg-slate-900">Rata Mgg Ini</th>
-                      <th rowSpan={3} className="p-1.5 border-r border-slate-800 bg-slate-900">vs Mgg Lalu</th>
-                      <th colSpan={3} className="p-1.5 border-r border-slate-800 bg-blue-950 text-blue-200">Sektor Rmh</th>
-                      <th colSpan={3} className="p-1.5 border-r border-slate-800 bg-purple-950 text-purple-200">RB vs Pelanggan</th>
-                      <th colSpan={3} className="p-1.5 border-r border-slate-800 bg-amber-950 text-amber-200">Propaganda (PB)</th>
-                      <th colSpan={3} className="p-1.5 border-r border-slate-800 bg-teal-950 text-teal-200">Sampah Botol</th>
-                      <th colSpan={4} className="p-1.5 bg-rose-950 text-rose-200">Barang Kembali (BB)</th>
+
+              {breakdownMsg && (
+                <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200 animate-pulse">
+                  {breakdownMsg}
+                </p>
+              )}
+            </div>
+
+            {/* Grid Table Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-900 text-white text-[10px] uppercase font-bold sticky top-0 z-10">
+                    {/* Baris 1: Tanggal Grouping (colSpan=4) & Summary Categories */}
+                    <tr>
+                      <th rowSpan={2} className="p-2 sticky left-0 bg-slate-900 z-20 min-w-[130px] border-b border-r border-slate-800 text-slate-200">
+                        Yakult Lady
+                      </th>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                        <th key={d} colSpan={4} className="p-1 text-center border-l border-b border-slate-800 bg-slate-900 text-slate-200 min-w-[160px]">
+                          {d}
+                        </th>
+                      ))}
+                      <th colSpan={5} className="p-1 text-center border-l border-b border-slate-800 bg-red-950/80 text-red-200">
+                        TOTAL 4 ITEM
+                      </th>
+                      <th colSpan={5} className="p-1 text-center border-l border-b border-slate-800 bg-amber-950/80 text-amber-200">
+                        RATA-RATA HARIAN
+                      </th>
+                      <th colSpan={6} className="p-1 text-center border-l border-b border-slate-800 bg-purple-950/80 text-purple-200">
+                        TARGET & PEMBANDING
+                      </th>
                     </tr>
-                    {/* Row 1 */}
-                    <tr className="border-b border-slate-800">
-                      {/* Penjualan Hari Ini */}
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-red-300">YO</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-red-300">OM</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-red-300">OS</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-red-300">YT</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 font-bold bg-slate-950">ALL</th>
 
-                      {/* Bulan Ini */}
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 font-bold text-emerald-300 bg-slate-950">Akm</th>
-                      <th colSpan={5} className="p-1 border-r border-slate-800 text-emerald-300">Rata-Rata (Rt2)</th>
+                    {/* Baris 2: Sub-kolom Per Tanggal (YO, OM, OS, YT) & Sub-kolom Ringkasan */}
+                    <tr>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                        <React.Fragment key={d}>
+                          <th className="p-1 text-center border-l border-b border-slate-800 text-red-400 bg-slate-900/90 text-[9px] min-w-[40px]">YO</th>
+                          <th className="p-1 text-center border-l border-b border-slate-800 text-amber-400 bg-slate-900/90 text-[9px] min-w-[40px]">OM</th>
+                          <th className="p-1 text-center border-l border-b border-slate-800 text-pink-400 bg-slate-900/90 text-[9px] min-w-[40px]">OS</th>
+                          <th className="p-1 text-center border-l border-b border-slate-800 text-blue-400 bg-slate-900/90 text-[9px] min-w-[40px]">YT</th>
+                        </React.Fragment>
+                      ))}
 
-                      {/* Sektor Rmh */}
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-blue-300">Hari</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-blue-300">Akm</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-blue-300 font-bold bg-slate-950">%</th>
+                      {/* Sub-header TOTAL 4 ITEM */}
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-red-300 bg-red-950/60 text-[9px] min-w-[42px]">YO</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-amber-300 bg-red-950/60 text-[9px] min-w-[42px]">OM</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-pink-300 bg-red-950/60 text-[9px] min-w-[42px]">OS</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-blue-300 bg-red-950/60 text-[9px] min-w-[42px]">YT</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-white bg-red-900 text-[9px] min-w-[48px]">TOTAL</th>
 
-                      {/* RB vs Pelanggan */}
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-purple-300">Pelanggan</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-purple-300">RB</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-purple-300 font-bold bg-slate-950">%</th>
+                      {/* Sub-header RATA-RATA HARIAN */}
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-red-300 bg-amber-950/60 text-[9px] min-w-[42px]">YO</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-amber-300 bg-amber-950/60 text-[9px] min-w-[42px]">OM</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-pink-300 bg-amber-950/60 text-[9px] min-w-[42px]">OS</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-blue-300 bg-amber-950/60 text-[9px] min-w-[42px]">YT</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-amber-100 bg-amber-900 text-[9px] min-w-[48px]">RATA</th>
 
-                      {/* Propaganda Baru */}
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-amber-300">Pagi</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-amber-300">Sore</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-amber-300 font-bold bg-slate-950">Akm</th>
-
-                      {/* Sampah Botol */}
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-teal-300">Hari</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-teal-300">Akm</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-teal-300 font-bold bg-slate-950">vs 900</th>
-
-                      {/* Kembali Botol */}
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-rose-300">Hari</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-rose-300 font-bold bg-slate-950">%</th>
-                      <th rowSpan={2} className="p-1 border-r border-slate-800 text-rose-300">Akm</th>
-                      <th rowSpan={2} className="p-1 text-rose-300 font-bold bg-slate-950">%</th>
-                    </tr>
-                    {/* Row 2 */}
-                    <tr className="border-b border-slate-800">
-                      {/* Rata-Rata Bulan Ini */}
-                      <th className="p-1 border-r border-slate-800 text-emerald-400">YO</th>
-                      <th className="p-1 border-r border-slate-800 text-emerald-400">OM</th>
-                      <th className="p-1 border-r border-slate-800 text-emerald-400">OS</th>
-                      <th className="p-1 border-r border-slate-800 text-emerald-400">YT</th>
-                      <th className="p-1 border-r border-slate-800 font-bold text-emerald-400 bg-slate-950">ALL</th>
+                      {/* Sub-header TARGET & PEMBANDING */}
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-purple-200 bg-purple-950/60 text-[9px] min-w-[48px]">Target</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-emerald-300 bg-purple-950/60 text-[9px] min-w-[48px]">Sel. Tgt</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-indigo-200 bg-purple-950/60 text-[9px] min-w-[48px]">Bln Lalu</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-emerald-300 bg-purple-950/60 text-[9px] min-w-[48px]">Sel. BL</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-teal-200 bg-purple-950/60 text-[9px] min-w-[48px]">Thn Lalu</th>
+                      <th className="p-1 text-center border-l border-b border-slate-800 text-emerald-300 bg-purple-950/60 text-[9px] min-w-[48px]">Sel. TL</th>
                     </tr>
                   </thead>
-                  <tbody className={`divide-y ${
-                    isFullscreenEval
-                      ? (theme === "dark" ? "divide-slate-800 bg-slate-950" : "divide-slate-200 bg-white")
-                      : "divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100"
-                  }`}>
-                    {(() => {
-                      let maxCols = { c7: -1, c13: -1, c15: -Infinity, c18: -1, c21: -1, pb: -1, c26: -1, c28: Infinity };
-                      if (activeEval?.dataRows) {
-                        activeEval.dataRows.forEach(row => {
-                          if ((row[7] || 0) > maxCols.c7) maxCols.c7 = row[7] || 0;
-                          if ((row[13] || 0) > maxCols.c13) maxCols.c13 = row[13] || 0;
-                          if ((row[15] || 0) > maxCols.c15) maxCols.c15 = row[15] || 0;
-                          if ((row[18] || 0) > maxCols.c18) maxCols.c18 = row[18] || 0;
-                          if ((row[21] || 0) > maxCols.c21) maxCols.c21 = row[21] || 0;
-                          const pbSum = (row[22] || 0) + (row[23] || 0);
-                          if (pbSum > maxCols.pb) maxCols.pb = pbSum;
-                          if ((row[26] || 0) > maxCols.c26) maxCols.c26 = row[26] || 0;
-                          
-                          const bb = typeof row[28] === "number" ? row[28] : 0;
-                          if (bb < maxCols.c28) maxCols.c28 = bb;
+                  <tbody className="divide-y divide-slate-200">
+                    {ylList.filter((y: any) => y.status !== "nonaktif").map((yl: any, idx: number) => (
+                      <BreakdownGridRow
+                        key={yl.area || idx}
+                        yl={yl}
+                        rIdx={idx}
+                        activeGridMap={activeGridMap}
+                        targetYLMap={targetYLMap}
+                        breakdownDateRange="1-31"
+                        gridSelection={gridSelection}
+                        isFillDragging={isFillDragging}
+                        fillHoverCell={fillHoverCell}
+                        isGridDragging={isGridDragging}
+                        touchStartRef={touchStartRef}
+                        setGridSelection={setGridSelection}
+                        setIsGridDragging={setIsGridDragging}
+                        setFillHoverCell={setFillHoverCell}
+                        handleTouchMoveGrid={handleTouchMoveGrid}
+                        handleBreakdownCellChange={handleBreakdownCellChange}
+                        handlePasteIntoGrid={handlePasteIntoGrid}
+                        setIsBreakdownMenuOpen={setIsBreakdownMenuOpen}
+                        setBreakdownMenuPos={setBreakdownMenuPos}
+                      />
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-900 text-slate-100 font-black border-t-2 border-slate-800">
+                    <tr className="text-[11px] divide-x divide-slate-800">
+                      <td className="p-2.5 sticky left-0 bg-slate-900 z-20 font-black text-slate-200 text-left whitespace-nowrap">
+                        TOTAL HARIAN
+                      </td>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
+                        const data = dailyGridTotals[d] || { yo: 0, om: 0, os: 0, yt: 0 };
+                        return (
+                          <React.Fragment key={d}>
+                            <td className="p-1 text-center text-red-300 font-black bg-slate-900/90">{data.yo}</td>
+                            <td className="p-1 text-center text-amber-300 font-black bg-slate-900/90">{data.om}</td>
+                            <td className="p-1 text-center text-pink-300 font-black bg-slate-900/90">{data.os}</td>
+                            <td className="p-1 text-center text-blue-300 font-black bg-slate-900/90">{data.yt}</td>
+                          </React.Fragment>
+                        );
+                      })}
+                      <td className="p-1 text-center font-bold text-red-300 bg-red-950/60">{monthlyGridTotals.yo}</td>
+                      <td className="p-1 text-center font-bold text-amber-300 bg-red-950/60">{monthlyGridTotals.om}</td>
+                      <td className="p-1 text-center font-bold text-pink-300 bg-red-950/60">{monthlyGridTotals.os}</td>
+                      <td className="p-1 text-center font-bold text-blue-300 bg-red-950/60">{monthlyGridTotals.yt}</td>
+                      <td className="p-1 text-center font-black text-white bg-red-900">{monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt}</td>
+                      
+                      {(() => {
+                        const pembagiStr = Object.values(activeGridMap || {}).reduce((acc: number, curr: any) => Math.max(acc, Number(curr.pembagiTanggal) || 25), 25);
+                        const pembagi = Number(pembagiStr) || 25;
+                        const ryo = Math.round(monthlyGridTotals.yo / pembagi);
+                        const rom = Math.round(monthlyGridTotals.om / pembagi);
+                        const ros = Math.round(monthlyGridTotals.os / pembagi);
+                        const ryt = Math.round(monthlyGridTotals.yt / pembagi);
+                        const rsum = ryo + rom + ros + ryt;
+                        return (
+                          <React.Fragment>
+                            <td className="p-1 text-center font-bold text-red-300 bg-amber-950/60">{ryo}</td>
+                            <td className="p-1 text-center font-bold text-amber-300 bg-amber-950/60">{rom}</td>
+                            <td className="p-1 text-center font-bold text-pink-300 bg-amber-950/60">{ros}</td>
+                            <td className="p-1 text-center font-bold text-blue-300 bg-amber-950/60">{ryt}</td>
+                            <td className="p-1 text-center font-black text-amber-100 bg-amber-900">{rsum}</td>
+                          </React.Fragment>
+                        );
+                      })()}
+
+                      {(() => {
+                        let totalTarget = 0, totalBL = 0, totalTL = 0;
+                        const pembagiStr = Object.values(activeGridMap || {}).reduce((acc: number, curr: any) => Math.max(acc, Number(curr.pembagiTanggal) || 25), 25);
+                        const pembagi = Number(pembagiStr) || 25;
+                        activeYLsList.forEach((yl: any) => {
+                          const tgtObj = activeTargetYLMap[String(yl.area).substring(0, 3)] || { target: 0, bln_lalu: 0, thn_lalu: 0 };
+                          totalTarget += (tgtObj.target || 0) * pembagi;
+                          totalBL += (tgtObj.bln_lalu || 0) * pembagi;
+                          totalTL += (tgtObj.thn_lalu || 0) * pembagi;
                         });
-                      }
+                        const grandTotal = monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt;
+                        const dTarget = grandTotal - totalTarget;
+                        const dBL = grandTotal - totalBL;
+                        const dTL = grandTotal - totalTL;
+                        return (
+                          <React.Fragment>
+                            <td className="p-1 text-center font-bold text-purple-300 bg-purple-950/60">{totalTarget}</td>
+                            <td className={`p-1 text-center font-black ${dTarget >= 0 ? "text-emerald-300 bg-emerald-900/60" : "text-rose-300 bg-rose-900/60"}`}>
+                              {dTarget >= 0 ? `+${dTarget}` : dTarget}
+                            </td>
+                            <td className="p-1 text-center font-bold text-indigo-300 bg-purple-950/60">{totalBL}</td>
+                            <td className={`p-1 text-center font-black ${dBL >= 0 ? "text-emerald-300 bg-emerald-900/60" : "text-rose-300 bg-rose-900/60"}`}>
+                              {dBL >= 0 ? `+${dBL}` : dBL}
+                            </td>
+                            <td className="p-1 text-center font-bold text-teal-300 bg-purple-950/60">{totalTL}</td>
+                            <td className={`p-1 text-center font-black ${dTL >= 0 ? "text-emerald-300 bg-emerald-900/60" : "text-rose-300 bg-rose-900/60"}`}>
+                              {dTL >= 0 ? `+${dTL}` : dTL}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })()}
+                    </tr>
 
-                      return (activeEval?.dataRows || []).map((row, rIdx) => (
-                        <tr key={rIdx} className={isFullscreenEval ? (theme === "dark" ? "hover:bg-slate-800 border-b border-slate-800 text-slate-300" : "hover:bg-slate-100 border-b border-slate-200 text-slate-700") : "hover:bg-red-50 dark:hover:bg-red-950/20 border-b border-slate-100 dark:border-slate-800"}>
-                          {(row || []).map((val, cIdx) => {
-                            let isTopPerf = false;
-                            if (cIdx === 7 && val > 0 && val === maxCols.c7) isTopPerf = true;
-                            if (cIdx === 13 && val > 0 && val === maxCols.c13) isTopPerf = true;
-                            if (cIdx === 15 && maxCols.c15 !== -Infinity && val === maxCols.c15) isTopPerf = true;
-                            if (cIdx === 18 && val > 0 && val === maxCols.c18) isTopPerf = true;
-                            if (cIdx === 21 && val > 0 && val === maxCols.c21) isTopPerf = true;
-                            if ((cIdx === 22 || cIdx === 23) && maxCols.pb > 0 && ((row[22]||0)+(row[23]||0)) === maxCols.pb) isTopPerf = true;
-                            if (cIdx === 26 && val > 0 && val === maxCols.c26) isTopPerf = true;
-                            if (cIdx === 28 && maxCols.c28 !== Infinity && val === maxCols.c28) isTopPerf = true;
+                    <tr className="bg-emerald-900 text-white font-black text-[11px] uppercase divide-x divide-slate-800">
+                      <td className="p-2.5 sticky left-0 bg-emerald-950 z-20 text-left font-black tracking-wide text-emerald-200">
+                        TOTAL ALL VARIAN
+                      </td>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
+                        const data = dailyGridTotals[d] || { yo: 0, om: 0, os: 0, yt: 0 };
+                        const sum = data.yo + data.om + data.os + data.yt;
+                        return (
+                          <td key={d} colSpan={4} className="p-1 text-center bg-emerald-900/90 font-black text-emerald-200">
+                            {sum} btl
+                          </td>
+                        );
+                      })}
+                      <td colSpan={5} className="p-1 text-center font-black text-white bg-emerald-800">
+                        {monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt} btl
+                      </td>
+                      {(() => {
+                        const pembagiStr = Object.values(activeGridMap || {}).reduce((acc: number, curr: any) => Math.max(acc, Number(curr.pembagiTanggal) || 25), 25);
+                        const pembagi = Number(pembagiStr) || 25;
+                        const ryo = Math.round(monthlyGridTotals.yo / pembagi);
+                        const rom = Math.round(monthlyGridTotals.om / pembagi);
+                        const ros = Math.round(monthlyGridTotals.os / pembagi);
+                        const ryt = Math.round(monthlyGridTotals.yt / pembagi);
+                        const rsum = ryo + rom + ros + ryt;
+                        return (
+                          <td colSpan={5} className="p-1 text-center font-black text-emerald-100 bg-emerald-900/90">
+                            {rsum} btl
+                          </td>
+                        );
+                      })()}
+                      <td colSpan={6} className="bg-emerald-950/80"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
 
+            <GridSelectionToolbar
+              selection={gridSelection}
+              isMenuOpen={isBreakdownMenuOpen}
+              menuPos={breakdownMenuPos}
+              onCopy={handleCopyGridCells}
+              onCut={handleCutGridCells}
+              onPaste={async () => {
+                try {
+                  const text = await navigator.clipboard.readText();
+                  if (text && gridSelection) handlePasteIntoGrid(text);
+                } catch (e) {}
+              }}
+              onClear={handleClearSelectedGridCells}
+              onSelectAll={handleSelectAllGridCells}
+              onClose={() => {
+                setIsBreakdownMenuOpen(false);
+                setGridSelection(null);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Tab Target & Kompensasi */}
+        {activeTab === "target_kompensasi" && (
+          <div className="space-y-4">
+            {/* Target TKU Card */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🎯</span>
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase">Target TKU Bulan Ini</h2>
+                    <p className="text-[10.5px] text-slate-500 font-medium">Pengaturan target penjualan harian untuk TKU</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleSaveSettingTargets}
+                  className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>💾</span>
+                  <span>Simpan All Target & Kompensasi</span>
+                </button>
+              </div>
+
+              {compSavedMsg && (
+                <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200 animate-pulse">
+                  {compSavedMsg}
+                </p>
+              )}
+
+              <div className="overflow-x-auto pt-2">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-100 text-slate-700 text-[10px] uppercase font-bold">
+                    <tr>
+                      <th className="p-2 border-b border-slate-200">Baris Target / Realisasi</th>
+                      <th className="p-2 border-b border-slate-200 text-center font-extrabold text-blue-700 bg-blue-50/50">Total</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Yakult (YO)</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Light (OM)</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Yakult (OS)</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Light (YT)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 font-mono">
+                    {[
+                      { title: "Target Bulan Ini", prefix: "target", r: 0 },
+                      { title: "Realisasi Bulan Lalu", prefix: "bln_lalu", r: 1 },
+                      { title: "Realisasi Tahun Lalu", prefix: "thn_lalu", r: 2 },
+                    ].map((rowItem) => {
+                      const totalVal = (activeTargetTKU as any)[rowItem.prefix] ?? 0;
+                      return (
+                        <tr key={rowItem.prefix} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-2.5 font-bold text-slate-800 border-r border-slate-200 bg-slate-50/60 select-none">
+                            {rowItem.title}
+                          </td>
+                          <td className="p-2 text-center border-r border-slate-200 font-black text-blue-900 bg-blue-50/30 text-xs">
+                            {totalVal.toLocaleString("id-ID")}
+                          </td>
+                          {(["_yo", "_om", "_os", "_yt"] as const).map((sfx, cIdx) => {
+                            const val = (activeTargetTKU as any)[`${rowItem.prefix}${sfx}`] ?? 0;
+                            const cellProps = getTkuCellProps(rowItem.r, cIdx);
                             return (
-                              <td key={cIdx} className={`p-2 border-r text-center font-mono ${isFullscreenEval ? (theme === "dark" ? "border-slate-800" : "border-slate-200") : "border-slate-100 dark:border-slate-800"} ${isTopPerf ? (isFullscreenEval ? (theme === "dark" ? "bg-emerald-950 text-emerald-400 font-extrabold" : "bg-emerald-100 text-emerald-800 font-extrabold") : "bg-emerald-100 dark:bg-emerald-950 font-bold text-emerald-800 dark:text-emerald-400") : ""}`}>
-                                {typeof val === "number" ? ([15, 18, 21, 29, 31].includes(cIdx) ? `${val}%` : (cIdx === 27 && val > 0 ? `+${val.toLocaleString("id-ID")}` : val.toLocaleString("id-ID"))) : val}
+                              <td
+                                key={sfx}
+                                {...cellProps}
+                                className={`p-1.5 text-center border-r border-slate-200 ${cellProps.className}`}
+                              >
+                                <NumberInput
+                                  min={0}
+                                  value={val}
+                                  onChange={(n) => {
+                                    handleUpdateTargetTKU((prev: any) => {
+                                      const updated = { ...prev, [`${rowItem.prefix}${sfx}`]: n };
+                                      const yo = updated[`${rowItem.prefix}_yo`] ?? 0;
+                                      const om = updated[`${rowItem.prefix}_om`] ?? 0;
+                                      const os = updated[`${rowItem.prefix}_os`] ?? 0;
+                                      const yt = updated[`${rowItem.prefix}_yt`] ?? 0;
+                                      updated[rowItem.prefix] = yo + om + os + yt;
+                                      return updated;
+                                    });
+                                  }}
+                                  className="w-full h-full p-1 text-xs text-center font-bold text-slate-900 bg-transparent outline-none border-none"
+                                />
                               </td>
                             );
                           })}
                         </tr>
-                      ));
-                    })()}
-                    {activeEval?.totalRow && (
-                      <tr className={`${isFullscreenEval ? (theme === "dark" ? "bg-slate-900 border-t-2 border-slate-700 text-amber-400 font-black" : "bg-amber-100 border-t-2 border-amber-300 text-amber-800 font-black") : "bg-amber-100 dark:bg-amber-950/40 font-bold border-t-2 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-400"}`}>
-                        {(activeEval.totalRow || []).map((val, cIdx) => (
-                          <td key={cIdx} className={`p-2 border-r text-center font-mono ${isFullscreenEval ? (theme === "dark" ? "border-slate-800" : "border-slate-200") : "border-amber-200 dark:border-amber-800"}`}>
-                            {typeof val === "number" ? ([15, 18, 21, 29, 31].includes(cIdx) ? `${val}%` : (cIdx === 27 && val > 0 ? `+${val.toLocaleString("id-ID")}` : val.toLocaleString("id-ID"))) : val}
-                          </td>
-                        ))}
-                      </tr>
-                    )}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              <div className="bg-slate-50 dark:bg-slate-900 p-2 text-[9px] text-slate-400 dark:text-slate-500 font-bold text-center border-t border-slate-100 dark:border-slate-800 shrink-0">
-                <span className="inline-block w-2.5 h-2.5 bg-emerald-100 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-800 rounded mr-1" /> Sel hijau melambangkan pencapaian performa terbaik harian.
+            </div>
+
+            {/* Target YL Table Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-4 space-y-3">
+              <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Target per Yakult Lady</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="bg-slate-100 text-slate-700 text-[10px] uppercase font-bold">
+                    <tr>
+                      <th className="p-2 border-b border-slate-200">Yakult Lady</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Target Rata-Rata</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Realisasi Bulan Lalu</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Realisasi Tahun Lalu</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {ylList.filter((y: any) => y.status !== "nonaktif").map((yl: any, idx: number) => (
+                      <TargetManagerRow
+                        key={yl.area || idx}
+                        yl={yl}
+                        idx={idx}
+                        targetYLMap={activeTargetYLMap}
+                        setTargetYLMap={isViewingHistoricalMonth ? handleUpdateTargetYLMap : setTargetYLMap}
+                        getTargetCellProps={getTargetCellProps}
+                        selectTargetRow={selectTargetRow}
+                      />
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            {/* Combined highlights "Performa Terbaik" & "Perlu Perbaikan" */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Combined Top Performer + Positives */}
-              <div className="bg-white dark:bg-white rounded-2xl p-4 border border-emerald-300 shadow-md text-slate-900">
-                <h3 className="text-xs font-black text-emerald-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  🏆 PERFORMA TERBAIK
-                </h3>
-                {top ? (
-                  <div className="text-xs text-slate-800 space-y-1.5">
-                    <p>
-                      <strong className="font-black text-slate-950">{top.nama}</strong> memimpin dengan memenangkan{" "}
-                      <span className="font-black text-emerald-700">{(top as any).winCount || 0} dari 8 kategori</span>.
+            {/* Estimasi Rincian Kompensasi Bulanan per YL Card */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">💰</span>
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase">
+                      Estimasi Rincian Kompensasi Bulanan per YL
+                    </h2>
+                    <p className="text-[10.5px] text-slate-500 font-medium">
+                      Simulasi kompensasi kotor, potongan PPh (2,5%), Iuran JKK/JKM, JHT, dan kompensasi bersih per Yakult Lady
                     </p>
-                    {(top as any).wonCategories && (top as any).wonCategories.length > 0 && (
-                      <p className="text-slate-600">
-                        Keunggulan di: <strong className="font-bold text-emerald-800">{(top as any).wonCategories.join(", ")}</strong>.
-                      </p>
-                    )}
-                    <div className="text-[11px] font-bold text-emerald-900 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                      👍 Pertahankan efisiensi kunjungan dan rute di sektor andalan Anda!
-                    </div>
                   </div>
-                ) : (
-                  <p className="text-xs text-emerald-700 italic">Memuat data...</p>
-                )}
-              </div>
-
-              {/* Combined Lowest + Negatives (BB) */}
-              <div className="bg-white dark:bg-white rounded-2xl p-4 border border-rose-300 shadow-md text-slate-900">
-                <h3 className="text-xs font-black text-rose-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  ⚠️ PERFORMA TURUN
-                </h3>
-                {needImprovement ? (
-                  <div className="text-xs text-slate-800 space-y-1.5">
-                    <p>
-                      <strong className="font-black text-slate-950">{needImprovement.nama}</strong> berada di posisi terbawah pada{" "}
-                      <span className="font-black text-rose-700">{(needImprovement as any).loseCount || 0} dari 8 kategori</span>.
-                    </p>
-                    {(needImprovement as any).lostCategories && (needImprovement as any).lostCategories.length > 0 && (
-                      <p className="text-slate-600">
-                        Kelemahan di: <strong className="font-bold text-rose-800">{(needImprovement as any).lostCategories.join(", ")}</strong>.
-                      </p>
-                    )}
-                    {highestBB && (
-                      <p>
-                        Sorotan negatif terbesar pada tingkat Balik Botol (BB) terbanyak dialami oleh{" "}
-                        <strong className="font-black text-slate-950">{highestBB.nama}</strong> dengan total{" "}
-                        <span className="font-black text-rose-700">{highestBB.bb} btl retur</span> hari ini.
-                      </p>
-                    )}
-                    <div className="text-[11px] font-bold text-rose-900 bg-rose-50 p-2 rounded-lg border border-rose-200">
-                      🚨 Tindakan: Segera review rute drop-off dan sisa stock harian agar botol retur tidak membengkak!
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-rose-700 italic">Memuat data...</p>
-                )}
-              </div>
-            </div>
-
-            {/* 8 BENTO GRID METRIC BLOCKS */}
-            <div className="bg-white dark:bg-white rounded-2xl p-4 border border-slate-200 shadow-md space-y-3 text-slate-900">
-              <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                <Award className="w-4 h-4 text-red-600" /> Ringkasan Prestasi & Sorotan Utama Hari Ini
-              </h3>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {/* Block 1 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-red-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <TrendingUp className="w-4 h-4 text-red-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-red-800 bg-red-100 border border-red-200 px-2 py-0.5 rounded">Hari Ini</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">1. Jual Terbanyak</p>
-                  {evaluasiBlocks?.block1 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block1.nama)}</p>
-                      <p className="text-sm font-black text-red-600 mt-0.5">{evaluasiBlocks!.block1.jualHariIni} <span className="text-[10px] font-semibold text-slate-600">btl</span></p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
-                </div>
-
-                {/* Block 2 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-amber-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <Clock className="w-4 h-4 text-amber-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-amber-800 bg-amber-100 border border-amber-200 px-2 py-0.5 rounded">Bulan Ini</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">2. Rata-rata Tertinggi</p>
-                  {evaluasiBlocks?.block2 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block2.nama)}</p>
-                      <p className="text-sm font-black text-amber-600 mt-0.5">{Math.trunc(evaluasiBlocks!.block2.rata2BulanBerjalan)} <span className="text-[10px] font-semibold text-slate-600">btl/hari</span></p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
-                </div>
-
-                {/* Block 3 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-emerald-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <Zap className="w-4 h-4 text-emerald-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded">vs Mgg Lalu</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">3. Kenaikan Tertinggi</p>
-                  {evaluasiBlocks?.block3 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block3.nama)}</p>
-                      <p className="text-sm font-black text-emerald-600 mt-0.5">+{Math.trunc(evaluasiBlocks!.block3.vsMingguLaluPct)}%</p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
-                </div>
-
-                {/* Block 4 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-blue-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <Home className="w-4 h-4 text-blue-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-blue-800 bg-blue-100 border border-blue-200 px-2 py-0.5 rounded">Sektor</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">4. Persen Rumah Tertinggi</p>
-                  {evaluasiBlocks?.block4 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block4.nama)}</p>
-                      <p className="text-sm font-black text-blue-600 mt-0.5">{Math.trunc(evaluasiBlocks!.block4.persenRumah)}%</p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
-                </div>
-
-                {/* Block 5 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-purple-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <UserCheck className="w-4 h-4 text-purple-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-purple-800 bg-purple-100 border border-purple-200 px-2 py-0.5 rounded">Kunjungan</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">5. RB vs Pelanggan Tertinggi</p>
-                  {evaluasiBlocks?.block5 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block5.nama)}</p>
-                      <p className="text-sm font-black text-purple-600 mt-0.5">{Math.trunc(evaluasiBlocks!.block5.persenRbVsPlg)}%</p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
-                </div>
-
-                {/* Block 6 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-indigo-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <Megaphone className="w-4 h-4 text-indigo-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-indigo-800 bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded">Propaganda</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">6. PB Hari Ini Tertinggi</p>
-                  {evaluasiBlocks?.block6 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block6.nama)}</p>
-                      <p className="text-sm font-black text-indigo-600 mt-0.5">{evaluasiBlocks!.block6.propagandaHariIni} <span className="text-[10px] font-semibold text-slate-600">PB</span></p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
-                </div>
-
-                {/* Block 7 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-teal-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <Trash2 className="w-4 h-4 text-teal-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-teal-800 bg-teal-100 border border-teal-200 px-2 py-0.5 rounded">Lingkungan</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">7. Sampah Botol Terbanyak</p>
-                  {evaluasiBlocks?.block7 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block7.nama)}</p>
-                      <p className="text-sm font-black text-teal-600 mt-0.5">{evaluasiBlocks!.block7.sampahBotol} <span className="text-[10px] font-semibold text-slate-600">btl</span></p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
-                </div>
-
-                {/* Block 8 */}
-                <div className="bg-white dark:bg-white p-3 rounded-xl border border-emerald-200 shadow-sm text-slate-900">
-                  <div className="flex items-center justify-between">
-                    <CheckCircle className="w-4 h-4 text-emerald-600" />
-                    <span className="text-[9px] font-black uppercase tracking-wider text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded">Retur</span>
-                  </div>
-                  <p className="text-xs font-extrabold text-slate-800 mt-2">8. BB Paling Sedikit/Nol</p>
-                  {evaluasiBlocks?.block8 ? (
-                    <div className="mt-1">
-                      <p className="text-sm font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block8.nama)}</p>
-                      <p className="text-sm font-black text-emerald-600 mt-0.5">{evaluasiBlocks!.block8.bb} <span className="text-[10px] font-semibold text-slate-600">btl</span></p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">Memuat...</p>
-                  )}
                 </div>
               </div>
-            </div>
 
-            {/* AI Deep Evaluation Card */}
-            <div className="bg-white dark:bg-white rounded-2xl p-4 border border-indigo-200 shadow-md text-slate-900 relative overflow-hidden">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-xs font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-indigo-600 animate-pulse" /> Analisis & Evaluasi AI Jember 1
-                </h3>
-                <button
-                  onClick={runAiInsight}
-                  disabled={isAiLoading}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg transition-all shadow-sm flex items-center gap-1 disabled:opacity-50"
+              <div>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1.5">
+                  Pilih Yakult Lady
+                </label>
+                <select
+                  value={selectedYLArea}
+                  onChange={(e) => setSelectedYLArea(e.target.value)}
+                  className="w-full p-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none font-bold text-slate-700"
                 >
-                  {isAiLoading ? "Sedang Menganalisis..." : "Jalankan Analisis AI"}
-                </button>
+                  {(ylList && ylList.length > 0 ? ylList : names.map((n: string) => ({ area: n.substring(0, 3), nama: n }))).map((yl: any) => (
+                    <option key={yl.area} value={yl.area}>
+                      {yl.nama} ({yl.area})
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {isAiLoading ? (
-                <div className="flex flex-col items-center justify-center py-6 text-center">
-                  <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-[11px] text-indigo-700 font-bold mt-2">Menganalisis data lembar evaluasi harian dengan Gemini...</span>
+              {/* Selected YL Details */}
+              {(() => {
+                const ylPerf = activeDashboardData?.perYL?.[selectedYLArea];
+                const totalPenjualanYL = ylPerf?.akumulasi ?? 0;
+                const rata2PenjualanYL = ylPerf?.rata2 ?? 0;
+                const targetYLVal = ylPerf?.targetYL ?? activeTargetYLMap?.[selectedYLArea]?.target ?? 0;
+                const daysInMonth = ylPerf?.pembagi || 15;
+
+                const effectiveTotal = totalPenjualanYL > 0 ? totalPenjualanYL : (targetYLVal * daysInMonth);
+                const effectiveAvg = rata2PenjualanYL > 0 ? rata2PenjualanYL : targetYLVal;
+
+                let rateTier = 338;
+                if (effectiveAvg >= 350) rateTier = 432;
+                else if (effectiveAvg >= 330) rateTier = 428;
+                else if (effectiveAvg >= 300) rateTier = 424;
+                else if (effectiveAvg >= 280) rateTier = 417;
+                else if (effectiveAvg >= 250) rateTier = 409;
+                else if (effectiveAvg >= 200) rateTier = 374;
+
+                const kompenKotor = (ylDetail?.kompensasi?.kompensasi && ylDetail.kompensasi.kompensasi > 0)
+                  ? ylDetail.kompensasi.kompensasi
+                  : Math.floor(effectiveTotal * rateTier);
+                const pphVal = (ylDetail?.kompensasi?.pph && ylDetail.kompensasi.pph > 0)
+                  ? ylDetail.kompensasi.pph
+                  : Math.floor(kompenKotor * 0.025);
+                const jkkVal = ylDetail?.kompensasi?.jkk || 18800;
+                const jhtVal = ylDetail?.kompensasi?.jht || 24000;
+                const kresekVal = ylDetail?.kompensasi?.kresekDll || 0;
+                const kompenBersihVal = (ylDetail?.kompensasi?.kompenBersih && ylDetail.kompensasi.kompenBersih > 0)
+                  ? ylDetail.kompensasi.kompenBersih
+                  : Math.max(0, kompenKotor - pphVal - jkkVal - jhtVal - kresekVal);
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-center">
+                        <span className="text-[9px] font-black text-slate-400 uppercase block">Total Akumulasi Penjualan</span>
+                        <span className="text-sm font-black text-slate-900 mt-1 block">
+                          {Math.trunc(totalPenjualanYL).toLocaleString("id-ID")} btl
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-center">
+                        <span className="text-[9px] font-black text-slate-400 uppercase block">Rata-Rata Penjualan</span>
+                        <span className="text-sm font-black text-slate-900 mt-1 block">
+                          {Math.trunc(rata2PenjualanYL)} btl/hr
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Kompensasi Table */}
+                    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="p-3 bg-slate-900 text-white font-black text-xs uppercase tracking-wider flex items-center justify-between">
+                        <span>Rincian Kompensasi & Potongan</span>
+                        <span className="text-[10px] bg-emerald-500 text-slate-950 font-black px-2 py-0.5 rounded">
+                          Area {selectedYLArea}
+                        </span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <tbody className="divide-y divide-slate-100 font-bold">
+                            <tr>
+                              <td className="p-2.5 text-slate-600 font-normal">Kompensasi Kotor</td>
+                              <td className="p-2.5 text-right text-slate-900 font-black">{formatRp(kompenKotor)}</td>
+                            </tr>
+                            <tr className="text-rose-600 bg-rose-50/40">
+                              <td className="p-2.5 font-normal">PPh (2,5%)</td>
+                              <td className="p-2.5 text-right font-bold">- {formatRp(pphVal)}</td>
+                            </tr>
+                            <tr className="text-rose-600 bg-rose-50/40">
+                              <td className="p-2.5 font-normal">Iuran JKK / JKM</td>
+                              <td className="p-2.5 text-right font-bold">- {formatRp(jkkVal)}</td>
+                            </tr>
+                            <tr className="text-rose-600 bg-rose-50/40">
+                              <td className="p-2.5 font-normal">Iuran JHT</td>
+                              <td className="p-2.5 text-right font-bold">- {formatRp(jhtVal)}</td>
+                            </tr>
+                            <tr className="text-rose-600 bg-rose-50/40">
+                              <td className="p-2.5 font-normal">Kresek / Potongan Mandiri</td>
+                              <td className="p-2.5 text-right font-bold">- {formatRp(kresekVal)}</td>
+                            </tr>
+                            <tr className="bg-emerald-100/80 text-emerald-950 font-black text-sm border-t-2 border-emerald-300">
+                              <td className="p-3">Kompensasi Bersih</td>
+                              <td className="p-3 text-right text-emerald-700 font-black text-base">{formatRp(kompenBersihVal)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <GridSelectionToolbar
+              selection={targetGridSelection}
+              isMenuOpen={targetIsMenuOpen}
+              menuPos={targetMenuPos}
+              onCopy={handleTargetGridCopy}
+              onCut={handleTargetGridCut}
+              onPaste={handleTargetGridPaste}
+              onClear={handleTargetGridClear}
+              onClose={() => {
+                setTargetIsMenuOpen(false);
+                setTargetGridSelection(null);
+              }}
+            />
+
+            <GridSelectionToolbar
+              selection={tkuGridSelection}
+              isMenuOpen={tkuIsMenuOpen}
+              menuPos={tkuMenuPos}
+              onCopy={handleTkuGridCopy}
+              onCut={handleTkuGridCut}
+              onPaste={handleTkuGridPaste}
+              onClear={handleTkuGridClear}
+              onClose={() => {
+                setTkuIsMenuOpen(false);
+                setTkuGridSelection(null);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Tab Pengaturan & Cloud Supabase */}
+        {activeTab === "setting" && (
+          <div className="space-y-4">
+            {/* 1. Supabase Credentials Card */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">⚙️</span>
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase">Kredensial & Server Cloud Supabase</h2>
+                    <p className="text-[10.5px] text-slate-500 font-medium">Pengaturan koneksi Supabase untuk sinkronisasi database cloud</p>
+                  </div>
                 </div>
-              ) : aiInsight ? (
-                <div
-                  className="text-xs text-slate-700 bg-white rounded-xl p-3 border border-indigo-100/50 prose max-w-none shadow-sm leading-relaxed max-h-[300px] overflow-y-auto"
-                  dangerouslySetInnerHTML={{ __html: aiInsight }}
-                />
-              ) : (
-                <p className="text-xs text-slate-500 italic">
-                  Klik tombol di atas untuk memanggil modul kecerdasan buatan Gemini guna menganalisis laporan dropping tim Anda secara mendalam.
+                {isSbSyncing && (
+                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full animate-pulse">
+                    ⚡ Sedang Sinkron...
+                  </span>
+                )}
+              </div>
+
+              {sbMsg && (
+                <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200">
+                  {sbMsg}
                 </p>
               )}
+
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Project URL</label>
+                  <input
+                    type="text"
+                    value={sbUrl}
+                    onChange={(e) => setSbUrl(e.target.value)}
+                    placeholder="https://your-project.supabase.co"
+                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Anon Key</label>
+                  <input
+                    type="password"
+                    value={sbKey}
+                    onChange={(e) => setSbKey(e.target.value)}
+                    placeholder="eyJhbGciOi..."
+                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    onClick={handleSaveSupabaseConfig}
+                    className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>💾</span>
+                    <span>Simpan Kredensial Supabase</span>
+                  </button>
+                  <button
+                    onClick={handleSyncAllToSupabase}
+                    disabled={isSbSyncing}
+                    className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <span>☁️</span>
+                    <span>{isSbSyncing ? "Menyinkronkan..." : "Sinkronkan Semua Data ke Supabase"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Finish & Archive Month */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                  📦 Selesaikan & Arsipkan Bulan Berjalan
+                </h2>
+                {/* Month Picker for Archive */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">Pilih Bulan Arsip:</span>
+                  <input
+                    type="month"
+                    value={selectedMonthlyArchive}
+                    onChange={(e) => setSelectedMonthlyArchive(e.target.value)}
+                    className="p-1.5 text-xs font-bold bg-slate-50 rounded-xl border border-slate-200 text-slate-800 outline-none"
+                  />
+                </div>
+              </div>
+
+              {archivedMonthsList.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-[10.5px] font-bold text-slate-600">📂 Daftar Bulan Tersimpan di Supabase:</span>
+                  <select
+                    value={archivedMonthsList.includes(selectedMonthlyArchive) ? selectedMonthlyArchive : ""}
+                    onChange={(e) => {
+                      if (e.target.value) setSelectedMonthlyArchive(e.target.value);
+                    }}
+                    className="p-1.5 text-xs font-bold bg-white rounded-lg border border-slate-300 text-slate-800 outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>-- Pilih Bulan Tersimpan --</option>
+                    {archivedMonthsList.map((m) => (
+                      <option key={m} value={m}>
+                        {getIndonesianMonthLabel(m)} ({m})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <p className="text-[10.5px] text-slate-500 font-medium">
+                Mengunci dan mengarsipkan seluruh rekapitulasi data bulan <strong className="text-indigo-900 font-black">{getIndonesianMonthLabel(selectedMonthlyArchive) || selectedMonthlyArchive} ({selectedMonthlyArchive})</strong> ke Supabase secara permanen.
+              </p>
+
+              {archiveStatusMsg && (
+                <p className="text-xs font-bold text-indigo-600 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 leading-relaxed">
+                  {archiveStatusMsg}
+                </p>
+              )}
+
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
+                <button
+                  onClick={handleFinishAndArchiveMonth}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
+                >
+                  🔒 Selesaikan & Arsipkan Data Bulan Ini ({selectedMonthlyArchive})
+                </button>
+                <button
+                  onClick={() => handleFetchMonthFromSupabase(selectedMonthlyArchive)}
+                  disabled={isSbSyncing}
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  📂 Ambil Data Arsip Bulan Ini dari Supabase
+                </button>
+                <button
+                  onClick={handleUpdateArchiveMonth}
+                  disabled={isSbSyncing}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                  title="Ambil data live terbaru untuk bulan ini lalu timpa/perbarui arsip di Supabase"
+                >
+                  🔄 Perbarui / Refresh Arsip Bulan Ini
+                </button>
+                {isViewingHistoricalMonth && (
+                  <button
+                    onClick={handleResetToLiveData}
+                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 shrink-0"
+                  >
+                    🔄 Kembali ke Data Live
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Reset Data (Targeted) */}
+            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
+                🗑️ Reset Data Khusus (4 Kategori)
+              </h2>
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                Hanya menghapus data: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU. Data lain (Profil, PIN, Motivasi, dll) AMAN.
+              </p>
+              <div className="space-y-2 mt-2">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cakupan Reset:</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input type="radio" name="resetScope" value="current_month" checked={resetScope === "current_month"} onChange={() => setResetScope("current_month")} className="accent-rose-600" />
+                    Hanya Bulan Ini ({selectedBreakdownMonth || "2026-08"})
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input type="radio" name="resetScope" value="all" checked={resetScope === "all"} onChange={() => setResetScope("all")} className="accent-rose-600" />
+                    Semua Riwayat (Semua Bulan)
+                  </label>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowTargetedResetModal(true); setResetTargetedConfirmText(""); }}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-3"
+              >
+                ⚠️ Reset Data
+              </button>
+            </div>
+
+            {/* 4. Backup & Cache */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-slate-600 pl-2">
+                💾 Cadangan & Pembersihan Cache
+              </h2>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  onClick={handleExportBackupJson}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                >
+                  📥 Ekspor Backup Data JSON
+                </button>
+                <label className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1">
+                  <span>📤 Impor Backup JSON</span>
+                  <input type="file" accept=".json" onChange={handleImportBackupJson} className="hidden" />
+                </label>
+                <button
+                  onClick={handleDownloadExcel}
+                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1"
+                >
+                  📊 Simpan ke Excel Manual (.xlsx)
+                </button>
+                <button
+                  onClick={handleClearCache}
+                  className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                >
+                  🧹 Bersihkan Cache LocalStorage
+                </button>
+              </div>
+            </div>
+
+            {/* 5. Branding & Identitas Aplikasi */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-cyan-600 pl-2">
+                🏷️ Identitas Depo & Chatbot AI
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    Nama TKU / Depo (DP)
+                  </label>
+                  <input
+                    type="text"
+                    value={tkuNameInput}
+                    onChange={(e) => setTkuNameInput(e.target.value)}
+                    placeholder="DP Jember 1"
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    Nama Chatbot AI
+                  </label>
+                  <input
+                    type="text"
+                    value={chatbotNameInput}
+                    onChange={(e) => setChatbotNameInput(e.target.value)}
+                    placeholder="AI Jember 1 Pro"
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleSaveMotivasiConfigAll}
+                className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+              >
+                <span>💾</span>
+                <span>Simpan Branding</span>
+              </button>
+            </div>
+
+            {/* Archive Editor Feature */}
+            <div className="bg-white rounded-2xl p-4 border border-indigo-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-indigo-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                📂 Archive Editor (Edit Data Masa Lalu)
+              </h2>
+              <p className="text-[10px] text-slate-500 font-medium">
+                Masuk ke lingkungan terisolasi untuk melihat dan merevisi data arsip bulan-bulan sebelumnya yang tersimpan di Supabase tanpa mempengaruhi bulan berjalan.
+              </p>
+              <button
+                onClick={() => setShowArchiveEditor(true)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-2"
+              >
+                🛠️ Buka Archive Editor
+              </button>
+            </div>
+
+            {/* 6. Kelola Kalimat Motivasi Harian (YL) */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-amber-500 pl-2">
+                  📢 Kelola Kalimat Motivasi Harian (Running Text YL)
+                </h2>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-xs font-extrabold text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={localMotivasiEnabled}
+                      onChange={(e) => setLocalMotivasiEnabled(e.target.checked)}
+                      className="accent-amber-600 rounded cursor-pointer w-4 h-4"
+                    />
+                    Aktifkan Running Text
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase">Interval:</span>
+                    <input
+                      type="number"
+                      min={5}
+                      value={localMotivasiInterval}
+                      onChange={(e) => setLocalMotivasiInterval(Number(e.target.value) || 30)}
+                      className="bg-slate-50 border border-slate-200 text-xs rounded-xl p-1.5 font-extrabold text-slate-800 w-16 text-center focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <span className="text-xs font-bold text-slate-500">detik</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Input Tambah Kalimat */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                  Tambah Kalimat Motivasi Baru
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMotivasiInput}
+                    onChange={(e) => setNewMotivasiInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleAddMotivasi(); }}
+                    placeholder="Ketik kalimat motivasi baru untuk YL di sini..."
+                    className="flex-1 bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <button
+                    onClick={handleAddMotivasi}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow shrink-0"
+                  >
+                    ➕ Tambah
+                  </button>
+                </div>
+              </div>
+
+              {/* Action Toolbar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={handleSelectAllMotivasi}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+                  >
+                    ☑️ Pilih Semua ({localMotivasiList.length})
+                  </button>
+                  <button
+                    onClick={handleDeselectAllMotivasi}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+                  >
+                    🔲 Batal Semua
+                  </button>
+                  <button
+                    onClick={handleLoadSampleMotivasi}
+                    className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[11px] px-3 py-1.5 rounded-lg border border-amber-200 transition-all cursor-pointer"
+                  >
+                    💡 Muat Contoh Motivasi
+                  </button>
+                </div>
+                <span className="text-[11px] font-bold text-slate-500">
+                  Terpilih: <strong className="text-amber-600">{localMotivasiTerpilih.length}</strong> / {localMotivasiList.length}
+                </span>
+              </div>
+
+              {/* Daftar Kalimat Motivasi */}
+              <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1 border border-slate-100 rounded-xl p-2 bg-slate-50/50">
+                {localMotivasiList.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic text-center py-4">Belum ada kalimat motivasi. Silakan tambah atau muat contoh motivasi.</p>
+                ) : (
+                  localMotivasiList.map((item, idx) => {
+                    const isSelected = localMotivasiTerpilih.includes(item);
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex items-start justify-between gap-2 p-2.5 rounded-xl border text-xs transition-all ${
+                          isSelected ? "bg-white border-amber-300 shadow-sm text-slate-800" : "bg-slate-100/60 border-slate-200 text-slate-500 opacity-70"
+                        }`}
+                      >
+                        <label className="flex items-start gap-2.5 flex-1 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleMotivasiItem(item)}
+                            className="accent-amber-600 rounded cursor-pointer w-4 h-4 mt-0.5 shrink-0"
+                          />
+                          <span className="font-medium leading-relaxed">{item}</span>
+                        </label>
+                        <button
+                          onClick={() => handleDeleteMotivasiItem(item)}
+                          className="text-slate-400 hover:text-rose-600 font-bold text-xs p-1 rounded transition-colors shrink-0 cursor-pointer"
+                          title="Hapus kalimat ini"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Pesan Sukses Simpan */}
+              {motivasiSavedMsg && (
+                <p className="text-xs font-bold text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                  {motivasiSavedMsg}
+                </p>
+              )}
+
+              {/* Tombol Simpan Akhir */}
+              <button
+                onClick={handleSaveMotivasiConfigAll}
+                className="w-full bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
+              >
+                💾 Simpan Pengaturan Motivasi & Branding
+              </button>
+            </div>
+
+            {/* 7. Catatan Perhatian Manager (Attention YL) */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                📌 Catatan Perhatian Manager (Attention YL)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Pesan atau arahan khusus ini akan ditampilkan secara eksklusif di dashboard YL sesuai area yang dipilih.
+              </p>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    Pilih Area YL
+                  </label>
+                  <select
+                    value={attentionArea}
+                    onChange={(e) => {
+                      const area = e.target.value;
+                      setAttentionArea(area);
+                      setAttentionText(attentionMap[area] || "");
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  >
+                    {ylList.map((y: any) => (
+                      <option key={y.area} value={y.area}>
+                        Area {y.area} - {y.nama}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    Pesan Attention / Catatan Khusus
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={attentionText}
+                    onChange={(e) => setAttentionText(e.target.value)}
+                    placeholder="Ketik catatan atau instruksi khusus untuk YL di area ini..."
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+                  />
+                </div>
+
+                {attentionSavedMsg && (
+                  <p className="text-xs font-bold text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                    Catatan Attention berhasil disimpan!
+                  </p>
+                )}
+
+                <button
+                  onClick={handleSaveAttention}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>💾</span>
+                  <span>Simpan Catatan Attention</span>
+                </button>
+              </div>
             </div>
           </div>
-        ))}
+        )}
+
+        {/* Modal Targeted Reset */}
+        {showTargetedResetModal && (
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-rose-200">
+              <div className="flex items-center justify-between border-b border-rose-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">⚠️</span>
+                  <div>
+                    <h3 className="text-sm font-black text-rose-950 uppercase">Konfirmasi Reset Data</h3>
+                    <p className="text-[10px] text-rose-600 font-bold">Aksi ini bersifat destruktif</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowTargetedResetModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-900 text-xs space-y-2">
+                <p><strong>Cakupan:</strong> <span className="font-mono font-bold text-rose-950">{resetScope === "all" ? "SEMUA RIWAYAT (Semua Bulan)" : `HANYA BULAN INI (${selectedBreakdownMonth || "2026-08"})`}</span></p>
+                <p><strong>Data yang AKAN DIHAPUS:</strong></p>
+                <ul className="list-disc pl-4 font-bold text-[10px] space-y-1">
+                  <li>PLG & PJL (Data manual & Potensi Tembus)</li>
+                  <li>Input PJL (Data transaksi harian)</li>
+                  <li>BD & Realisasi (Breakdown Plan, Breakdown Realisasi, LHPP)</li>
+                  <li>Target (Target TKU & Target per YL)</li>
+                </ul>
+                <p className="text-[10px] italic text-rose-600 mt-2">Data lain (Profil YL, PIN, Setting) TIDAK akan dihapus.</p>
+              </div>
+              <div className="space-y-3">
+                <p className="text-[11px] text-slate-600 font-bold leading-relaxed">
+                  Apakah Anda yakin ingin menghapus data tersebut? Tindakan ini <strong>tidak dapat dibatalkan</strong>.
+                </p>
+                <div>
+                  <label className="text-[9px] font-bold text-rose-600 uppercase tracking-wider block mb-1">Ketik "HAPUS" untuk konfirmasi</label>
+                  <input
+                    type="text"
+                    value={resetTargetedConfirmText}
+                    onChange={(e) => setResetTargetedConfirmText(e.target.value.toUpperCase())}
+                    placeholder="HAPUS"
+                    className="w-full p-2.5 text-xs bg-white rounded-xl border border-rose-300 outline-none font-bold text-rose-900 text-center uppercase"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowTargetedResetModal(false)}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleConfirmTargetedReset}
+                  disabled={isResetting || resetTargetedConfirmText !== "HAPUS"}
+                  className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50"
+                >
+                  {isResetting ? "Proses..." : "Ya, Lanjutkan"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tab Data YL */}
         {activeTab === "lady" && (
           <ManagerLadyTab
             ylList={ylList}
             setYlList={setYlList}
-            names={names}
-            selectedYLArea={selectedYLArea}
-            setSelectedYLArea={setSelectedYLArea}
-            ylDetail={ylDetail}
-            dashboardData={dashboardData}
-            formatRp={formatRp}
             handleSaveYlList={handleSaveYlList}
             handleDeleteYl={handleDeleteYl}
             handleAddYl={handleAddYl}
@@ -2400,1818 +4422,28 @@ export function ManagerView({
           </div>
         )}
 
-        {/* Tab Breakdown Rencana Penjualan & Realisasi Manager */}
-        {activeTab === "breakdown" && (
-          <div className={isGridFullScreen ? "fixed inset-0 z-[100] bg-slate-950 flex flex-col h-screen w-screen overflow-hidden m-0 p-0" : "space-y-4"}>
-            {isGridFullScreen ? (
-              /* --- FULLSCREEN COMPACT STICKY HEADER --- */
-              <div className="sticky top-0 z-50 bg-slate-900 text-white px-1.5 py-0.5 border-b border-slate-800 shadow-md flex flex-wrap items-center justify-between gap-1 text-[9px] shrink-0 select-none">
-                <div className="flex flex-wrap items-center gap-1">
-                  <div className="inline-flex bg-slate-800 p-0.5 rounded border border-slate-700">
-                    <button
-                      onClick={() => {
-                        setGridSubMode("BD");
-                        setUndoStack([]);
-                        setRedoStack([]);
-                        setGridSelection(null);
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-black transition-all cursor-pointer ${
-                        gridSubMode === "BD" ? "bg-red-600 text-white" : "text-slate-300 hover:text-white"
-                      }`}
-                    >
-                      📊 BD
-                    </button>
-                    <button
-                      onClick={() => {
-                        setGridSubMode("Realisasi");
-                        setUndoStack([]);
-                        setRedoStack([]);
-                        setGridSelection(null);
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-black transition-all cursor-pointer ${
-                        gridSubMode === "Realisasi" ? "bg-emerald-600 text-white" : "text-slate-300 hover:text-white"
-                      }`}
-                    >
-                      📈 Realisasi
-                    </button>
-                  </div>
-
-                  <input
-                    type="month"
-                    value={selectedBreakdownMonth}
-                    onChange={(e) => setSelectedBreakdownMonth(e.target.value)}
-                    className="px-1 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px] font-black text-white font-mono outline-none"
-                  />
-
-
-
-                  {gridSelection && (
-                    <span className="bg-blue-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow">
-                      📌 {Math.abs(gridSelection.endR - gridSelection.startR) + 1}x{Math.abs(gridSelection.endC - gridSelection.startC) + 1} Sel
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-0.5 ml-auto flex-wrap">
-                  <button
-                    onClick={handleSelectAllGridCells}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[9px] px-1.5 py-0.5 rounded transition-all cursor-pointer shadow"
-                  >
-                    🔲 Blok Semua
-                  </button>
-
-                  <select
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val !== "") {
-                        handleSelectRowGridCells(Number(val));
-                        e.target.value = "";
-                      }
-                    }}
-                    defaultValue=""
-                    className="bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[9px] px-1 py-0.5 rounded border border-slate-700 outline-none cursor-pointer"
-                  >
-                    <option value="" disabled>👤 YL...</option>
-                    {activeYLsList.map((y, idx) => (
-                      <option key={y.area} value={idx}>[{y.area}] {y.nama.replace(/^\d+\s*/, "")}</option>
-                    ))}
-                  </select>
-
-                  <select
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val !== "") {
-                        handleSelectDayGridCells(Number(val));
-                        e.target.value = "";
-                      }
-                    }}
-                    defaultValue=""
-                    className="bg-slate-800 hover:bg-slate-700 text-teal-300 font-bold text-[9px] px-1 py-0.5 rounded border border-slate-700 outline-none cursor-pointer"
-                  >
-                    <option value="" disabled>📅 Tgl...</option>
-                    {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                      <option key={day} value={day}>Tgl {day}</option>
-                    ))}
-                  </select>
-
-                  <button
-                    onClick={handleUndo}
-                    disabled={undoStack.length === 0}
-                    className="bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white font-black text-[9px] px-1.5 py-0.5 rounded transition-all cursor-pointer shadow"
-                    title="Undo (Batal Edit)"
-                  >
-                    ↩️ UNDO ({undoStack.length})
-                  </button>
-
-                  <button
-                    onClick={handleRedo}
-                    disabled={redoStack.length === 0}
-                    className="bg-purple-800 hover:bg-purple-900 disabled:opacity-40 text-white font-black text-[9px] px-1.5 py-0.5 rounded transition-all cursor-pointer shadow"
-                    title="Redo (Ulangi Edit)"
-                  >
-                    ↪️ REDO ({redoStack.length})
-                  </button>
-
-                  <button
-                    onClick={handleCopyGridCells}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] px-1.5 py-0.5 rounded transition-all cursor-pointer shadow"
-                  >
-                    📋 SALIN
-                  </button>
-
-                  <button
-                    onClick={handleMobilePasteClick}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[9px] px-1.5 py-0.5 rounded transition-all cursor-pointer shadow"
-                  >
-                    📥 TEMPEL
-                  </button>
-
-                  {gridSelection && (
-                    <button
-                      onClick={handleClearSelectedGridCells}
-                      className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] px-1 py-0.5 rounded transition-all cursor-pointer shadow"
-                    >
-                      🗑️ HAPUS
-                    </button>
-                  )}
-
-                  <button
-                    onClick={handleSaveBreakdownPlan}
-                    disabled={isBreakdownSaving}
-                    className="bg-red-600 hover:bg-red-700 text-white font-black text-[9px] px-1.5 py-0.5 rounded transition-all cursor-pointer shadow disabled:opacity-50"
-                  >
-                    💾 SIMPAN
-                  </button>
-
-                  <button
-                    onClick={() => setIsGridFullScreen(false)}
-                    className="bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] px-1.5 py-0.5 rounded transition-all cursor-pointer shadow flex items-center gap-0.5"
-                    title="Keluar Layar Penuh (ESC)"
-                  >
-                    <Minimize2 className="w-2.5 h-2.5" />
-                    <span>KELUAR</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* --- NORMAL CARD HEADER --- */
-              <div className="rounded-2xl p-4 border shadow-sm space-y-3 transition-all bg-white border-slate-100">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-l-4 border-red-600 pl-3">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">PILIH MODE:</span>
-                      <div className="inline-flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                        <button
-                          onClick={() => {
-                            setGridSubMode("BD");
-                            setUndoStack([]);
-                            setRedoStack([]);
-                            setGridSelection(null);
-                          }}
-                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                            gridSubMode === "BD"
-                              ? "bg-red-600 text-white shadow-sm"
-                              : "text-slate-600 hover:text-slate-900"
-                          }`}
-                        >
-                          📊 BD (Breakdown Rencana)
-                        </button>
-                        <button
-                          onClick={() => {
-                            setGridSubMode("Realisasi");
-                            setUndoStack([]);
-                            setRedoStack([]);
-                            setGridSelection(null);
-                          }}
-                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                            gridSubMode === "Realisasi"
-                              ? "bg-emerald-600 text-white shadow-sm"
-                              : "text-slate-600 hover:text-slate-900"
-                          }`}
-                        >
-                          📈 Realisasi Penjualan
-                        </button>
-                        <button
-                          onClick={() => setIsGridFullScreen(true)}
-                          className="bg-slate-800 hover:bg-slate-900 text-white font-black text-[10px] px-2 py-1 rounded-lg transition-all cursor-pointer shadow-sm flex items-center gap-1 ml-1"
-                          title="Tampilkan Mode Layar Penuh"
-                        >
-                          <Maximize2 className="w-3 h-3 text-white" />
-                          <span>Fullscreen</span>
-                        </button>
-                      </div>
-                    </div>
-                    <h2 className="text-xs md:text-sm font-black uppercase tracking-wider flex items-center gap-2 text-red-950">
-                      <Grid3X3 className="w-4 h-4 text-red-600" />
-                      {gridSubMode === "BD"
-                        ? "📊 TABEL BD (BREAKDOWN RENCANA PENJUALAN YL)"
-                        : "📈 TABEL REALISASI PENJUALAN YL"}
-                    </h2>
-                    <p className="text-[10px] font-bold leading-relaxed text-slate-500">
-                      {gridSubMode === "BD"
-                        ? "Input & edit rencana harian per YL. Mendukung blok sel, Hapus, Copy-Paste, Undo & Redo."
-                        : "Input & edit realisasi harian per YL. Acuan pembagi adalah Pembagi Tanggal per YL."}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 p-1 rounded-xl">
-                      <span className="text-[10px] font-bold text-amber-700 pl-1 uppercase">Pembagi {gridSubMode}:</span>
-                      <NumberInput
-                        min={1} max={31}
-                        value={Object.keys(activeGridMap).length > 0 ? (activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal || 25) : 25}
-                        onChange={handleGlobalPembagiChange}
-                        className="w-12 p-1 bg-white border border-amber-300 rounded text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-1 rounded-xl">
-                      <span className="text-[10px] font-bold text-slate-500 pl-1">Bulan:</span>
-                      <input
-                        type="month"
-                        value={selectedBreakdownMonth}
-                        onChange={(e) => setSelectedBreakdownMonth(e.target.value)}
-                        className="p-1 bg-white border border-slate-200 rounded text-xs font-black text-slate-800 font-mono outline-none"
-                      />
-                    </div>
-                    {isBreakdownSaving && (
-                      <span className="text-[10px] font-black text-emerald-600 animate-pulse ml-2">Menyimpan...</span>
-                    )}
-                  </div>
-                </div>
-
-                {breakdownMsg && (
-                  <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-black text-emerald-800 text-center animate-pulse">
-                    {breakdownMsg}
-                  </div>
-                )}
-
-                {/* Mobile & Spreadsheet Control Toolbar */}
-                <div className="bg-white text-slate-900 border-2 border-slate-200 p-3.5 rounded-2xl shadow-md space-y-3">
-                  {/* Status Row */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-amber-700 font-black text-xs uppercase flex items-center gap-1">
-                        📱 Kontrol Blok HP & Spreadsheet:
-                      </span>
-                      {gridSelection ? (
-                        <span className="bg-blue-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full animate-pulse shadow">
-                          📌 {Math.abs(gridSelection.endR - gridSelection.startR) + 1} Baris YL x {Math.abs(gridSelection.endC - gridSelection.startC) + 1} Sel Diblok
-                        </span>
-                      ) : (
-                        <span className="text-slate-500 text-[10px] font-bold">
-                          Belum ada sel diblok (Gunakan tombol "Blok Semua" atau Tarik Sel)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Main Control Action Buttons */}
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    {/* Left Controls: Selection Tools */}
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <button
-                        onClick={handleSelectAllGridCells}
-                        className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-[9px] px-2 py-1 rounded-lg transition-all shadow flex items-center gap-1 cursor-pointer"
-                      >
-                        <span>🔲 Blok Semua {gridSubMode === 'BD' ? 'BD' : 'Realisasi'}</span>
-                      </button>
-
-                      <div className="relative inline-block">
-                        <select
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val !== "") {
-                              handleSelectRowGridCells(Number(val));
-                              e.target.value = "";
-                            }
-                          }}
-                          defaultValue=""
-                          className="bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-[9px] px-2 py-1 rounded-lg border border-slate-700 outline-none cursor-pointer"
-                        >
-                          <option value="" disabled>👤 Blok Baris YL...</option>
-                          {activeYLsList.map((y, idx) => (
-                            <option key={y.area} value={idx}>[{y.area}] {y.nama.replace(/^\d+\s*/, "")}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="relative inline-block">
-                        <select
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val !== "") {
-                              handleSelectDayGridCells(Number(val));
-                              e.target.value = "";
-                            }
-                          }}
-                          defaultValue=""
-                          className="bg-slate-800 hover:bg-slate-700 text-teal-300 font-bold text-[9px] px-2 py-1 rounded-lg border border-slate-700 outline-none cursor-pointer"
-                        >
-                          <option value="" disabled>📅 Blok Tanggal...</option>
-                          {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                            <option key={day} value={day}>Tanggal {day}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {gridSelection && (
-                        <button
-                          onClick={() => setGridSelection(null)}
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9px] px-2 py-1 rounded-lg border border-slate-700 cursor-pointer"
-                        >
-                          <span>🧹 Batal Blok</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Right Controls: Undo, Redo, Copy, Paste, Delete */}
-                    <div className="flex items-center gap-1.5 ml-auto">
-                      <button
-                        onClick={handleUndo}
-                        disabled={undoStack.length === 0}
-                        className="bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white font-black text-xs px-3 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
-                        title="Undo edit terakhir"
-                      >
-                        <span>↩️ UNDO ({undoStack.length})</span>
-                      </button>
-
-                      <button
-                        onClick={handleRedo}
-                        disabled={redoStack.length === 0}
-                        className="bg-purple-800 hover:bg-purple-900 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white font-black text-xs px-3 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
-                        title="Redo edit terakhir"
-                      >
-                        <span>↪️ REDO ({redoStack.length})</span>
-                      </button>
-
-                      <button
-                        onClick={handleCopyGridCells}
-                        className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-black text-xs px-3 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
-                      >
-                        <span>📋 SALIN (COPY)</span>
-                      </button>
-
-                      <button
-                        onClick={handleMobilePasteClick}
-                        className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-black text-xs px-3 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
-                      >
-                        <span>📥 TEMPEL (PASTE)</span>
-                      </button>
-
-                      <button
-                        onClick={handleExportBackupJson}
-                        className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-xs px-2.5 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
-                        title="Download File Backup JSON ke HP"
-                      >
-                        <span>💾 BACKUP JSON</span>
-                      </button>
-
-                      <button
-                        onClick={() => jsonFileInputRef.current?.click()}
-                        className="bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-black text-xs px-2.5 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
-                        title="Restore Data dari File Backup JSON"
-                      >
-                        <span>📂 RESTORE JSON</span>
-                      </button>
-
-                      {gridSelection && (
-                        <button
-                          onClick={handleClearSelectedGridCells}
-                          className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-black text-xs px-2.5 py-1.5 rounded-xl transition-all shadow flex items-center gap-1 cursor-pointer"
-                        >
-                          <span>🗑️ HAPUS</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-
-
-            {/* Full Width Grid Table */}
-            <div ref={gridTableRef} className={`bg-white border-2 border-slate-200 rounded-2xl shadow-md p-2 overflow-x-auto fast-scroll ${isGridFullScreen ? "flex-1 w-full overflow-y-auto" : "max-h-[620px] overflow-y-auto"} select-none relative`}>
-              <GridSelectionToolbar
-                selection={gridSelection}
-                onCopy={handleCopyGridCells}
-                onCut={handleCutGridCells}
-                onPaste={handleMobilePasteClick}
-                onClear={handleClearSelectedGridCells}
-                onClose={() => setGridSelection(null)}
-              />
-
-                <table className="w-full text-left text-[11px] border-collapse font-mono">
-                  <thead className="sticky top-0 bg-slate-900 text-white z-30 shadow-md sticky-header-gpu">
-                    <tr className="text-[8.5px] uppercase font-black tracking-wider divide-x divide-slate-800">
-                      <th className="py-0.5 px-1 sticky left-0 bg-slate-900 z-40 min-w-[120px] shadow-r text-red-400 border-r border-slate-700">
-                        Nama / Area YL
-                      </th>
-                      {/* Dates Column Group */}
-                      {(
-                        breakdownDateRange === "1-10" ? Array.from({ length: 10 }, (_, i) => i + 1) :
-                        breakdownDateRange === "11-20" ? Array.from({ length: 10 }, (_, i) => i + 11) :
-                        breakdownDateRange === "21-31" ? Array.from({ length: 11 }, (_, i) => i + 21) :
-                        Array.from({ length: 31 }, (_, i) => i + 1)
-                      ).map(day => {
-                        const dayTot = dailyGridTotals[day] ? (dailyGridTotals[day].yo + dailyGridTotals[day].om + dailyGridTotals[day].os + dailyGridTotals[day].yt) : 0;
-                        return (
-                          <th key={day} colSpan={4} className="py-1 px-0.5 text-center bg-slate-900 border-b border-slate-700 text-slate-200 border-x border-slate-800">
-                            <div className="flex flex-col items-center justify-center gap-0.5">
-                              <span>Tgl {day}</span>
-                              <span className="text-[8px] font-mono font-black text-cyan-300 bg-slate-800 px-1 py-0.2 rounded border border-slate-700">
-                                {dayTot} btl
-                              </span>
-                            </div>
-                          </th>
-                        );
-                      })}
-                      {/* Akumulasi 4 Item + Total Header */}
-                      <th colSpan={5} className={`py-0.5 px-1 text-center border-l ${gridSubMode === "BD" ? "bg-red-950 text-red-200 border-red-800" : "bg-emerald-950 text-emerald-200 border-emerald-800"}`}>
-                        AKUMULASI {gridSubMode === "BD" ? "BD" : "REALISASI"} (TOTAL)
-                      </th>
-                      {/* Rata-rata 4 Item + Total Header */}
-                      <th colSpan={5} className="py-0.5 px-1 text-center bg-amber-950 text-amber-200 border-l border-amber-800">
-                        RATA-RATA {gridSubMode === "BD" ? "BD" : "REALISASI"}
-                      </th>
-                      {/* Valuation vs Target / LM / LY Header */}
-                      <th colSpan={6} className="py-0.5 px-1 text-center bg-purple-950 text-purple-200 border-l border-purple-800">
-                        VALUASI vs TARGET MANAGER
-                      </th>
-                    </tr>
-                    <tr className="text-[7.5px] uppercase font-bold text-slate-400 border-t border-slate-800 divide-x divide-slate-800">
-                      <th className="py-0.5 px-0.5 sticky left-0 bg-slate-900 z-40 min-w-[120px] border-r border-slate-700"></th>
-                      {(
-                        breakdownDateRange === "1-10" ? Array.from({ length: 10 }, (_, i) => i + 1) :
-                        breakdownDateRange === "11-20" ? Array.from({ length: 10 }, (_, i) => i + 11) :
-                        breakdownDateRange === "21-31" ? Array.from({ length: 11 }, (_, i) => i + 21) :
-                        Array.from({ length: 31 }, (_, i) => i + 1)
-                      ).flatMap(day => [
-                        <th key={`${day}-yo`} className="py-0.5 px-0.5 text-center text-red-400 bg-slate-900/90 w-9">YO</th>,
-                        <th key={`${day}-om`} className="py-0.5 px-0.5 text-center text-amber-400 bg-slate-900/90 w-9">OM</th>,
-                        <th key={`${day}-os`} className="py-0.5 px-0.5 text-center text-pink-400 bg-slate-900/90 w-9">OS</th>,
-                        <th key={`${day}-yt`} className="py-0.5 px-0.5 text-center text-blue-400 bg-slate-900/90 w-9">YT</th>
-                      ])}
-                      {/* Akumulasi Sub-columns */}
-                      <th className="py-0.5 px-0.5 text-center bg-red-900/90 text-red-300 w-10">YO</th>
-                      <th className="py-0.5 px-0.5 text-center bg-amber-900/90 text-amber-300 w-10">OM</th>
-                      <th className="py-0.5 px-0.5 text-center bg-pink-900/90 text-pink-300 w-10">OS</th>
-                      <th className="py-0.5 px-0.5 text-center bg-blue-900/90 text-blue-300 w-10">YT</th>
-                      <th className="py-0.5 px-0.5 text-center bg-red-950 text-white w-12 font-black">TOTAL</th>
-
-                      {/* Rata-rata Sub-columns */}
-                      <th className="py-0.5 px-0.5 text-center bg-amber-900/80 text-red-300 w-10">YO</th>
-                      <th className="py-0.5 px-0.5 text-center bg-amber-900/80 text-amber-300 w-10">OM</th>
-                      <th className="py-0.5 px-0.5 text-center bg-amber-900/80 text-pink-300 w-10">OS</th>
-                      <th className="py-0.5 px-0.5 text-center bg-amber-900/80 text-blue-300 w-10">YT</th>
-                      <th className="py-0.5 px-0.5 text-center bg-amber-950 text-amber-200 w-12 font-black">TOTAL</th>
-
-                      {/* Valuation Sub-columns */}
-                      <th className="py-0.5 px-0.5 text-center bg-purple-900 text-purple-200 w-12">Target</th>
-                      <th className="py-0.5 px-0.5 text-center bg-purple-900 text-purple-100 w-12 font-black">+/- Tgt</th>
-                      <th className="py-0.5 px-0.5 text-center bg-indigo-900 text-indigo-200 w-12">B.Lalu</th>
-                      <th className="py-0.5 px-0.5 text-center bg-indigo-900 text-indigo-100 w-12 font-black">+/- LM</th>
-                      <th className="py-0.5 px-0.5 text-center bg-teal-900 text-teal-200 w-12">T.Lalu</th>
-                      <th className="py-0.5 px-0.5 text-center bg-teal-900 text-teal-100 w-12 font-black">+/- LY</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 text-slate-800">
-                    {activeYLsList.map((yl, rIdx) => (
-                      <BreakdownGridRow
-                        key={rIdx}
-                        yl={yl}
-                        rIdx={rIdx}
-                        activeGridMap={activeGridMap}
-                        targetYLMap={targetYLMap}
-                        breakdownDateRange={breakdownDateRange}
-                        gridSelection={gridSelection}
-                        isFillDragging={isFillDragging}
-                        fillHoverCell={fillHoverCell}
-                        isGridDragging={isGridDragging}
-                        touchStartRef={touchStartRef}
-                        setGridSelection={setGridSelection}
-                        setIsGridDragging={setIsGridDragging}
-                        setFillHoverCell={setFillHoverCell}
-                        handleTouchMoveGrid={handleTouchMoveGrid}
-                        handleBreakdownCellChange={handleBreakdownCellChange}
-                        handlePasteIntoGrid={handlePasteIntoGrid}
-                      />
-                    ))}
-                    {/* BARIS TOTAL HARIAN (gabungan semua YL, per tanggal & grand total) */}
-                    {(() => {
-                      const daysListFooter = (
-                        breakdownDateRange === "1-10" ? Array.from({ length: 10 }, (_, i) => i + 1) :
-                        breakdownDateRange === "11-20" ? Array.from({ length: 10 }, (_, i) => i + 11) :
-                        breakdownDateRange === "21-31" ? Array.from({ length: 11 }, (_, i) => i + 21) :
-                        Array.from({ length: 31 }, (_, i) => i + 1)
-                      );
-
-                      let grandAkumYo = 0, grandAkumOm = 0, grandAkumOs = 0, grandAkumYt = 0;
-                      let grandAvgYo = 0, grandAvgOm = 0, grandAvgOs = 0, grandAvgYt = 0;
-                      let grandTargetTotal = 0, grandBlnLaluTotal = 0, grandThnLaluTotal = 0;
-
-                      activeYLsList.forEach((yl) => {
-                        const area = String(yl.area).substring(0, 3);
-                        const ylPlan = activeGridMap[area] || { pembagiTanggal: 25, days: {} };
-
-                        let totYo = 0, totOm = 0, totOs = 0, totYt = 0;
-                        Object.values(ylPlan.days || {}).forEach((d: any) => {
-                          totYo += Number(d.yo) || 0;
-                          totOm += Number(d.om) || 0;
-                          totOs += Number(d.os) || 0;
-                          totYt += Number(d.yt) || 0;
-                        });
-
-                        const activePembagi = ylPlan.pembagiTanggal || 25;
-
-                        grandAkumYo += totYo;
-                        grandAkumOm += totOm;
-                        grandAkumOs += totOs;
-                        grandAkumYt += totYt;
-
-                        if (activePembagi > 0) {
-                          grandAvgYo += Math.round(totYo / activePembagi);
-                          grandAvgOm += Math.round(totOm / activePembagi);
-                          grandAvgOs += Math.round(totOs / activePembagi);
-                          grandAvgYt += Math.round(totYt / activePembagi);
-                        }
-
-                        const tgtObj = targetYLMap[area] || { target: 0, bln_lalu: 0, thn_lalu: 0 };
-                        grandTargetTotal += (tgtObj.target ?? 0) * activePembagi;
-                        grandBlnLaluTotal += (tgtObj.bln_lalu ?? 0) * activePembagi;
-                        grandThnLaluTotal += (tgtObj.thn_lalu ?? 0) * activePembagi;
-                      });
-
-                      const grandAkumTotal = grandAkumYo + grandAkumOm + grandAkumOs + grandAkumYt;
-                      const grandAvgTotal = grandAvgYo + grandAvgOm + grandAvgOs + grandAvgYt;
-                      const grandDiffTarget = grandAkumTotal - grandTargetTotal;
-                      const grandDiffLM = grandAkumTotal - grandBlnLaluTotal;
-                      const grandDiffLY = grandAkumTotal - grandThnLaluTotal;
-
-                      return (
-                        <>
-                          {/* ROW 1: TOTAL HARIAN SUB-ITEMS (YO, OM, OS, YT) PER TANGGAL */}
-                          <tr className="bg-slate-900 text-white font-black text-[10px] divide-x divide-slate-800 sticky bottom-7 z-20 shadow-md border-t-2 border-slate-700">
-                            <td className="p-1.5 sticky left-0 bg-slate-900 z-30 min-w-[120px] text-cyan-300 uppercase tracking-wide">
-                              Total Harian (YO, OM, OS, YT)
-                            </td>
-                            {daysListFooter.flatMap(day => {
-                              const t = dailyGridTotals[day] || { yo: 0, om: 0, os: 0, yt: 0 };
-                              return [
-                                <td key={`${day}-tot-yo`} className="p-0.5 text-center text-red-300 bg-slate-900/90">{t.yo}</td>,
-                                <td key={`${day}-tot-om`} className="p-0.5 text-center text-amber-300 bg-slate-900/90">{t.om}</td>,
-                                <td key={`${day}-tot-os`} className="p-0.5 text-center text-pink-300 bg-slate-900/90">{t.os}</td>,
-                                <td key={`${day}-tot-yt`} className="p-0.5 text-center text-blue-300 bg-slate-900/90">{t.yt}</td>
-                              ];
-                            })}
-
-                            {/* Akumulasi Totals */}
-                            <td className="p-1 text-center font-black text-red-300 bg-red-950/80">{grandAkumYo}</td>
-                            <td className="p-1 text-center font-black text-amber-300 bg-amber-950/80">{grandAkumOm}</td>
-                            <td className="p-1 text-center font-black text-pink-300 bg-pink-950/80">{grandAkumOs}</td>
-                            <td className="p-1 text-center font-black text-blue-300 bg-blue-950/80">{grandAkumYt}</td>
-                            <td className="p-1 text-center font-black text-white bg-red-800">{grandAkumTotal}</td>
-
-                            {/* Rata-Rata Totals */}
-                            <td className="p-1 text-center font-black text-red-300 bg-amber-900/80">{grandAvgYo}</td>
-                            <td className="p-1 text-center font-black text-amber-300 bg-amber-900/80">{grandAvgOm}</td>
-                            <td className="p-1 text-center font-black text-pink-300 bg-amber-900/80">{grandAvgOs}</td>
-                            <td className="p-1 text-center font-black text-blue-300 bg-amber-900/80">{grandAvgYt}</td>
-                            <td className="p-1 text-center font-black text-amber-200 bg-amber-950">{grandAvgTotal}</td>
-
-                            {/* Valuasi vs Target Totals */}
-                            <td className="p-1 text-center font-black text-purple-200 bg-purple-950">{grandTargetTotal}</td>
-                            <td className={`p-1 text-center font-black ${grandDiffTarget >= 0 ? "text-emerald-300 bg-emerald-950" : "text-rose-300 bg-rose-950"}`}>
-                              {grandDiffTarget >= 0 ? `+${grandDiffTarget}` : grandDiffTarget}
-                            </td>
-                            <td className="p-1 text-center font-black text-indigo-200 bg-indigo-950">{grandBlnLaluTotal}</td>
-                            <td className={`p-1 text-center font-black ${grandDiffLM >= 0 ? "text-emerald-300 bg-emerald-950" : "text-rose-300 bg-rose-950"}`}>
-                              {grandDiffLM >= 0 ? `+${grandDiffLM}` : grandDiffLM}
-                            </td>
-                            <td className="p-1 text-center font-black text-teal-200 bg-teal-950">{grandThnLaluTotal}</td>
-                            <td className={`p-1 text-center font-black ${grandDiffLY >= 0 ? "text-emerald-300 bg-emerald-950" : "text-rose-300 bg-rose-950"}`}>
-                              {grandDiffLY >= 0 ? `+${grandDiffLY}` : grandDiffLY}
-                            </td>
-                          </tr>
-
-                          {/* ROW 2: TOTAL BOTOL HARIAN (GABUNGAN BOTOL YO+OM+OS+YT PER TANGGAL) */}
-                          <tr className="bg-cyan-950 text-cyan-200 font-black text-[10px] divide-x divide-cyan-900 sticky bottom-0 z-20 shadow-lg border-t border-cyan-800">
-                            <td className="p-1.5 sticky left-0 bg-cyan-950 z-30 min-w-[120px] text-amber-300 uppercase tracking-wide">
-                              Total Botol / Hari
-                            </td>
-                            {daysListFooter.map(day => {
-                              const t = dailyGridTotals[day] || { yo: 0, om: 0, os: 0, yt: 0 };
-                              const sumDay = t.yo + t.om + t.os + t.yt;
-                              return (
-                                <td key={`${day}-tot-combined`} colSpan={4} className="p-1 text-center text-amber-300 font-mono font-extrabold bg-cyan-950">
-                                  {sumDay} btl
-                                </td>
-                              );
-                            })}
-                            <td colSpan={16} className="p-1 text-center text-cyan-200 font-mono font-extrabold bg-cyan-900/90">
-                              TOT AKUMULASI BULAN INI: <span className="text-amber-300 font-black">{grandAkumTotal} btl</span>
-                            </td>
-                          </tr>
-                        </>
-                      );
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-          </div>
-        )}
-
-        {/* Tab Target & Kompensasi */}
-        {activeTab === "target_kompensasi" && (
-          <div className="space-y-4">
-            {/* 1. Target TKU DP Jember 1 */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-4 relative">
-              <GridSelectionToolbar
-                selection={tkuGridSelection}
-                onCopy={handleTkuGridCopy}
-                onCut={handleTkuGridCut}
-                onPaste={handleTkuGridPaste}
-                onClear={handleTkuGridClear}
-                onClose={() => setTkuGridSelection(null)}
-              />
-              <div className="border-l-4 border-red-600 pl-2">
-                <h2 className="text-xs font-black text-red-950 uppercase tracking-wider flex items-center gap-2">
-                  <Target className="w-4 h-4 text-red-600" />
-                  🎯 Target & Pembanding TKU DP Jember 1 (Total Tim)
-                </h2>
-                <p className="text-[10px] text-slate-500 font-bold leading-relaxed">
-                  Tentukan rincian Target, Bulan Lalu, dan Tahun Lalu untuk tim (TKU).
-                </p>
-              </div>
-
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-300 space-y-3">
-                <div className="overflow-x-auto border-2 border-slate-400 rounded-xl bg-white shadow-sm">
-                  <table className="w-full text-left text-xs sm:text-sm border-collapse font-mono">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-100 font-black uppercase text-xs border-b-2 border-slate-800 divide-x divide-slate-700">
-                        <th className="p-3 border-r-2 border-slate-700">Kategori Tim (TKU)</th>
-                        <th className="p-3 text-center border-r border-slate-700 text-red-400">YO (btl)</th>
-                        <th className="p-3 text-center border-r border-slate-700 text-amber-400">OM (btl)</th>
-                        <th className="p-3 text-center border-r border-slate-700 text-pink-400">OS (btl)</th>
-                        <th className="p-3 text-center border-r border-slate-700 text-blue-400">YT (btl)</th>
-                        <th className="p-3 text-right bg-slate-950 text-emerald-400">Total TKU (btl)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-300 font-bold text-slate-900">
-                      {/* Target TKU Row */}
-                      <tr className="hover:bg-amber-50/50 transition-colors">
-                        <td className="p-3 font-black text-red-700 uppercase text-xs border-r-2 border-slate-300 bg-slate-50/80">Target TKU</td>
-                        <td {...getTkuCellProps(0, 0)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(0, 0).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.target_yo ?? Math.trunc((targetTKU.target ?? 0) * 0.85)}
-                            onChange={(yo) => {
-                              const om = targetTKU.target_om ?? Math.trunc((targetTKU.target ?? 0) * 0.08);
-                              const os = targetTKU.target_os ?? Math.trunc((targetTKU.target ?? 0) * 0.05);
-                              const yt = targetTKU.target_yt ?? Math.trunc((targetTKU.target ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, target_yo: yo, target: yo + om + os + yt });
-                            }}
-                            className="p-1.5 w-full h-full text-xs sm:text-sm bg-transparent outline-none border-none text-center text-slate-900 font-black"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(0, 1)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(0, 1).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.target_om ?? Math.trunc((targetTKU.target ?? 0) * 0.08)}
-                            onChange={(om) => {
-                              const yo = targetTKU.target_yo ?? Math.trunc((targetTKU.target ?? 0) * 0.85);
-                              const os = targetTKU.target_os ?? Math.trunc((targetTKU.target ?? 0) * 0.05);
-                              const yt = targetTKU.target_yt ?? Math.trunc((targetTKU.target ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, target_om: om, target: yo + om + os + yt });
-                            }}
-                            className="p-1.5 w-full h-full text-xs sm:text-sm bg-transparent outline-none border-none text-center text-slate-900 font-black"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(0, 2)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(0, 2).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.target_os ?? Math.trunc((targetTKU.target ?? 0) * 0.05)}
-                            onChange={(os) => {
-                              const yo = targetTKU.target_yo ?? Math.trunc((targetTKU.target ?? 0) * 0.85);
-                              const om = targetTKU.target_om ?? Math.trunc((targetTKU.target ?? 0) * 0.08);
-                              const yt = targetTKU.target_yt ?? Math.trunc((targetTKU.target ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, target_os: os, target: yo + om + os + yt });
-                            }}
-                            className="p-1.5 w-full h-full text-xs sm:text-sm bg-transparent outline-none border-none text-center text-slate-900 font-black"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(0, 3)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(0, 3).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.target_yt ?? Math.trunc((targetTKU.target ?? 0) * 0.02)}
-                            onChange={(yt) => {
-                              const yo = targetTKU.target_yo ?? Math.trunc((targetTKU.target ?? 0) * 0.85);
-                              const om = targetTKU.target_om ?? Math.trunc((targetTKU.target ?? 0) * 0.08);
-                              const os = targetTKU.target_os ?? Math.trunc((targetTKU.target ?? 0) * 0.05);
-                              setTargetTKU({ ...targetTKU, target_yt: yt, target: yo + om + os + yt });
-                            }}
-                            className="p-1.5 w-full h-full text-xs sm:text-sm bg-transparent outline-none border-none text-center text-slate-900 font-black"
-                          />
-                        </td>
-                        <td className="p-3 text-right font-black text-red-600 text-sm sm:text-base bg-red-50/50">
-                          {targetTKU.target ?? 0} btl
-                        </td>
-                      </tr>
-
-                      {/* Bulan Lalu TKU Row */}
-                      <tr className="hover:bg-purple-50/50 transition-colors">
-                        <td className="p-3 font-black text-purple-800 uppercase text-xs border-r-2 border-slate-300 bg-slate-50/80">Bulan Lalu TKU</td>
-                        <td {...getTkuCellProps(1, 0)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(1, 0).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.bln_lalu_yo ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.85)}
-                            onChange={(yo) => {
-                              const om = targetTKU.bln_lalu_om ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.08);
-                              const os = targetTKU.bln_lalu_os ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.05);
-                              const yt = targetTKU.bln_lalu_yt ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, bln_lalu_yo: yo, bln_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1.5 w-full h-full text-xs sm:text-sm bg-transparent outline-none border-none text-center text-slate-900 font-black"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(1, 1)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(1, 1).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.bln_lalu_om ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.08)}
-                            onChange={(om) => {
-                              const yo = targetTKU.bln_lalu_yo ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.85);
-                              const os = targetTKU.bln_lalu_os ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.05);
-                              const yt = targetTKU.bln_lalu_yt ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, bln_lalu_om: om, bln_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1.5 w-full h-full text-xs sm:text-sm bg-transparent outline-none border-none text-center text-slate-900 font-black"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(1, 2)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(1, 2).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.bln_lalu_os ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.05)}
-                            onChange={(os) => {
-                              const yo = targetTKU.bln_lalu_yo ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.85);
-                              const om = targetTKU.bln_lalu_om ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.08);
-                              const yt = targetTKU.bln_lalu_yt ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, bln_lalu_os: os, bln_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1.5 w-full h-full text-xs sm:text-sm bg-transparent outline-none border-none text-center text-slate-900 font-black"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(1, 3)} className={`p-1.5 text-center border-r border-slate-300 ${getTkuCellProps(1, 3).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.bln_lalu_yt ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.02)}
-                            onChange={(yt) => {
-                              const yo = targetTKU.bln_lalu_yo ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.85);
-                              const om = targetTKU.bln_lalu_om ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.08);
-                              const os = targetTKU.bln_lalu_os ?? Math.trunc((targetTKU.bln_lalu ?? 0) * 0.05);
-                              setTargetTKU({ ...targetTKU, bln_lalu_yt: yt, bln_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1 w-full h-full text-xs bg-transparent outline-none border-none text-center text-slate-900 font-bold"
-                          />
-                        </td>
-                        <td className="p-2.5 text-right font-black text-purple-600 text-sm">
-                          {targetTKU.bln_lalu ?? 0} btl
-                        </td>
-                      </tr>
-
-                      {/* Tahun Lalu TKU Row */}
-                      <tr className="hover:bg-teal-50/50 transition-colors border-b border-slate-300">
-                        <td className="p-2.5 font-black text-teal-700 uppercase text-[10px] border-r-2 border-slate-300 bg-slate-50/80">Tahun Lalu TKU</td>
-                        <td {...getTkuCellProps(2, 0)} className={`p-1 text-center border-r border-slate-300 ${getTkuCellProps(2, 0).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.thn_lalu_yo ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.85)}
-                            onChange={(yo) => {
-                              const om = targetTKU.thn_lalu_om ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.08);
-                              const os = targetTKU.thn_lalu_os ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.05);
-                              const yt = targetTKU.thn_lalu_yt ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, thn_lalu_yo: yo, thn_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1 w-full h-full text-xs bg-transparent outline-none border-none text-center text-slate-900 font-bold"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(2, 1)} className={`p-1 text-center border-r border-slate-300 ${getTkuCellProps(2, 1).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.thn_lalu_om ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.08)}
-                            onChange={(om) => {
-                              const yo = targetTKU.thn_lalu_yo ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.85);
-                              const os = targetTKU.thn_lalu_os ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.05);
-                              const yt = targetTKU.thn_lalu_yt ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, thn_lalu_om: om, thn_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1 w-full h-full text-xs bg-transparent outline-none border-none text-center text-slate-900 font-bold"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(2, 2)} className={`p-1 text-center border-r border-slate-300 ${getTkuCellProps(2, 2).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.thn_lalu_os ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.05)}
-                            onChange={(os) => {
-                              const yo = targetTKU.thn_lalu_yo ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.85);
-                              const om = targetTKU.thn_lalu_om ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.08);
-                              const yt = targetTKU.thn_lalu_yt ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.02);
-                              setTargetTKU({ ...targetTKU, thn_lalu_os: os, thn_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1 w-full h-full text-xs bg-transparent outline-none border-none text-center text-slate-900 font-bold"
-                          />
-                        </td>
-                        <td {...getTkuCellProps(2, 3)} className={`p-1 text-center border-r border-slate-300 ${getTkuCellProps(2, 3).className}`}>
-                          <NumberInput
-                            min={0}
-                            value={targetTKU.thn_lalu_yt ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.02)}
-                            onChange={(yt) => {
-                              const yo = targetTKU.thn_lalu_yo ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.85);
-                              const om = targetTKU.thn_lalu_om ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.08);
-                              const os = targetTKU.thn_lalu_os ?? Math.trunc((targetTKU.thn_lalu ?? 0) * 0.05);
-                              setTargetTKU({ ...targetTKU, thn_lalu_yt: yt, thn_lalu: yo + om + os + yt });
-                            }}
-                            className="p-1 w-full h-full text-xs bg-transparent outline-none border-none text-center text-slate-900 font-bold"
-                          />
-                        </td>
-                        <td className="p-2.5 text-right font-black text-teal-600 text-sm">
-                          {targetTKU.thn_lalu ?? 0} btl
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Target & Pembanding per Yakult Lady (Aktif) */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-l-4 border-red-600 pl-2">
-                <div>
-                  <h2 className="text-xs font-black text-red-950 uppercase tracking-wider">
-                    🎯 Target & Pembanding per Yakult Lady (Aktif)
-                  </h2>
-                  <p className="text-[10px] text-slate-500 font-bold leading-relaxed">
-                    Input rincian Target, Bulan Lalu, dan Tahun Lalu untuk setiap YL aktif. Data ini otomatis tersinkronisasi ke akun YL masing-masing.
-                  </p>
-                </div>
-                <span className="text-[10px] font-black bg-red-100 text-red-800 px-2.5 py-1 rounded-lg">
-                  {activeYLsList.length} YL Aktif
-                </span>
-              </div>
-
-              <p className="text-[9px] text-slate-400 font-bold -mt-1">
-                💡 Tips: Klik/tap judul kolom atau nama YL untuk ngeblok seluruh kolom/baris, atau ketuk sel & tarik untuk ngeblok area (drag selection).
-              </p>
-
-              <div ref={targetGridContainerRef} className="relative">
-                <GridSelectionToolbar
-                  selection={targetGridSelection}
-                  onCopy={handleTargetGridCopy}
-                  onCut={handleTargetGridCut}
-                  onPaste={handleTargetGridPaste}
-                  onClear={handleTargetGridClear}
-                  onClose={() => setTargetGridSelection(null)}
-                />
-                <div className="overflow-x-auto max-h-[480px] overflow-y-auto border-2 border-slate-400 rounded-xl bg-white shadow-sm">
-                  <table className="w-full text-left text-xs sm:text-sm border-collapse font-mono select-none">
-                    <thead>
-                      <tr className="bg-slate-900 text-slate-100 font-black uppercase text-xs sticky top-0 z-10 border-b-2 border-slate-800 divide-x divide-slate-700">
-                        <th className="p-3 border-r-2 border-slate-700 bg-slate-900 min-w-[150px]">Area & Nama YL</th>
-                        <th
-                          data-c={0}
-                          className="p-3 text-center border-r border-slate-700 text-red-400 bg-slate-900 cursor-pointer hover:bg-slate-800 transition-colors select-none"
-                          onClick={() => selectTargetColumn(0)}
-                        >
-                          Target (btl)
-                        </th>
-                        <th
-                          data-c={1}
-                          className="p-3 text-center border-r border-slate-700 text-purple-400 bg-slate-900 cursor-pointer hover:bg-slate-800 transition-colors select-none"
-                          onClick={() => selectTargetColumn(1)}
-                        >
-                          Bln Lalu (btl)
-                        </th>
-                        <th
-                          data-c={2}
-                          className="p-3 text-center border-r border-slate-700 text-teal-400 bg-slate-900 cursor-pointer hover:bg-slate-800 transition-colors select-none"
-                          onClick={() => selectTargetColumn(2)}
-                        >
-                          Thn Lalu (btl)
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-300 font-bold text-slate-900">
-                      {activeYLsList.map((yl, idx) => (
-                        <TargetManagerRow
-                          key={idx}
-                          yl={yl}
-                          idx={idx}
-                          targetYLMap={targetYLMap}
-                          setTargetYLMap={setTargetYLMap}
-                          getTargetCellProps={getTargetCellProps}
-                          selectTargetRow={selectTargetRow}
-                        />
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-slate-900 text-white font-black text-xs sm:text-sm border-t-2 border-slate-800 divide-x divide-slate-700">
-                        <td className="p-3 uppercase border-r-2 border-slate-700">TOTAL TIM (TKU)</td>
-                        <td className="p-3 text-center text-red-400 font-mono text-sm sm:text-base border-r border-slate-700">
-                          {activeYLsList.reduce((sum, y) => sum + (targetYLMap[y.area]?.target ?? 0), 0)} btl
-                        </td>
-                        <td className="p-3 text-center text-purple-400 font-mono text-sm sm:text-base border-r border-slate-700">
-                          {activeYLsList.reduce((sum, y) => sum + (targetYLMap[y.area]?.bln_lalu ?? 0), 0)} btl
-                        </td>
-                        <td className="p-3 text-center text-teal-400 font-mono text-sm sm:text-base">
-                          {activeYLsList.reduce((sum, y) => sum + (targetYLMap[y.area]?.thn_lalu ?? 0), 0)} btl
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-
-              {/* Target & Kompensasi Action Removed */}
-            </div>
-
-            {/* 3. Aturan Kompensasi Tiers & Potongan Pajak (Di Bawahnya) */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-red-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-red-600 pl-2">
-                💰 Aturan Kompensasi Tiers & Potongan Pajak
-              </h2>
-              <p className="text-[10px] text-slate-500 leading-relaxed font-bold">
-                Penetapan nilai pengali kompensasi bulanan berdasarkan rata-rata harian (Step Lookup) dan besaran potongan wajib (PPh, JKK/JKM, JHT).
-              </p>
-
-              <div className="overflow-x-auto border border-slate-100 rounded-xl">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-900 text-slate-200 font-bold uppercase text-[9px]">
-                      <th className="p-2">Minimal Rata-Rata (btl/hr)</th>
-                      <th className="p-2 text-right">Pengali Kompensasi (Rp)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-bold">
-                    {(compConfig.tiers || []).map((t: any, idx: number) => (
-                      <tr key={idx}>
-                        <td className="p-2 text-slate-700 font-mono">
-                          {t.threshold === 0 ? "< 200 btl" : `≥ ${t.threshold} btl/hr`}
-                        </td>
-                        <td className="p-2 text-right">
-                          <NumberInput
-                            min={0}
-                            value={t.rate}
-                            onChange={(val) => {
-                              const copy = { ...compConfig };
-                              copy.tiers[idx].rate = val;
-                              setCompConfig(copy);
-                            }}
-                            className="p-1 text-xs bg-slate-50 border border-slate-200 rounded outline-none font-black text-right w-24 text-slate-900 font-mono"
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Potongan Flat & Rate */}
-              <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-500 block mb-1">Tarif PPh (%)</label>
-                  <NumberInput
-                    min={0}
-                    allowDecimal={true}
-                    value={compConfig.pphRate}
-                    onChange={(val) => setCompConfig({ ...compConfig, pphRate: val })}
-                    className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-black outline-none w-full text-slate-900 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-500 block mb-1">Iuran JKK/JKM (Rp)</label>
-                  <NumberInput
-                    min={0}
-                    value={compConfig.jkkJkm}
-                    onChange={(val) => setCompConfig({ ...compConfig, jkkJkm: val })}
-                    className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-black outline-none w-full text-slate-900 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-500 block mb-1">Iuran JHT (Rp)</label>
-                  <NumberInput
-                    min={0}
-                    value={compConfig.jht}
-                    onChange={(val) => setCompConfig({ ...compConfig, jht: val })}
-                    className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-black outline-none w-full text-slate-900 font-mono"
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={handleSaveCompConfig}
-                className="w-full bg-slate-900 hover:bg-slate-950 text-white font-black text-xs py-3 rounded-xl transition-all cursor-pointer shadow-md flex items-center justify-center gap-1.5"
-              >
-                💾 Simpan Aturan Kompensasi & Potongan Pajak
-              </button>
-              {compSavedMsg && (
-                <p className="text-[10px] font-bold text-emerald-600 text-center animate-pulse">
-                  {compSavedMsg}
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Tab PLG & PJL */}
         {activeTab === "plg_pjl" && (
-          <PlgPjlView ylList={ylList} motivasiConfig={motivasiConfig} theme={theme} />
-        )}
-
-        {/* ================= TAB 5: SETTING ================= */}
-        {activeTab === "setting" && (
-          <div className="space-y-4">
-            {/* BACKUP, RESTORE & EKSPOR DATA (FILE LOCAL & EXCEL) */}
-            <div className="bg-white rounded-2xl p-4 border border-indigo-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-indigo-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-indigo-600 pl-2">
-                📦 Backup, Restore & Ekspor Data (JSON / Excel / Cache)
-              </h2>
-              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                Unduh salinan cadangan data dalam bentuk file JSON, lakukan pemulihan data (restore), cetak Laporan Excel DP, atau bersihkan cache browser lokal.
-              </p>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
-                <button
-                  onClick={handleExportBackupJson}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
-                  title="Download File Backup Data JSON"
-                >
-                  📥 Backup (JSON)
-                </button>
-
-                <button
-                  onClick={() => jsonFileInputRef.current?.click()}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
-                  title="Restore Data dari File Backup JSON"
-                >
-                  📤 Restore (JSON)
-                </button>
-                <input
-                  type="file"
-                  ref={jsonFileInputRef}
-                  onChange={handleImportBackupJson}
-                  accept=".json"
-                  className="hidden"
-                />
-
-                <button
-                  onClick={handleDownloadExcel}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
-                  title="Download Laporan Excel (DP1)"
-                >
-                  📊 Laporan Excel
-                </button>
-
-                <button
-                  onClick={handleClearCache}
-                  className="bg-slate-800 hover:bg-slate-900 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2"
-                  title="Bersihkan cache lokal"
-                >
-                  🧹 Pembersih Cache
-                </button>
-              </div>
-            </div>
-
-            {/* Reset Data Bawaan / Inisialisasi Ulang YL & PIN */}
-            <div className="bg-white rounded-2xl p-4 border border-emerald-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-emerald-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-emerald-600 pl-2">
-                🔄 Reset Data Bawaan / Inisialisasi Ulang (YL & PIN)
-              </h2>
-              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                Gunakan tombol ini jika data YL di browser/Netlify tidak muncul atau PIN login gagal. Tombol ini akan otomatis memulihkan 10 profil Yakult Lady (Area 201–210) beserta PIN default-nya.
-              </p>
-              <button
-                onClick={handleResetYlAndPins}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
-              >
-                🔄 Reset Data Bawaan & Inisialisasi Ulang (10 YL & PIN Default)
-              </button>
-            </div>
-
-            {/* 3. Reset Data (Targeted) */}
-            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
-                🗑️ Reset Data Khusus (4 Kategori)
-              </h2>
-              <p className="text-[10px] text-slate-500 leading-relaxed">
-                Hanya menghapus data: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU. Data lain (Profil, PIN, Motivasi, dll) AMAN.
-              </p>
-              <div className="space-y-2 mt-2">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cakupan Reset:</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                    <input type="radio" name="resetScope" value="current_month" checked={resetScope === "current_month"} onChange={() => setResetScope("current_month")} className="accent-rose-600" />
-                    Hanya Bulan Ini ({selectedBreakdownMonth || "2026-07"})
-                  </label>
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                    <input type="radio" name="resetScope" value="all" checked={resetScope === "all"} onChange={() => setResetScope("all")} className="accent-rose-600" />
-                    Semua Riwayat (Semua Bulan)
-                  </label>
-                </div>
-              </div>
-              <button
-                onClick={() => { setShowTargetedResetModal(true); setResetTargetedConfirmText(""); }}
-                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-3"
-              >
-                ⚠️ Reset Data
-              </button>
-            </div>
-
-            {/* PIN Ganti - Dropdown Layout */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-              <h2 className="text-xs font-black text-red-950 uppercase tracking-wider flex items-center gap-2 mb-3 border-l-4 border-red-600 pl-2">
-                Ganti PIN Login (Dropdown Mode)
-              </h2>
-              <p className="text-[10px] text-slate-400 font-medium mb-3">
-                Pilih pengguna melalui dropdown di bawah ini untuk mengubah atau memperbarui sandi login dengan aman.
-              </p>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Target Pengguna</label>
-                  <select
-                    value={pinTargetDropdown}
-                    onChange={(e) => setPinTargetDropdown(e.target.value)}
-                    className="w-full p-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none font-bold text-slate-900"
-                  >
-                    <option value="manager">Manager DP Jember 1</option>
-                    {Object.keys(pinYLs || {}).map((pin) => (
-                      <option key={pin} value={pin}>
-                        {pinYLs[pin]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">PIN Sandi Baru (Maks 6 digit)</label>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={pinInputVal}
-                    onChange={(e) => setPinInputVal(e.target.value.replace(/\D/g, ""))}
-                    placeholder="Masukkan PIN baru"
-                    className="w-full p-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none font-bold text-slate-900 placeholder:text-slate-400"
-                  />
-                </div>
-                <button
-                  onClick={handleSavePin}
-                  className="w-full bg-slate-900 hover:bg-slate-950 text-white font-bold text-xs p-2.5 rounded-xl transition-all"
-                >
-                  Simpan PIN Baru
-                </button>
-                {pinSavedMsg && (
-                  <p className="text-[10px] font-bold text-emerald-600 text-center animate-pulse">PIN Berhasil Disimpan!</p>
-                )}
-              </div>
-            </div>
-
-            {/* Catatan Perhatian Manager (Attention) */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-              <h2 className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center gap-2 mb-3 border-l-4 border-amber-500 pl-2">
-                <AlertCircle className="w-4 h-4 text-amber-500" />
-                Catatan Perhatian Manager (Attention Note per Area YL)
-              </h2>
-              <p className="text-[10px] text-slate-500 mb-3">
-                Pesan perhatian khusus ini akan langsung muncul di halaman utama YL yang bersangkutan sebagai arahan khusus harian dari Manager.
-              </p>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Pilih Lady YK (Area)</label>
-                  <select
-                    value={attentionArea}
-                    onChange={(e) => {
-                      const a = e.target.value;
-                      setAttentionArea(a);
-                      setAttentionText(attentionMap[a] || "");
-                    }}
-                    className="w-full p-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none font-bold text-slate-900"
-                  >
-                    {(ylList && ylList.length > 0 ? ylList : names.map(n => ({ area: n.substring(0, 3), nama: n }))).map((yl: any) => (
-                      <option key={yl.area} value={yl.area}>
-                        Area {yl.area} - {yl.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Isi Pesan Perhatian Khusus</label>
-                  <textarea
-                    value={attentionText}
-                    onChange={(e) => setAttentionText(e.target.value)}
-                    rows={3}
-                    placeholder="Contoh: Fokuskan pembukaan pelanggan baru di rute pasar pagi dan pastikan Balik Botol tidak melebihi 10 btl."
-                    className="w-full p-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none text-slate-900 resize-none font-bold placeholder:text-slate-400"
-                  />
-                </div>
-                <button
-                  onClick={handleSaveAttention}
-                  className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs p-2.5 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
-                >
-                  <AlertCircle className="w-3.5 h-3.5" />
-                  Simpan Catatan Perhatian Area {attentionArea}
-                </button>
-                {attentionSavedMsg && (
-                  <p className="text-[10px] font-bold text-emerald-600 text-center animate-pulse">Catatan Perhatian Berhasil Disimpan!</p>
-                )}
-              </div>
-            </div>
-
-            {/* Pengaturan Nama Chatbot AI */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2 border-l-4 border-indigo-600 pl-2">
-                <Sparkles className="w-4 h-4 text-indigo-600" />
-                Pengaturan Nama Chatbot AI
-              </h2>
-              <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
-                Kustomisasi nama panggil asisten AI kecerdasan buatan yang muncul pada header obrolan dan tombol utama.
-              </p>
-              <div className="space-y-2">
-                <label className="text-[9px] font-bold text-slate-400 uppercase block">Nama Chatbot AI</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={chatbotNameInput}
-                    onChange={(e) => setChatbotNameInput(e.target.value)}
-                    placeholder="Contoh: AI Jember 1 Pro / Ibu Supervisor AI"
-                    className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-indigo-500 placeholder:text-slate-400"
-                  />
-                  <button
-                    onClick={() => {
-                      const newName = chatbotNameInput.trim() || "AI Jember 1 Pro";
-                      onUpdateMotivasi({ ...motivasiConfig, chatbotName: newName });
-                    }}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs px-4 py-2 rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
-                  >
-                    💾 Simpan Nama
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Pengaturan Nama TKU / Unit (Header System) */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2 border-l-4 border-red-600 pl-2">
-                <Building2 className="w-4 h-4 text-red-600" />
-                Pengaturan Nama TKU / Unit (Header)
-              </h2>
-              <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
-                Kustomisasi nama TKU / Unit (misal: DP Jember 1, Unit Banyuwangi 1, dsb) yang tampil pada header utama aplikasi.
-              </p>
-              <div className="space-y-2">
-                <label className="text-[9px] font-bold text-slate-400 uppercase block">Nama TKU (Header System)</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={tkuNameInput}
-                    onChange={(e) => setTkuNameInput(e.target.value)}
-                    placeholder="Contoh: DP Jember 1 / Unit Banyuwangi"
-                    className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-red-500 placeholder:text-slate-400"
-                  />
-                  <button
-                    onClick={() => {
-                      const newName = tkuNameInput.trim() || "DP Jember 1";
-                      onUpdateMotivasi({ ...motivasiConfig, tkuName: newName });
-                    }}
-                    className="bg-red-600 hover:bg-red-700 text-white font-black text-xs px-4 py-2 rounded-xl transition-all shadow-sm cursor-pointer flex items-center gap-1.5"
-                  >
-                    💾 Simpan TKU
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* KONEKSI CLOUD DATABASE (SUPABASE) */}
-            <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-4 border border-indigo-500/30 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-indigo-500/20 pb-3">
-                <h2 className="text-xs font-black uppercase tracking-wider flex items-center gap-2 text-emerald-400">
-                  <span className="p-1 bg-emerald-500/20 rounded-lg text-emerald-400">⚡</span>
-                  Integrasi Database Cloud (Supabase Gratis)
-                </h2>
-                <span className="text-[9px] font-mono font-bold bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-400/30">
-                  Permanen & Antidesain Hilang
-                </span>
-              </div>
-
-              <p className="text-[10px] text-slate-300 leading-relaxed">
-                Hubungkan ke Supabase (100% Gratis) agar seluruh data (Breakdown, Realisasi, Evaluasi, & Profil YL) tersimpan abadi di cloud. Data tidak akan hilang saat Netlify direfresh atau di-redeploy!
-              </p>
-
-              <div className="space-y-3 bg-slate-950/60 p-3 rounded-xl border border-indigo-500/20">
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                    Supabase Project URL
-                  </label>
-                  <input
-                    type="text"
-                    value={sbUrl}
-                    onChange={(e) => setSbUrl(e.target.value)}
-                    placeholder="https://xyzabcdefg.supabase.co"
-                    className="w-full p-2.5 text-xs bg-slate-900 border border-slate-700 rounded-xl text-emerald-300 font-mono outline-none focus:border-emerald-500 placeholder:text-slate-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                    Supabase Anon API Key
-                  </label>
-                  <input
-                    type="password"
-                    value={sbKey}
-                    onChange={(e) => setSbKey(e.target.value)}
-                    placeholder="eyJhY2Nlc3NfdG9rZW4iOi..."
-                    className="w-full p-2.5 text-xs bg-slate-900 border border-slate-700 rounded-xl text-emerald-300 font-mono outline-none focus:border-emerald-500 placeholder:text-slate-600"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    onClick={handleSaveSupabaseConfig}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    🔌 Tes & Simpan Koneksi
-                  </button>
-
-                  <button
-                    onClick={handleSyncAllToSupabase}
-                    disabled={isSbSyncing}
-                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    ⬆️ Upload Semua Data ke Cloud
-                  </button>
-
-                  <button
-                    onClick={handleLoadAllFromSupabase}
-                    disabled={isSbSyncing}
-                    className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    ⬇️ Download Data dari Cloud
-                  </button>
-                </div>
-
-                {sbMsg && (
-                  <div className="p-2.5 bg-slate-900/90 rounded-xl border border-indigo-500/30 text-[10px] font-bold text-emerald-300 text-center animate-fade-in">
-                    {sbMsg}
-                  </div>
-                )}
-              </div>
-
-              {/* Petunjuk Pembuatan Tabel Supabase */}
-              <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-amber-400 block uppercase">
-                    📋 Langkah 1 Kali di Supabase SQL Editor (10 Detik):
-                  </span>
-                  <button
-                    onClick={() => {
-                      const sql = `CREATE TABLE IF NOT EXISTS public.app_store (\n  key TEXT PRIMARY KEY,\n  data JSONB NOT NULL,\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\nALTER TABLE public.app_store ENABLE ROW LEVEL SECURITY;\n\nDROP POLICY IF EXISTS "Allow public access" ON public.app_store;\nCREATE POLICY "Allow public access" ON public.app_store FOR ALL USING (true) WITH CHECK (true);`;
-                      navigator.clipboard.writeText(sql);
-                      alert("✅ Kode SQL telah disalin! Tinggal Paste di Supabase SQL Editor.");
-                    }}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[9px] px-2.5 py-1 rounded-lg transition-all shadow cursor-pointer flex items-center gap-1"
-                  >
-                    📋 Salin Kode SQL
-                  </button>
-                </div>
-                <ol className="text-[9.5px] text-slate-400 space-y-1 list-decimal pl-4">
-                  <li>Buka dashboard Supabase Anda di <code className="text-cyan-300">supabase.com</code></li>
-                  <li>Klik menu <b className="text-white">SQL Editor</b> di bilah kiri (ikon &gt;_)</li>
-                  <li>Klik <b className="text-white">New Query</b>, lalu klik tombol <b className="text-indigo-400">"Salin Kode SQL"</b> di atas, dan Paste (Tempel) di layar SQL Editor</li>
-                  <li>Klik tombol <b className="text-emerald-400">Run</b> (layar kanan bawah)</li>
-                </ol>
-                <pre className="bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-[9px] font-mono text-cyan-300 overflow-x-auto select-all">
-{`CREATE TABLE IF NOT EXISTS public.app_store (
-  key TEXT PRIMARY KEY,
-  data JSONB NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE public.app_store ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Allow public access" ON public.app_store;
-CREATE POLICY "Allow public access" ON public.app_store FOR ALL USING (true) WITH CHECK (true);`}
-                </pre>
-                <p className="text-[9px] text-slate-500 italic">
-                  *Setelah klik "Run" di SQL Editor Supabase, database Anda siap digunakan selamanya!
-                </p>
-              </div>
-            </div>
-
-            {/* Standalone Local Database Status */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-red-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-red-600 pl-2">
-                <FileSpreadsheet className="w-4 h-4 text-red-600" />
-                Penyimpanan Database Server Lokal (Standalone)
-              </h2>
-              <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
-                Seluruh data transaksi, PIN login, target bulanan, kontes, dan motivasi tersimpan secara otomatis di server lokal aplikasi ini.
-              </p>
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
-                <div>
-                  <p className="font-extrabold text-slate-800">Status Database</p>
-                  <p className="text-[10px] text-emerald-600 font-bold mt-0.5">● Terhubung & Aktif (Local JSON Storage)</p>
-                </div>
-                <button
-                  onClick={onRefresh}
-                  className="bg-slate-900 hover:bg-slate-950 text-white font-bold text-[10px] px-3 py-1.5 rounded-lg transition-all"
-                >
-                  Refresh Data
-                </button>
-              </div>
-            </div>
-
-            {/* Google Sheets API SCRIPT_URL Setup & GS Code Generator */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-red-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-red-600 pl-2">
-                <FileSpreadsheet className="w-4 h-4 text-red-600" />
-                Integrasi Apps Script (Kode .gs Spreadsheet)
-              </h2>
-              <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
-                Salin kode Google Apps Script berikut dan tempelkan ke menu <b>Ekstensi &gt; Apps Script</b> di Google Sheets Anda untuk menghubungkan data spreadsheet secara langsung.
-              </p>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowGsCode(!showGsCode)}
-                  className="flex-1 bg-red-50 hover:bg-red-100 text-red-700 font-black text-xs py-2.5 rounded-xl border border-red-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  {showGsCode ? "🙈 Sembunyikan Kode GS" : "📜 Lihat Kode Apps Script (Code.gs)"}
-                </button>
-
-                <button
-                  onClick={() => {
-                    const blob = new Blob([APPS_SCRIPT_CODE], { type: "text/plain;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = "Code.gs";
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-3 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  title="Unduh file Code.gs ke komputer"
-                >
-                  📥 Download Code.gs
-                </button>
-              </div>
-
-              {showGsCode && (
-                <div className="space-y-2 pt-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">File: Code.gs (Versi Baru)</span>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(APPS_SCRIPT_CODE);
-                        setCopiedGsCode(true);
-                        setTimeout(() => setCopiedGsCode(false), 2000);
-                      }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] px-3 py-1 rounded-lg transition-all cursor-pointer"
-                    >
-                      {copiedGsCode ? "✓ Kode Berhasil Disalin!" : "📋 Salin Seluruh Kode GS"}
-                    </button>
-                  </div>
-                  <textarea
-                    readOnly
-                    rows={14}
-                    className="w-full p-2.5 bg-slate-900 text-slate-100 font-mono text-[10px] rounded-xl outline-none leading-relaxed"
-                    value={APPS_SCRIPT_CODE}
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2 pt-2 border-t border-slate-100">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Web App URL Hasil Deploy (Opsional)</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={scriptUrlInput}
-                    onChange={(e) => setScriptUrlInput(e.target.value)}
-                    placeholder="https://script.google.com/macros/s/..."
-                    className="flex-1 p-2 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none font-bold text-slate-900 placeholder:text-slate-400"
-                  />
-                  <button
-                    onClick={() => onSaveScriptUrl(scriptUrlInput)}
-                    className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-3 py-2 rounded-xl transition-all cursor-pointer"
-                  >
-                    Simpan URL
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        {showTargetedResetModal && (
-          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-rose-200">
-              <div className="flex items-center justify-between border-b border-rose-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">⚠️</span>
-                  <div>
-                    <h3 className="text-sm font-black text-rose-950 uppercase">Konfirmasi Reset Data</h3>
-                    <p className="text-[10px] text-rose-600 font-bold">Aksi ini bersifat destruktif</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowTargetedResetModal(false)}
-                  className="text-slate-400 hover:text-slate-600 font-bold text-lg"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-900 text-xs space-y-2">
-                <p><strong>Cakupan:</strong> <span className="font-mono font-bold text-rose-950">{resetScope === "all" ? "SEMUA RIWAYAT (Semua Bulan)" : `HANYA BULAN INI (${selectedBreakdownMonth || "2026-07"})`}</span></p>
-                <p><strong>Data yang AKAN DIHAPUS:</strong></p>
-                <ul className="list-disc pl-4 font-bold text-[10px] space-y-1">
-                  <li>PLG & PJL (Data manual & Potensi Tembus)</li>
-                  <li>Input PJL (Data transaksi harian)</li>
-                  <li>BD & Realisasi (Breakdown Plan, Breakdown Realisasi, LHPP)</li>
-                  <li>Target (Target TKU & Target per YL)</li>
-                </ul>
-                <p className="text-[10px] italic text-rose-600 mt-2">Data lain (Profil YL, PIN, Setting) TIDAK akan dihapus.</p>
-              </div>
-
-              <div className="space-y-3">
-                <p className="text-[11px] text-slate-600 font-bold leading-relaxed">
-                  Apakah Anda yakin ingin menghapus data tersebut? Tindakan ini <strong>tidak dapat dibatalkan</strong>.
-                </p>
-                <div>
-                  <label className="text-[9px] font-bold text-rose-600 uppercase tracking-wider block mb-1">Ketik "HAPUS" untuk konfirmasi</label>
-                  <input
-                    type="text"
-                    value={resetTargetedConfirmText}
-                    onChange={(e) => setResetTargetedConfirmText(e.target.value.toUpperCase())}
-                    placeholder="HAPUS"
-                    className="w-full p-2.5 text-xs bg-white rounded-xl border border-rose-300 outline-none font-bold text-rose-900 text-center uppercase"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowTargetedResetModal(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition-all"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={handleConfirmTargetedReset}
-                  disabled={isResetting || resetTargetedConfirmText !== "HAPUS"}
-                  className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50"
-                >
-                  {isResetting ? "Proses..." : "Ya, Lanjutkan"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Modal Konfirmasi Hapus YL Permanen */}
-        {ylToDelete && (
-          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-rose-200">
-              <div className="flex items-center justify-between border-b border-rose-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center font-black shrink-0">
-                    <Trash2 className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-black text-rose-950 uppercase">Hapus Yakult Lady Permanen</h3>
-                    <p className="text-[10px] text-rose-600 font-bold">Konfirmasi Hapus Data YL</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setYlToDelete(null)}
-                  className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer p-1"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-950 text-xs space-y-2">
-                <p className="font-medium">
-                  Apakah Anda yakin ingin menghapus Yakult Lady ini secara <span className="font-black text-rose-600 uppercase">PERMANEN</span>?
-                </p>
-                <div className="bg-white p-2.5 rounded-lg border border-rose-200 font-mono text-xs space-y-1">
-                  <p><span className="text-slate-500 font-sans font-bold">Nama YL:</span> <strong className="text-slate-900 font-black">{ylToDelete.yl.nama}</strong></p>
-                  <p><span className="text-slate-500 font-sans font-bold">Area YL:</span> <strong className="text-red-600 font-black">{ylToDelete.yl.area}</strong></p>
-                  <p><span className="text-slate-500 font-sans font-bold">PIN Login:</span> <strong className="text-slate-800 font-bold">{ylToDelete.yl.pin}</strong></p>
-                </div>
-                <p className="text-[10px] text-rose-700 font-bold leading-relaxed">
-                  ⚠️ Yakult Lady ini akan langsung dihapus dari sistem, PIN login dinonaktifkan, dan target YL terkait akan dibersihkan.
-                </p>
-              </div>
-
-              <div className="flex gap-2 pt-1">
-                <button
-                  onClick={() => setYlToDelete(null)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={confirmDeleteYl}
-                  disabled={isDeletingYl}
-                  className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-1.5 disabled:opacity-50"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>{isDeletingYl ? "Menghapus..." : "Ya, Hapus Permanen"}</span>
-                </button>
-              </div>
-            </div>
-          </div>
+          <PlgPjlView
+            ylList={ylList}
+            motivasiConfig={motivasiConfig}
+            theme={theme}
+            historicalMonth={isViewingHistoricalMonth ? selectedMonthlyArchive : null}
+            historicalData={
+              isViewingHistoricalMonth && historicalDataSnapshot
+                ? {
+                    transactions: historicalDataSnapshot.transactions || [],
+                    potensiTembus: historicalDataSnapshot.potensiTembus || {},
+                    breakdownRealisasiMap: historicalDataSnapshot.breakdownRealisasiMap || breakdownRealisasiMap
+                  }
+                : null
+            }
+          />
         )}
       </main>
-
-      {/* Modern Bottom Navigation with Scrollable Support for All Menus */}
-      <nav className="fixed bottom-0 left-0 right-0 h-16 bg-slate-950 border-t border-red-900/80 flex justify-between items-center z-50 text-white px-1 overflow-x-auto">
-        <button
-          onClick={() => setActiveTab("dashboard")}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${activeTab === "dashboard" ? "text-red-400 scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <TrendingUp className="w-5 h-5" />
-          <span>Dasbor</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTab("lhpp_realisasi");
-            
-          }}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${(activeTab === "input_realisasi" || activeTab === "lhpp_realisasi") ? "text-emerald-400 font-extrabold scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
-          <span>Input PJL</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("breakdown")}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${activeTab === "breakdown" ? "text-red-400 scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <Grid3X3 className="w-5 h-5" />
-          <span>BD & Realisasi</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("target_kompensasi")}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${activeTab === "target_kompensasi" ? "text-red-400 scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <Target className="w-5 h-5" />
-          <span>Target</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("evaluasi")}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${activeTab === "evaluasi" ? "text-red-400 scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <Award className="w-5 h-5" />
-          <span>Evaluasi</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("plg_pjl")}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${activeTab === "plg_pjl" ? "text-red-400 scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <PieChart className="w-5 h-5 text-cyan-400" />
-          <span className="truncate w-full text-center px-1">Pelanggan & Penjualan</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("lady")}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${activeTab === "lady" ? "text-red-400 scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <Users className="w-5 h-5" />
-          <span>Profil YL</span>
-        </button>
-
-        
-
-        <button
-          onClick={() => setActiveTab("setting")}
-          className={`flex flex-col items-center justify-center gap-1 min-w-[56px] flex-1 h-full text-[10px] font-bold transition-all ${activeTab === "setting" ? "text-red-400 scale-105" : "text-slate-400 hover:text-white"}`}
-        >
-          <Settings className="w-5 h-5" />
-          <span>Setting</span>
-        </button>
-      {/* Mobile Paste Modal */}
-      {showPasteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-black text-slate-900 uppercase flex items-center gap-2">
-                <span>📥 Tempel Data Clipboard ke Tabel (HP)</span>
-              </h3>
-              <button
-                onClick={() => setShowPasteModal(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer p-1"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Tempelkan (paste) teks/tabel dari Excel, Google Sheets, atau hasil copy di bawah ini, lalu klik tombol <strong>Tempelkan ke Sel Diblok</strong>.
-            </p>
-            <textarea
-              value={pasteInputText}
-              onChange={(e) => setPasteInputText(e.target.value)}
-              placeholder="Tempelkan data di sini (Tab separated / angka per baris)..."
-              rows={6}
-              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowPasteModal(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
-              >
-                Batal
-              </button>
-              <button
-                onClick={() => {
-                  if (pasteInputText.trim()) {
-                    handlePasteIntoGrid(pasteInputText);
-                    setPasteInputText("");
-                    setShowPasteModal(false);
-                  }
-                }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow cursor-pointer"
-              >
-                📥 Tempelkan ke Sel Diblok
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Mobile Copy Result Modal Fallback */}
-      {showCopyResultModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 space-y-4 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-black text-slate-900 uppercase flex items-center gap-2">
-                <span>📋 Hasil Salin Data Sel (HP)</span>
-              </h3>
-              <button
-                onClick={() => setShowCopyResultModal(false)}
-                className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer p-1"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Sel-sel terpilih berhasil dirangkum. Tekan dan tahan pada teks di bawah ini untuk menyalin secara manual ke aplikasi lain:
-            </p>
-            <textarea
-              value={copiedText}
-              readOnly
-              onFocus={(e) => e.target.select()}
-              rows={6}
-              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => {
-                  if (navigator.clipboard) {
-                    navigator.clipboard.writeText(copiedText);
-                  }
-                  setShowCopyResultModal(false);
-                  setBreakdownMsg("📋 Berhasil disalin!");
-                  setTimeout(() => setBreakdownMsg(""), 3000);
-                }}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow cursor-pointer"
-              >
-                📋 Salin Semua Teks
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      </nav>
     </div>
   );
 }
 
-// Utility functions
-function currentMonthTotal(perYL: Record<string, any>, key: "yo" | "om" | "os" | "yt") {
-  return Object.values(perYL).reduce((sum, yl) => {
-    return sum + (yl[key] || 0);
-  }, 0);
-}
-
-function calculateSektorTotals(dashboard: DashboardData | null) {
-  const s = dashboard?.sektorTim || { rumah: 0, pasar: 0, sekolah: 0, kantor: 0, toko: 0, ib: 0 };
-  return [
-    { name: "Rumah", value: s.rumah || 0, color: "#eab308" },
-    { name: "Pasar", value: s.pasar || 0, color: "#ec4899" },
-    { name: "Sekolah", value: s.sekolah || 0, color: "#3b82f6" },
-    { name: "Kantor", value: s.kantor || 0, color: "#86efac" },
-    { name: "Toko", value: s.toko || 0, color: "#dc2626" },
-    { name: "IB", value: s.ib || 0, color: "#94a3b8" }
-  ];
-}
+export default ManagerView;
+  

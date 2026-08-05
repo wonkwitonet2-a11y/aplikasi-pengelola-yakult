@@ -1,5 +1,12 @@
 export async function safeFetchJson<T = any>(url: string, options?: RequestInit): Promise<T | null> {
   try {
+    if (typeof window !== 'undefined' && (window as any).__ARCHIVE_MOCK_HANDLER__) {
+      const mockHandler = (window as any).__ARCHIVE_MOCK_HANDLER__;
+      const mockResult = await mockHandler(url, options);
+      if (mockResult !== undefined) {
+         return mockResult as T;
+      }
+    }
     const res = await fetch(url, options);
     if (!res.ok) {
       console.warn(`Fetch ${url} returned HTTP status ${res.status}`);

@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   PieChart as Sparkles,
-  AlertCircle
+  AlertCircle,
+  Camera
 } from "lucide-react";
 import { Transaction, MotivasiConfig, cleanYlName } from "../types";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
@@ -42,10 +43,14 @@ export function YLView({
   motivasiConfig,
   onToggleTheme
 }: YLViewProps) {
-  const [activeTab, setActiveTab] = useState<"ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus">("ringkasan");
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date().toISOString().split("T")[0]
-  );
+  const [activeTab, setActiveTab] = useState<"input" | "ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus">("input");
+  const [isSavingInputHarian, setIsSavingInputHarian] = useState(false);
+  const [inputHarianMsg, setInputHarianMsg] = useState("");
+  const getTodayLocalString = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayLocalString());
 
   // YL AI Insight states
   const [ylAiInsight, setYlAiInsight] = useState<string>("");
@@ -185,6 +190,9 @@ export function YLView({
   const {
     selection: realisasiGridSelection,
     setSelection: setRealisasiGridSelection,
+    isMenuOpen: realisasiIsMenuOpen,
+    setIsMenuOpen: setRealisasiIsMenuOpen,
+    menuPos: realisasiMenuPos,
     getCellProps: getRealisasiCellProps,
     selectRow: selectRealisasiRow,
     handleCopy: handleRealisasiGridCopy,
@@ -254,21 +262,42 @@ export function YLView({
   }, [activeTab, isEditRealisasi, realisasiGridSelection, handleRealisasiGridClear, handleRealisasiGridCopy, handleRealisasiGridPaste]);
 
   // YL Breakdown Plan & Realisasi state (from Admin)
-    const [ylBreakdownPlan, setYlBreakdownPlan] = useState<{ pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> } | null>(null);
+  const [ylBreakdownPlan, setYlBreakdownPlan] = useState<{ pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> } | null>(null);
   const [ylBreakdownRealisasi, setYlBreakdownRealisasi] = useState<{ pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> } | null>(null);
+  
+  // Compensation Config State
+  const [compConfig, setCompConfig] = useState<{ pphRate: number; jkkJkm: number; jht: number }>({
+    pphRate: 2.5,
+    jkkJkm: 16800,
+    jht: 24000
+  });
+
+  useEffect(() => {
+    safeFetchJson("/api/getCompensationConfig").then(res => {
+      if (res && res.config) {
+        setCompConfig({
+          pphRate: (typeof res.config.pphRate === "number" && res.config.pphRate > 0) ? (res.config.pphRate === 2 ? 2.5 : res.config.pphRate) : 2.5,
+          jkkJkm: typeof res.config.jkkJkm === "number" ? res.config.jkkJkm : 16800,
+          jht: typeof res.config.jht === "number" ? res.config.jht : 24000
+        });
+      }
+    }).catch(() => {});
+  }, []);
   
   // Fetch Breakdown Plan & Realisasi for YL from Admin
   useEffect(() => {
     const area = ylName.substring(0, 3).trim();
-    const month = selectedDate ? selectedDate.substring(0, 7) : "2026-07";
+    const month = selectedDate ? selectedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
     setIsBreakdownLoading(true);
     safeFetchJson(`/api/getBreakdownPlan?month=${month}`)
       .then(res => {
-        let planMap = res && res.ok && res.breakdownPlan && Object.keys(res.breakdownPlan).length > 0 ? res.breakdownPlan : null;
-        let realMap = res && res.ok && res.breakdownRealisasi && Object.keys(res.breakdownRealisasi).length > 0 ? res.breakdownRealisasi : null;
+        let planMap = res && res.ok && res.breakdownPlan ? res.breakdownPlan : null;
+        let realMap = res && res.ok && res.breakdownRealisasi ? res.breakdownRealisasi : null;
 
-        if (!planMap) planMap = getStoredBreakdownPlan(month);
-        if (!realMap) realMap = getStoredBreakdownRealisasi(month);
+        if (!res || !res.ok) {
+          planMap = getStoredBreakdownPlan(month);
+          realMap = getStoredBreakdownRealisasi(month);
+        }
 
         const findData = (objMap: any) => {
           if (!objMap || typeof objMap !== "object") return null;
@@ -285,14 +314,11 @@ export function YLView({
           return matchKey ? objMap[matchKey] : null;
         };
 
-        if (planMap) {
-          const planData = findData(planMap);
-          if (planData) setYlBreakdownPlan(planData);
-        }
-        if (realMap) {
-          const realData = findData(realMap);
-          if (realData) setYlBreakdownRealisasi(realData);
-        }
+        const planData = findData(planMap);
+        setYlBreakdownPlan(planData || null);
+
+        const realData = findData(realMap);
+        setYlBreakdownRealisasi(realData || null);
       })
       .catch(err => console.error("Error loading YL breakdown plan & realisasi:", err))
       .finally(() => setIsBreakdownLoading(false));
@@ -314,11 +340,61 @@ export function YLView({
       .finally(() => setIsLoadingAttention(false));
   }, [ylName, activeTab]);
 
+  // YL Profile photo state
+  const [ylFoto, setYlFoto] = useState<string>(() => {
+    try {
+      return localStorage.getItem(`yl_foto_${ylName}`) || "";
+    } catch (e) {
+      return "";
+    }
+  });
+
+  useEffect(() => {
+    if (!ylName) return;
+    safeFetchJson<{ ok: boolean; foto?: string }>(`/api/getYlFoto?nama=${encodeURIComponent(ylName)}`)
+      .then(res => {
+        if (res && res.ok && res.foto) {
+          setYlFoto(res.foto);
+          try {
+            localStorage.setItem(`yl_foto_${ylName}`, res.foto);
+          } catch (e) {}
+        }
+      }).catch(() => {});
+  }, [ylName]);
+
+  const handleUploadFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Ukuran foto maksimal 5MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      setYlFoto(base64);
+      try {
+        localStorage.setItem(`yl_foto_${ylName}`, base64);
+      } catch (e) {}
+
+      try {
+        await fetch("/api/saveYlFoto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nama: ylName, foto: base64 })
+        });
+      } catch (err) {
+        console.error("Gagal simpan foto YL ke server:", err);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Motivasi sliding slideshow state
   const [activeMotivasi, setActiveMotivasi] = useState<string>("Semangat menjalani hari ini dengan tulus!");
   const motivasiIndexRef = useRef<number>(0);
 
-  // Rotate motivasi
+  // Rotate motivasi slideshow
   useEffect(() => {
     if (!motivasiConfig.enabled || motivasiConfig.terpilih.length === 0) return;
     const list = motivasiConfig.terpilih;
@@ -336,62 +412,56 @@ export function YLView({
 
   // Load existing transaction for chosen date
   useEffect(() => {
-    const key = `${selectedDate}_${ylName}`;
-    const isNewDate = loadedDateRef.current !== key;
+    const existing = transactions.find(t => t.tanggal === selectedDate);
+    if (existing) {
+      setTotYo(existing.tot_yo || 0);
+      setTotOm(existing.tot_om || 0);
+      setTotOs(existing.tot_os || 0);
+      setTotYt(existing.tot_yt || 0);
 
-    if (isNewDate) {
-      loadedDateRef.current = key;
-      const existing = transactions.find(t => t.tanggal === selectedDate);
-      if (existing) {
-        setTotYo(existing.tot_yo || 0);
-        setTotOm(existing.tot_om || 0);
-        setTotOs(existing.tot_os || 0);
-        setTotYt(existing.tot_yt || 0);
-
-        const secCopy = {
-          rmh: { yo: 0, om: 0, os: 0, yt: 0 },
-          psr: { yo: 0, om: 0, os: 0, yt: 0 },
-          skh: { yo: 0, om: 0, os: 0, yt: 0 },
-          ktr: { yo: 0, om: 0, os: 0, yt: 0 },
-          tk: { yo: 0, om: 0, os: 0, yt: 0 },
-          ib: { yo: 0, om: 0, os: 0, yt: 0 }
-        };
-        ["rmh", "psr", "skh", "ktr", "tk", "ib"].forEach(sec => {
-          ["yo", "om", "os", "yt"].forEach(prod => {
-            secCopy[sec][prod] = (existing as any)[`${sec}_${prod}`] || 0;
-          });
+      const secCopy = {
+        rmh: { yo: 0, om: 0, os: 0, yt: 0 },
+        psr: { yo: 0, om: 0, os: 0, yt: 0 },
+        skh: { yo: 0, om: 0, os: 0, yt: 0 },
+        ktr: { yo: 0, om: 0, os: 0, yt: 0 },
+        tk: { yo: 0, om: 0, os: 0, yt: 0 },
+        ib: { yo: 0, om: 0, os: 0, yt: 0 }
+      };
+      ["rmh", "psr", "skh", "ktr", "tk", "ib"].forEach(sec => {
+        ["yo", "om", "os", "yt"].forEach(prod => {
+          secCopy[sec][prod] = (existing as any)[`${sec}_${prod}`] || 0;
         });
-        setSectors(secCopy);
+      });
+      setSectors(secCopy);
 
-        setBbYo(existing.bb_yo || 0);
-        setBbOm(existing.bb_om || 0);
-        setBbOs(existing.bb_os || 0);
-        setBbYt(existing.bb_yt || 0);
+      setBbYo(existing.bb_yo || 0);
+      setBbOm(existing.bb_om || 0);
+      setBbOs(existing.bb_os || 0);
+      setBbYt(existing.bb_yt || 0);
 
-        setFPlg(existing.f_plg || 0);
-        setFRk(existing.f_rk || 0);
-        setFRa(existing.f_ra || 0);
-        setFRb(existing.f_rb || 0);
+      setFPlg(existing.f_plg || 0);
+      setFRk(existing.f_rk || 0);
+      setFRa(existing.f_ra || 0);
+      setFRb(existing.f_rb || 0);
 
-        setPbP(existing.pb_p || 0);
-        setPbS(existing.pb_s || 0);
-        setApkPlg(existing.apk_plg || 0);
-        setApkBotol(existing.apk_botol || 0);
-      } else {
-        // Clear form for new date
-        setTotYo(0); setTotOm(0); setTotOs(0); setTotYt(0);
-        setSectors({
-          rmh: { yo: 0, om: 0, os: 0, yt: 0 },
-          psr: { yo: 0, om: 0, os: 0, yt: 0 },
-          skh: { yo: 0, om: 0, os: 0, yt: 0 },
-          ktr: { yo: 0, om: 0, os: 0, yt: 0 },
-          tk: { yo: 0, om: 0, os: 0, yt: 0 },
-          ib: { yo: 0, om: 0, os: 0, yt: 0 }
-        });
-        setBbYo(0); setBbOm(0); setBbOs(0); setBbYt(0);
-        setFPlg(0); setFRk(0); setFRa(0); setFRb(0);
-        setPbP(0); setPbS(0); setApkPlg(0); setApkBotol(0);
-      }
+      setPbP(existing.pb_p || 0);
+      setPbS(existing.pb_s || 0);
+      setApkPlg(existing.apk_plg || 0);
+      setApkBotol(existing.apk_botol || 0);
+    } else {
+      // Clear form for new date or when reset
+      setTotYo(0); setTotOm(0); setTotOs(0); setTotYt(0);
+      setSectors({
+        rmh: { yo: 0, om: 0, os: 0, yt: 0 },
+        psr: { yo: 0, om: 0, os: 0, yt: 0 },
+        skh: { yo: 0, om: 0, os: 0, yt: 0 },
+        ktr: { yo: 0, om: 0, os: 0, yt: 0 },
+        tk: { yo: 0, om: 0, os: 0, yt: 0 },
+        ib: { yo: 0, om: 0, os: 0, yt: 0 }
+      });
+      setBbYo(0); setBbOm(0); setBbOs(0); setBbYt(0);
+      setFPlg(0); setFRk(0); setFRa(0); setFRb(0);
+      setPbP(0); setPbS(0); setApkPlg(0); setApkBotol(0);
     }
 
     // Load matching target configuration
@@ -422,15 +492,16 @@ export function YLView({
     } else {
       const initial: Record<number, any> = {};
       const daysList = Array.from({ length: 31 }, (_, i) => i + 1);
-      const currentMonth = selectedDate.substring(0, 8);
+      const currentMonthPrefix = selectedDate.substring(0, 7);
       daysList.forEach(d => {
         const dayStrPadded = String(d).padStart(2, '0');
-        const tx = transactions.find(t => t.tanggal.endsWith(`-${dayStrPadded}`) || t.tanggal === String(d));
+        const targetDateStr = `${currentMonthPrefix}-${dayStrPadded}`;
+        const tx = transactions.find(t => t.tanggal === targetDateStr);
         if (tx) {
           initial[d] = { ...tx };
         } else {
           initial[d] = {
-            tanggal: `${currentMonth}${dayStrPadded}`,
+            tanggal: targetDateStr,
             rmh_yo: 0, rmh_om: 0, rmh_os: 0, rmh_yt: 0,
             psr_yo: 0, psr_om: 0, psr_os: 0, psr_yt: 0,
             skh_yo: 0, skh_om: 0, skh_os: 0, skh_yt: 0,
@@ -457,10 +528,12 @@ export function YLView({
       (obj[`ktr_${prod}`]||0) + (obj[`tk_${prod}`]||0) + (obj[`ib_${prod}`]||0);
 
     const mismatches: { tanggal: string; detail: string }[] = [];
+    const currentMonthPrefix = selectedDate.substring(0, 7);
     Object.entries(editDataRealisasi).forEach(([dayStr, data]: [string, any]) => {
       const d = parseInt(dayStr, 10);
       const dayStrPadded = String(d).padStart(2, '0');
-      const originalTx = transactions.find(t => t.tanggal.endsWith(`-${dayStrPadded}`) || t.tanggal === String(d));
+      const targetDateStr = `${currentMonthPrefix}-${dayStrPadded}`;
+      const originalTx = transactions.find(t => t.tanggal === targetDateStr);
       const adminDataDay = ylBreakdownRealisasi?.days?.[String(d)];
 
       // Hanya validasi tanggal yg benar-benar diubah di sesi edit ini (dirty).
@@ -525,6 +598,70 @@ export function YLView({
     }
   };
 
+  // ==== INPUT HARIAN (Tab "INPUT") ====
+  // Total per produk dari pecahan sektor (Rumah/Pasar/Sekolah/Kantor/Toko/IB)
+  const secSumYo = sectors.rmh.yo + sectors.psr.yo + sectors.skh.yo + sectors.ktr.yo + sectors.tk.yo + sectors.ib.yo;
+  const secSumOm = sectors.rmh.om + sectors.psr.om + sectors.skh.om + sectors.ktr.om + sectors.tk.om + sectors.ib.om;
+  const secSumOs = sectors.rmh.os + sectors.psr.os + sectors.skh.os + sectors.ktr.os + sectors.tk.os + sectors.ib.os;
+  const secSumYt = sectors.rmh.yt + sectors.psr.yt + sectors.skh.yt + sectors.ktr.yt + sectors.tk.yt + sectors.ib.yt;
+
+  // Cocok/tidaknya HANYA ditentukan oleh Acuan Admin (bukan lagi dibandingkan ke Total Jual manual)
+
+  // Acuan (referensi) dari Realisasi Admin pertanggal, ditarik dari ylBreakdownRealisasi
+  const inputHarianDay = parseInt((selectedDate.split(/[-/]/)[2] || "0"), 10);
+  const adminAcuanDay = ylBreakdownRealisasi?.days?.[String(inputHarianDay)] as any;
+  const hasAdminAcuan = !!adminAcuanDay;
+  const acuanHarianYo = Number(adminAcuanDay?.yo) || 0;
+  const acuanHarianOm = Number(adminAcuanDay?.om) || 0;
+  const acuanHarianOs = Number(adminAcuanDay?.os) || 0;
+  const acuanHarianYt = Number(adminAcuanDay?.yt) || 0;
+  const cocokAcuanAdmin = !hasAdminAcuan || (
+    secSumYo === acuanHarianYo && secSumOm === acuanHarianOm && secSumOs === acuanHarianOs && secSumYt === acuanHarianYt
+  );
+
+  const canSaveInputHarian = cocokAcuanAdmin;
+
+  const handleSaveInputHarian = async () => {
+    if (!canSaveInputHarian) return;
+    setIsSavingInputHarian(true);
+    setInputHarianMsg("");
+    try {
+      const payload = {
+        tanggal: selectedDate,
+        nama: ylName,
+        sektor: {
+          rmh: { ...sectors.rmh },
+          psr: { ...sectors.psr },
+          skh: { ...sectors.skh },
+          ktr: { ...sectors.ktr },
+          tk: { ...sectors.tk },
+          ib: { ...sectors.ib }
+        },
+        bb_yo: bbYo, bb_om: bbOm, bb_os: bbOs, bb_yt: bbYt,
+        pb_p: pbP, pb_s: pbS,
+        apk_plg: apkPlg, apk_botol: apkBotol,
+        f_plg: fPlg, f_rk: fRk, f_ra: fRa, f_rb: fRb
+      };
+      const res = await fetch("/api/saveRealisasiPotensiYL", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json().catch(() => null);
+      if (json && json.ok) {
+        setInputHarianMsg("✅ Laporan harian berhasil disimpan ke Realisasi Potensi!");
+        if (onRefresh) await onRefresh();
+      } else {
+        setInputHarianMsg("❌ Gagal menyimpan laporan.");
+      }
+    } catch (err) {
+      console.error("Error saving input harian:", err);
+      setInputHarianMsg("❌ Terjadi kesalahan saat menyimpan.");
+    } finally {
+      setIsSavingInputHarian(false);
+    }
+  };
+
   // Save report
   
   // Setoran calculations
@@ -535,10 +672,7 @@ export function YLView({
   
   // Monthly stats calculations for RINGKASAN
   const currentMonth = selectedDate.substring(0, 7);
-  let currentMonthTxs = transactions.filter(t => t.tanggal.startsWith(currentMonth));
-  if (currentMonthTxs.length === 0 && transactions.length > 0) {
-    currentMonthTxs = transactions;
-  }
+  const currentMonthTxs = transactions.filter(t => t.tanggal && t.tanggal.startsWith(currentMonth));
   
   // Total Penjualan Bulan Ini (mYo/mOm/mOs/mYt) diambil dari tabel Realisasi (ylBreakdownRealisasi.days)
   // jika tersedia — bukan sekadar akumulasi transaksi biasa. Fallback ke akumulasi transaksi
@@ -594,13 +728,6 @@ export function YLView({
     sumRk += (t.f_rk || 0);
     sumRa += (t.f_ra || 0);
     sumRb += (t.f_rb || 0);
-
-    // Daily kompensasi
-    const kYo = Math.max(0, (t.tot_yo||0) - (t.tk_yo || 0)) * 60;
-    const kOm = Math.max(0, (t.tot_om||0) - (t.tk_om || 0)) * 70;
-    const kOs = Math.max(0, (t.tot_os||0) - (t.tk_os || 0)) * 70;
-    const kYt = Math.max(0, (t.tot_yt||0) - (t.tk_yt || 0)) * 140;
-    mKompensasiHarian += (kYo + kOm + kOs + kYt);
   });
 
   // PLG/RK/RA/RB/PB/BB/Sampah Botol & pembagi E6 diambil dari sheet atau penjumlahan transaksi
@@ -640,6 +767,16 @@ export function YLView({
 
   const kompFactor = getKompensasiFactor(mRata2);
   const mKompensasiBulanan = mTotalSales * kompFactor;
+
+  // Total Kompensasi Kotor & Potongan Pajak / PPh / JHT
+  const mPphRate = (compConfig.pphRate && compConfig.pphRate > 0) ? compConfig.pphRate : 2.5;
+  const mPphRateStr = mPphRate.toString().replace('.', ',');
+  const mPph = Math.floor(mKompensasiBulanan * (mPphRate / 100));
+  const mJht = compConfig.jht;
+  const mJkk = compConfig.jkkJkm;
+  const mTotalPotongan = mPph + mJht + mJkk;
+  const mKompensasiBersihBulanan = Math.max(0, mKompensasiBulanan - mTotalPotongan);
+  const mTotalTakeHome = mKompensasiHarian + mKompensasiBersihBulanan;
 
   const pctOfTotal = (val: number) => {
     return mTotalSales > 0 ? Math.trunc((val / mTotalSales) * 100) : 0;
@@ -686,7 +823,33 @@ export function YLView({
       <header className="bg-gradient-to-r from-red-950 to-red-800 border-b-4 border-red-600 text-white p-4 sticky top-0 z-50 shadow-md">
         <div className="max-w-xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="bg-red-600 text-white font-black px-3 py-1.5 text-xl rounded-xl shadow-md">Y</span>
+            {/* Profile Picture Avatar with Photo Upload */}
+            <div className="relative group shrink-0">
+              {ylFoto ? (
+                <img
+                  src={ylFoto}
+                  alt={cleanYlName(ylName)}
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover border-2 border-red-400 shadow-md transition-transform group-hover:scale-105"
+                />
+              ) : (
+                <div className="w-11 h-11 sm:w-12 sm:h-12 bg-red-600 text-white font-black text-xl rounded-xl shadow-md flex items-center justify-center border-2 border-red-400 group-hover:bg-red-500 transition-all">
+                  {cleanYlName(ylName).charAt(0).toUpperCase() || "Y"}
+                </div>
+              )}
+              <label
+                className="absolute -bottom-1 -right-1 bg-slate-900 text-white p-1 rounded-full cursor-pointer hover:bg-slate-800 shadow border border-red-400 transition-transform active:scale-90"
+                title="Ganti Foto Profil YL"
+              >
+                <Camera className="w-3 h-3 text-red-300" />
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleUploadFoto}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
             <div>
               <h1 className="text-base sm:text-xl font-black tracking-tight leading-none uppercase">{cleanYlName(ylName)}</h1>
               <p className="text-xs font-semibold text-red-200 mt-1">Yakult Lady • Area {ylName.substring(0, 3)} Jember 1</p>
@@ -707,9 +870,6 @@ export function YLView({
       {motivasiConfig.enabled && (
         <div className="sticky top-16 z-30 mx-3 my-3 bg-slate-900 border-2 border-red-500 shadow-xl rounded-2xl p-3 max-w-xl sm:mx-auto overflow-hidden">
           <div className="flex items-center gap-2.5">
-            <span className="shrink-0 bg-red-600 text-white font-black text-xs px-2.5 py-1 rounded-lg uppercase tracking-wider shadow-sm z-10 flex items-center gap-1">
-              ✨ MOTIVASI
-            </span>
             <div className="overflow-hidden whitespace-nowrap flex-1 relative">
               <div className="inline-block whitespace-nowrap animate-marquee font-black text-sm sm:text-base text-yellow-300 tracking-wide">
                 {activeMotivasi} &nbsp;&nbsp;&nbsp; • &nbsp;&nbsp;&nbsp; {activeMotivasi}
@@ -721,125 +881,222 @@ export function YLView({
 
       {/* Main Content Area */}
       <main className="p-3 sm:p-5 space-y-5 max-w-xl sm:max-w-2xl mx-auto">
-        <div className="bg-white border-2 border-slate-200 p-1.5 rounded-2xl shadow-sm grid grid-cols-4 gap-1.5 text-center">
+        <div className="bg-white border-2 border-slate-200 p-1.5 rounded-2xl shadow-sm grid grid-cols-3 gap-1.5 text-center">
+          <button
+            onClick={() => setActiveTab("input")}
+            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "input" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
+          >
+            INPUT
+          </button>
           <button
             onClick={() => setActiveTab("ringkasan")}
-            className={`py-2.5 text-xs sm:text-sm font-black rounded-xl transition-all ${activeTab === "ringkasan" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
+            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "ringkasan" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
           >
             RINGKASAN
           </button>
           <button
             onClick={() => setActiveTab("breakdown")}
-            className={`py-2.5 text-[10px] sm:text-xs leading-tight font-black rounded-xl transition-all ${activeTab === "breakdown" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
+            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "breakdown" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
           >
-            BREAKDOWN & REALISASI
+            BD & REALISASI
           </button>
           <button
             onClick={() => setActiveTab("realisasi_potensi")}
-            className={`py-2.5 text-[10px] sm:text-xs leading-tight font-black rounded-xl transition-all ${activeTab === "realisasi_potensi" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
+            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "realisasi_potensi" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
           >
-            REALISASI POTENSI
+            POTENSI
           </button>
           <button
             onClick={() => setActiveTab("potensi_tembus")}
-            className={`py-2.5 text-[10px] sm:text-xs leading-tight font-black rounded-xl transition-all ${activeTab === "potensi_tembus" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
+            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "potensi_tembus" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
           >
-            POTENSI VS TEMBUS
+            TEMBUS
           </button>
         </div>
 
 
-        {/* RINGKASAN TAB */}
-        {activeTab === "ringkasan" && (
-          <div className="space-y-4">
-            {/* 1. Total Jual & Setoran - Kalkulator manual, TIDAK tersimpan/tertarik ke database */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-l-4 border-emerald-500 pl-3">
-                <div>
-                  <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wider">
-                    Total Jual & Setoran
-                  </h2>
-                  <p className="text-xs text-slate-500 font-semibold mt-0.5">
-                    Kalkulator manual untuk mengetahui nominal setoran.
-                  </p>
-                </div>
-                <span className="text-xs font-black bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg">
-                  Input Manual
-                </span>
+        {/* TAB INPUT — Form harian YL, tampilan disederhanakan (khusus menu YL) */}
+        {activeTab === "input" && (
+          <div className="space-y-3">
+            {/* Tanggal */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wide block mb-1.5">Tanggal Transaksi</label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-red-400"
+              />
+            </div>
+
+            {/* 1. Total Jual & Setoran Harian */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-sm font-black text-slate-800">1. Total Jual & Setoran Harian</h2>
+              <div className="space-y-2">
+                {[
+                  { label: "YO", val: totYo, set: setTotYo, rp: setYo },
+                  { label: "OM", val: totOm, set: setTotOm, rp: setOm },
+                  { label: "OS", val: totOs, set: setTotOs, rp: setOs },
+                  { label: "YT", val: totYt, set: setTotYt, rp: setYt },
+                ].map(row => (
+                  <div key={row.label} className="grid grid-cols-[1.75rem_1fr_7rem] sm:grid-cols-[2rem_1fr_8rem] items-center gap-2 sm:gap-3">
+                    <span className="font-black text-xs sm:text-sm text-slate-600">{row.label}</span>
+                    <NumberInput
+                      min={0}
+                      value={row.val}
+                      onChange={(v) => row.set(Math.max(0, v))}
+                      className="w-full text-center font-bold text-sm text-slate-900 bg-slate-50 border border-slate-200 py-1.5 rounded-xl outline-none focus:ring-2 focus:ring-red-400"
+                    />
+                    <span className="text-right text-[11px] sm:text-xs font-bold text-slate-500 tabular-nums whitespace-nowrap">{formatRp(row.rp)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-[1.75rem_1fr_7rem] sm:grid-cols-[2rem_1fr_8rem] items-center gap-2 sm:gap-3 pt-2 border-t border-slate-100">
+                <span className="col-span-2 text-[11px] sm:text-xs font-bold text-slate-500 uppercase">Total Setoran</span>
+                <span className="text-right text-sm sm:text-base font-black text-emerald-600 tabular-nums whitespace-nowrap">{formatRp(setYo + setOm + setOs + setYt)}</span>
+              </div>
+            </div>
+
+            {/* 2. Balik Botol (BB) */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-sm font-black text-slate-800">2. Balik Botol (BB)</h2>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { label: "YO", val: bbYo, set: setBbYo },
+                  { label: "OM", val: bbOm, set: setBbOm },
+                  { label: "OS", val: bbOs, set: setBbOs },
+                  { label: "YT", val: bbYt, set: setBbYt },
+                ].map(row => (
+                  <div key={row.label} className="space-y-1">
+                    <span className="text-xs font-bold text-slate-500 block text-center">{row.label}</span>
+                    <NumberInput
+                      min={0}
+                      value={row.val}
+                      onChange={(v) => row.set(Math.max(0, v))}
+                      className="w-full text-center font-bold text-sm text-slate-900 bg-slate-50 border border-slate-200 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-red-400"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. Realisasi Potensi (dulu: Sektor Distribusi) */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div>
+                <h2 className="text-sm font-black text-slate-800">3. Potensi</h2>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5">Pecah total jual ke sektor di bawah ini. Total harus pas dengan Acuan Admin.</p>
               </div>
 
-              <div className="space-y-3">
-                {/* Headers */}
-                <div className="grid grid-cols-12 gap-2 text-xs font-extrabold text-slate-500 uppercase">
-                  <div className="col-span-3">Produk</div>
-                  <div className="col-span-4 text-center">Jual (Btl)</div>
-                  <div className="col-span-5 text-right">Setoran</div>
-                </div>
-
-                {/* YO Row */}
-                <div className="grid grid-cols-12 gap-2 items-center">
-                  <span className="col-span-3 font-black text-red-600 text-sm sm:text-base">YO</span>
-                  <div className="col-span-4">
-                    <NumberInput
-                      min={0}
-                      value={totYo}
-                      onChange={(val) => setTotYo(Math.max(0, val))}
-                      className="w-full text-center font-black text-sm sm:text-base text-slate-900 bg-slate-50 border-2 border-slate-200 py-2 rounded-xl outline-none focus:ring-2 focus:ring-red-500"
-                    />
+              {[
+                { key: "rmh", label: "Rumah" },
+                { key: "psr", label: "Pasar" },
+                { key: "skh", label: "Sekolah" },
+                { key: "ktr", label: "Kantor" },
+                { key: "tk", label: "Toko" },
+                { key: "ib", label: "IB" },
+              ].map(sec => (
+                <div key={sec.key} className="bg-slate-50 rounded-xl p-3 border border-slate-100 space-y-2">
+                  <span className="text-xs font-black text-slate-600 uppercase">{sec.label}</span>
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["yo", "om", "os", "yt"] as const).map(prod => (
+                      <div key={prod} className="space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 block text-center uppercase">{prod}</span>
+                        <NumberInput
+                          min={0}
+                          value={sectors[sec.key][prod]}
+                          onChange={(v) => setSectors(prev => ({ ...prev, [sec.key]: { ...prev[sec.key], [prod]: Math.max(0, v) } }))}
+                          className="w-full text-center font-bold text-xs text-slate-900 bg-white border border-slate-200 py-2 rounded-lg outline-none focus:ring-2 focus:ring-red-400"
+                        />
+                      </div>
+                    ))}
                   </div>
-                  <span className="col-span-5 text-right font-mono font-black text-sm sm:text-base text-slate-800">{formatRp(setYo)}</span>
                 </div>
+              ))}
 
-                {/* OM Row */}
-                <div className="grid grid-cols-12 gap-2 items-center">
-                  <span className="col-span-3 font-black text-amber-500 text-sm sm:text-base">OM</span>
-                  <div className="col-span-4">
-                    <NumberInput
-                      min={0}
-                      value={totOm}
-                      onChange={(val) => setTotOm(Math.max(0, val))}
-                      className="w-full text-center font-black text-sm sm:text-base text-slate-900 bg-slate-50 border-2 border-slate-200 py-2 rounded-xl outline-none focus:ring-2 focus:ring-amber-500"
-                    />
+              {/* Pencocokan Sektor Jual — SATU acuan saja: Acuan Admin pertanggal */}
+              <div className={`rounded-xl p-4 border space-y-3 ${canSaveInputHarian ? "bg-emerald-50 border-emerald-200" : "bg-rose-50 border-rose-200"}`}>
+                <div className="flex justify-between items-center">
+                  <span className="text-base font-black text-slate-800">Pencocokan Sektor Jual</span>
+                  <span className={`text-sm font-black px-2.5 py-1 rounded-lg ${canSaveInputHarian ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>
+                    {canSaveInputHarian ? "✓ COCOK" : "✗ BELUM PAS"}
+                  </span>
+                </div>
+                {hasAdminAcuan ? (
+                  <>
+                    <span className="text-xs font-bold text-slate-500 uppercase block">Acuan Admin (Tgl {inputHarianDay})</span>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm font-bold">
+                      <span className={secSumYo === acuanHarianYo ? "text-emerald-700" : "text-rose-700"}>YO: {secSumYo}/{acuanHarianYo}</span>
+                      <span className={secSumOm === acuanHarianOm ? "text-emerald-700" : "text-rose-700"}>OM: {secSumOm}/{acuanHarianOm}</span>
+                      <span className={secSumOs === acuanHarianOs ? "text-emerald-700" : "text-rose-700"}>OS: {secSumOs}/{acuanHarianOs}</span>
+                      <span className={secSumYt === acuanHarianYt ? "text-emerald-700" : "text-rose-700"}>YT: {secSumYt}/{acuanHarianYt}</span>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-sm font-semibold text-slate-500">Acuan Admin untuk tanggal ini belum tersedia.</p>
+                )}
+              </div>
+            </div>
+
+            {/* 4. Kunjungan, PB, & Sampah Botol */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-sm font-black text-slate-800">4. Kunjungan, PB, & Sampah Botol</h2>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "PLG (Target)", val: fPlg, set: setFPlg },
+                  { label: "RK (Kunjungan)", val: fRk, set: setFRk },
+                  { label: "RA (Aktif)", val: fRa, set: setFRa },
+                  { label: "RB (Beli)", val: fRb, set: setFRb },
+                ].map(row => (
+                  <div key={row.label} className="space-y-1">
+                    <span className="text-xs font-bold text-slate-500 block">{row.label}</span>
+                    <NumberInput min={0} value={row.val} onChange={(v) => row.set(Math.max(0, v))} className="w-full text-center font-bold text-sm text-slate-900 bg-slate-50 border border-slate-200 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-red-400" />
                   </div>
-                  <span className="col-span-5 text-right font-mono font-black text-sm sm:text-base text-slate-800">{formatRp(setOm)}</span>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-slate-500 block">PB Pagi</span>
+                  <NumberInput min={0} value={pbP} onChange={(v) => setPbP(Math.max(0, v))} className="w-full text-center font-bold text-sm text-slate-900 bg-slate-50 border border-slate-200 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-red-400" />
                 </div>
-
-                {/* OS Row */}
-                <div className="grid grid-cols-12 gap-2 items-center">
-                  <span className="col-span-3 font-black text-pink-500 text-sm sm:text-base">OS</span>
-                  <div className="col-span-4">
-                    <NumberInput
-                      min={0}
-                      value={totOs}
-                      onChange={(val) => setTotOs(Math.max(0, val))}
-                      className="w-full text-center font-black text-sm sm:text-base text-slate-900 bg-slate-50 border-2 border-slate-200 py-2 rounded-xl outline-none focus:ring-2 focus:ring-pink-500"
-                    />
-                  </div>
-                  <span className="col-span-5 text-right font-mono font-black text-sm sm:text-base text-slate-800">{formatRp(setOs)}</span>
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-slate-500 block">PB Sore</span>
+                  <NumberInput min={0} value={pbS} onChange={(v) => setPbS(Math.max(0, v))} className="w-full text-center font-bold text-sm text-slate-900 bg-slate-50 border border-slate-200 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-red-400" />
                 </div>
-
-                {/* YT Row */}
-                <div className="grid grid-cols-12 gap-2 items-center">
-                  <span className="col-span-3 font-black text-blue-600 text-sm sm:text-base">YT</span>
-                  <div className="col-span-4">
-                    <NumberInput
-                      min={0}
-                      value={totYt}
-                      onChange={(val) => setTotYt(Math.max(0, val))}
-                      className="w-full text-center font-black text-sm sm:text-base text-slate-900 bg-slate-50 border-2 border-slate-200 py-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <span className="col-span-5 text-right font-mono font-black text-sm sm:text-base text-slate-800">{formatRp(setYt)}</span>
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-slate-500 block">PLG APK</span>
+                  <NumberInput min={0} value={apkPlg} onChange={(v) => setApkPlg(Math.max(0, v))} className="w-full text-center font-bold text-sm text-slate-900 bg-slate-50 border border-slate-200 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-red-400" />
                 </div>
-
-                <hr className="border-dashed border-slate-300 my-2" />
-                <div className="flex justify-between items-center text-sm sm:text-base font-black text-slate-900">
-                  <span>ESTIMASI SETORAN PDM AWAL</span>
-                  <span className="text-base sm:text-xl font-mono text-emerald-600 font-extrabold">{formatRp(setYo + setOm + setOs + setYt)}</span>
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-slate-500 block">Sampah Botol</span>
+                  <NumberInput min={0} value={apkBotol} onChange={(v) => setApkBotol(Math.max(0, v))} className="w-full text-center font-bold text-sm text-slate-900 bg-slate-50 border border-slate-200 py-2.5 rounded-xl outline-none focus:ring-2 focus:ring-red-400" />
                 </div>
               </div>
             </div>
 
+            {/* Simpan */}
+            <button
+              onClick={handleSaveInputHarian}
+              disabled={!canSaveInputHarian || isSavingInputHarian}
+              className="w-full bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black text-sm py-4 rounded-2xl shadow-sm transition-all active:scale-[0.99]"
+            >
+              {isSavingInputHarian ? "Menyimpan..." : "💾 Simpan Laporan Harian"}
+            </button>
+            {!canSaveInputHarian && (
+              <p className="text-xs font-bold text-rose-600 text-center -mt-2">
+                Belum bisa disimpan — pastikan pecahan sektor pas dengan Acuan Admin.
+              </p>
+            )}
+            {inputHarianMsg && (
+              <p className={`text-xs font-bold text-center -mt-2 ${inputHarianMsg.includes("❌") ? "text-rose-600" : "text-emerald-600"}`}>
+                {inputHarianMsg}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* RINGKASAN TAB */}
+        {activeTab === "ringkasan" && (
+          <div className="space-y-4">
             {/* Target, Bulan Lalu, & Tahun Lalu Per YL Display Card */}
             <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-l-4 border-red-600 pl-3">
@@ -857,20 +1114,40 @@ export function YLView({
               </div>
 
               <div className="grid grid-cols-3 gap-3 text-center pt-1">
-                <div className="p-3.5 bg-red-50/90 rounded-2xl border border-red-200 shadow-sm">
-                  <span className="text-xs font-extrabold text-red-900 uppercase block mb-1">Target Bulan Ini</span>
-                  <span className="text-2xl sm:text-4xl font-black text-red-700 block">{targetVal}</span>
-                  <span className="text-xs font-bold text-red-600/90 block mt-1">btl / hari</span>
+                <div className="p-3.5 bg-red-50/90 rounded-2xl border border-red-200 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-extrabold text-red-900 uppercase block mb-1">Target Bulan Ini</span>
+                    <span className="text-2xl sm:text-4xl font-black text-red-700 block">{targetVal}</span>
+                    <span className="text-xs font-bold text-red-600/90 block mt-1">btl / hari</span>
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-red-200/80">
+                    <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Target</span>
+                    <span className="text-sm sm:text-base font-black text-red-700">{getPctString(mRata2, targetVal)}</span>
+                  </div>
                 </div>
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm">
-                  <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Bulan Lalu</span>
-                  <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{blnLaluVal}</span>
-                  <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
+
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Bulan Lalu</span>
+                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{blnLaluVal}</span>
+                    <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Bln Lalu</span>
+                    <span className="text-sm sm:text-base font-black text-slate-800">{getPctString(mRata2, blnLaluVal)}</span>
+                  </div>
                 </div>
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm">
-                  <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Tahun Lalu</span>
-                  <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{thnLaluVal}</span>
-                  <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
+
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Tahun Lalu</span>
+                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{thnLaluVal}</span>
+                    <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
+                  </div>
+                  <div className="mt-2.5 pt-2 border-t border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Thn Lalu</span>
+                    <span className="text-sm sm:text-base font-black text-slate-800">{getPctString(mRata2, thnLaluVal)}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -946,13 +1223,46 @@ export function YLView({
                   <span className="font-black text-slate-900">{formatRp(mKompensasiHarian)}</span>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center text-xs sm:text-sm text-slate-800">
-                  <span className="font-bold text-slate-600">2. Estimasi Kompensasi Bulanan</span>
+                  <span className="font-bold text-slate-600">2. Estimasi Kompensasi Bulanan (Kotor)</span>
                   <span className="font-black text-slate-900">{formatRp(mKompensasiBulanan)}</span>
                 </div>
+
+                {/* Potongan Pajak & Iuran */}
+                <div className="p-3 bg-rose-50/80 border border-rose-200 rounded-xl space-y-2 text-xs">
+                  <div className="text-[11px] font-black uppercase text-rose-800 tracking-wider border-b border-rose-200/80 pb-1.5 flex justify-between items-center">
+                    <span>✂️ Potongan (Dari Kompensasi Bulanan)</span>
+                    <span className="text-[10px] font-bold text-rose-600">PPh & JHT</span>
+                  </div>
+                  <div className="flex justify-between items-center text-rose-900 font-medium">
+                    <span>• Pajak PPh ({mPphRateStr}%)</span>
+                    <span className="font-bold text-rose-700">- {formatRp(mPph)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-rose-900 font-medium">
+                    <span>• Iuran JHT (Jaminan Hari Tua)</span>
+                    <span className="font-bold text-rose-700">- {formatRp(mJht)}</span>
+                  </div>
+                  {mJkk > 0 && (
+                    <div className="flex justify-between items-center text-rose-900 font-medium">
+                      <span>• Iuran JKK / JKM</span>
+                      <span className="font-bold text-rose-700">- {formatRp(mJkk)}</span>
+                    </div>
+                  )}
+                  <div className="pt-1.5 border-t border-rose-200 flex justify-between items-center text-xs font-black text-rose-950">
+                    <span>Total Potongan</span>
+                    <span className="text-rose-700">- {formatRp(mTotalPotongan)}</span>
+                  </div>
+                </div>
+
                 <div className="bg-emerald-50/90 p-4 rounded-2xl border-2 border-emerald-300 text-center space-y-1.5 shadow-sm">
-                  <span className="text-xs font-black text-emerald-950 uppercase block">Total Take Home Bonus</span>
-                  <span className="text-2xl sm:text-4xl font-black text-emerald-600 block">{formatRp(mKompensasiHarian + mKompensasiBulanan)}</span>
-                  <span className="text-[10px] text-slate-500 font-semibold block">*Nilai ini bersifat estimasi berdasarkan formula baku dropping Jember 1</span>
+                  <span className="text-xs font-black text-emerald-950 uppercase block">Kompensasi Bersih Bulanan</span>
+                  <span className="text-2xl sm:text-4xl font-black text-emerald-600 block">{formatRp(mKompensasiBersihBulanan)}</span>
+                  <span className="text-[10px] text-slate-500 font-semibold block">*Dihitung dari Kompensasi Bulanan Kotor ({formatRp(mKompensasiBulanan)}) dipotong PPh ({mPphRateStr}%), JHT ({formatRp(mJht)}), dan JKK/JKM ({formatRp(mJkk)}).</span>
+                  {mKompensasiHarian > 0 && (
+                    <div className="pt-2 border-t border-emerald-200/80 text-xs font-black text-slate-800 flex justify-between items-center px-2">
+                      <span>Total Terima (Harian + Bersih Bulanan):</span>
+                      <span className="text-emerald-700 font-black text-sm">{formatRp(mTotalTakeHome)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1038,21 +1348,6 @@ export function YLView({
                 <div className="col-span-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
                   <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">TOTAL SAMPAH BOTOL</span>
                   <span className="text-base sm:text-lg font-black text-emerald-600">{mSampahBotol} btl</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2.5 text-center text-xs font-bold mt-2">
-                <div className="bg-red-50/70 p-2.5 rounded-2xl border border-red-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">vs Target</span>
-                  <span className="text-base sm:text-lg font-black text-red-600">{getPctString(mRata2, targetVal)}</span>
-                </div>
-                <div className="bg-red-50/70 p-2.5 rounded-2xl border border-red-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">vs Bln Lalu</span>
-                  <span className="text-base sm:text-lg font-black text-red-600">{getPctString(mRata2, blnLaluVal)}</span>
-                </div>
-                <div className="bg-red-50/70 p-2.5 rounded-2xl border border-red-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">vs Thn Lalu</span>
-                  <span className="text-base sm:text-lg font-black text-red-600">{getPctString(mRata2, thnLaluVal)}</span>
                 </div>
               </div>
             </div>
@@ -1153,7 +1448,16 @@ export function YLView({
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <button
                   onClick={async () => {
+                    const savedSbUrl = localStorage.getItem("supabase_url") || "";
+                    const savedSbKey = localStorage.getItem("supabase_key") || "";
+                    const savedSession = localStorage.getItem("yakult_session") || "";
+
                     localStorage.clear();
+
+                    if (savedSbUrl) localStorage.setItem("supabase_url", savedSbUrl);
+                    if (savedSbKey) localStorage.setItem("supabase_key", savedSbKey);
+                    if (savedSession) localStorage.setItem("yakult_session", savedSession);
+
                     if (onRefresh) {
                       await onRefresh();
                     }
@@ -1261,13 +1565,11 @@ export function YLView({
                             const hasAdminReal = adminRealDay && ((adminRealDay.yo || 0) + (adminRealDay.om || 0) + (adminRealDay.os || 0) + (adminRealDay.yt || 0) > 0);
 
                             const dayStrPadded = String(d).padStart(2, '0');
-                            const txMatch = transactions.find(t => {
-                              if (!t.tanggal) return false;
-                              const p = t.tanggal.split(/[-/]/);
-                              return p.length === 3 && parseInt(p[2], 10) === d;
-                            });
+                            const currentMStr = selectedDate ? selectedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
+                            const targetDateStr = `${currentMStr}-${dayStrPadded}`;
+                            const txMatch = transactions.find(t => t.tanggal === targetDateStr);
 
-                            const realMatch = displayBreakdownRealisasi.find(r => r.tanggal.endsWith(`-${dayStrPadded}`) || r.tanggal === String(d));
+                            const realMatch = displayBreakdownRealisasi.find(r => r.tanggal === targetDateStr);
                             
                             let rl = { yo: 0, om: 0, os: 0, yt: 0 };
                             if (hasAdminReal) {
@@ -1333,8 +1635,12 @@ export function YLView({
         {/* TAB REALISASI POTENSI (PERTANGGAL) */}
         {activeTab === "realisasi_potensi" && (
           <YlRealisasiPotensiTab
+            currentMonth={currentMonth}
             isEditRealisasi={isEditRealisasi}
             realisasiGridSelection={realisasiGridSelection}
+            realisasiIsMenuOpen={realisasiIsMenuOpen}
+            setRealisasiIsMenuOpen={setRealisasiIsMenuOpen}
+            realisasiMenuPos={realisasiMenuPos}
             handleRealisasiGridCopy={handleRealisasiGridCopy}
             handleRealisasiGridCut={handleRealisasiGridCut}
             handleRealisasiGridPaste={handleRealisasiGridPaste}
@@ -1343,7 +1649,7 @@ export function YLView({
             handleToggleEditRealisasi={handleToggleEditRealisasi}
             handleSaveEditRealisasi={handleSaveEditRealisasi}
             isSavingRealisasi={isSavingRealisasi}
-            transactions={transactions}
+            transactions={currentMonthTxs}
             editDataRealisasi={editDataRealisasi}
             setEditDataRealisasi={setEditDataRealisasi}
             ylBreakdownRealisasi={ylBreakdownRealisasi}

@@ -17,6 +17,21 @@ interface PlgPjlViewProps {
   pembagiManager?: number;
   motivasiConfig?: MotivasiConfig;
   theme?: "light" | "dark";
+  // FIX: dulu komponen ini SELALU fetch data live bulan berjalan sendiri, tidak peduli
+  // manajer sedang "membuka arsip bulan Juli" atau tidak. Sekarang parent (ManagerView)
+  // bisa mengirim historicalMonth + historicalData supaya tab ini menampilkan data
+  // arsip yang benar, bukan data live yang mungkin sudah kosong/berubah.
+  historicalMonth?: string | null;
+  historicalData?: {
+    transactions: Transaction[];
+    editableAkm?: boolean;
+    onAkmChange?: (ylKey: string, secKey: string, prodCode: string, val: number) => void;
+    onAkmPaste?: (e: React.ClipboardEvent, ylKey: string, startIndex: number) => void;
+    onTxFieldChange?: (ylKey: string, field: string, val: number) => void;
+    onPotensiChange?: (ylKey: string, field: string, val: number) => void;
+    potensiTembus?: any;
+    breakdownRealisasiMap?: Record<string, any>;
+  } | null;
 }
 
 interface ManualPlgPjlData {
@@ -31,7 +46,9 @@ interface ManualPlgPjlData {
 function PlgPjlViewInner({
   ylList = [],
   pembagiManager: initialDivisor = 15,
-  theme = "light"
+  theme = "light",
+  historicalMonth = null,
+  historicalData = null
 }: PlgPjlViewProps) {
   const [selectedArea, setSelectedArea] = useState<string>("TKU_DP1");
   const [activeYlList, setActiveYlList] = useState<YLLady[]>(ylList);
@@ -53,6 +70,7 @@ function PlgPjlViewInner({
   const loadData = async () => {
     
     try {
+      const monthQuery = historicalMonth ? `?month=${encodeURIComponent(historicalMonth)}` : "";
       const res = await safeFetchJson<{
         ok: boolean;
         ylList: YLLady[];
@@ -60,7 +78,7 @@ function PlgPjlViewInner({
         transactions: Transaction[];
         potensiTembus?: any;
         breakdownRealisasiMap?: Record<string, any>;
-      }>("/api/getPlgPjlData");
+      }>(`/api/getPlgPjlData${monthQuery}`);
 
       if (res && res.ok) {
         if (res.ylList && res.ylList.length > 0) {
@@ -80,8 +98,21 @@ function PlgPjlViewInner({
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (historicalData) {
+      // Data arsip sudah tersedia dari parent (hasil "Ambil Data Bulan X dari Supabase"),
+      // langsung pakai ini tanpa overwrite.
+      if (ylList && ylList.length > 0) {
+        const activeOnly = ylList.filter(y => !y.status || y.status === "Aktif");
+        setActiveYlList(activeOnly);
+      }
+      setTransactions(historicalData.transactions || []);
+      setPotensiTembusData(historicalData.potensiTembus || {});
+      setBreakdownRealisasiMap(historicalData.breakdownRealisasiMap || {});
+    } else {
+      loadData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [historicalData, historicalMonth]);
 
   const isTkuDp1 = selectedArea === "TKU_DP1";
 
@@ -198,8 +229,28 @@ function PlgPjlViewInner({
 
   const grandTotal = totalYo + totalOm + totalOs + totalYt;
 
-  // Additional Metrics
-  const totalPlg = sumTxKey("f_plg");
+  // Additional Metrics - Jumlah pelanggan dihitung dari 3 transaksi (hari) terakhir per YL
+  const calculateTotalPlg = () => {
+    if (isTkuDp1) {
+      return activeYlList.reduce((acc, yl) => {
+        const txsForYl = transactions.filter(
+          t => t.nama && (t.nama.startsWith(yl.area) || t.nama === yl.nama)
+        );
+        const last3 = [...txsForYl]
+          .sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""))
+          .slice(-3);
+        const ylPlg = last3.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
+        return acc + ylPlg;
+      }, 0);
+    } else {
+      const last3 = [...ylTxs]
+        .sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""))
+        .slice(-3);
+      return last3.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
+    }
+  };
+
+  const totalPlg = calculateTotalPlg();
   const totalRk = sumTxKey("f_rk");
   const totalRa = sumTxKey("f_ra");
   const totalRb = sumTxKey("f_rb");
@@ -208,19 +259,36 @@ function PlgPjlViewInner({
   const totalPlgApk = sumTxKey("apk_plg");
   const totalSampahBotol = sumTxKey("apk_botol");
 
-  const currentMonth = new Date().toISOString().substring(0, 7);
+  const currentMonth = historicalMonth || new Date().toISOString().substring(0, 7);
   let manualSklhTotal = 0, manualSklhTembus = 0;
   let manualKntrTotal = 0, manualKntrTembus = 0;
   let manualTkoTotal = 0, manualTkoTembus = 0;
   
   if (potensiTembusData && Object.keys(potensiTembusData).length > 0) {
-    const monthData = potensiTembusData[currentMonth] || potensiTembusData[Object.keys(potensiTembusData).sort().pop() || ""] || {};
     const getYLVal = (ylItemName: string) => {
-      if (!ylItemName || !monthData) return null;
-      if (monthData[ylItemName]) return monthData[ylItemName];
+      if (!ylItemName || !potensiTembusData) return null;
       const cleanTarget = cleanYlName(ylItemName).toLowerCase().trim();
-      const matchKey = Object.keys(monthData).find(k => cleanYlName(k).toLowerCase().trim() === cleanTarget);
-      return matchKey ? monthData[matchKey] : null;
+      const areaCode = ylItemName.substring(0, 3).trim();
+
+      const monthsToSearch = [
+        currentMonth,
+        ...Object.keys(potensiTembusData).sort().reverse()
+      ];
+
+      for (const m of monthsToSearch) {
+        const mData = potensiTembusData[m];
+        if (!mData || typeof mData !== "object") continue;
+        if (mData[ylItemName]) return mData[ylItemName];
+        if (mData[cleanTarget]) return mData[cleanTarget];
+        if (mData[areaCode]) return mData[areaCode];
+
+        const matchKey = Object.keys(mData).find(k => {
+          const ck = cleanYlName(k).toLowerCase().trim();
+          return ck === cleanTarget || k.substring(0, 3).trim() === areaCode;
+        });
+        if (matchKey && mData[matchKey]) return mData[matchKey];
+      }
+      return null;
     };
 
     if (isTkuDp1) {
@@ -333,7 +401,10 @@ function PlgPjlViewInner({
         const osPct = totalSales > 0 ? (os / totalSales) * 100 : 0;
         const ytPct = totalSales > 0 ? (yt / totalSales) * 100 : 0;
         
-        const plg = sumKey("f_plg");
+        const last3Txs = [...ylTxs]
+          .sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""))
+          .slice(-3);
+        const plg = last3Txs.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
         const rk = sumKey("f_rk");
         const ra = sumKey("f_ra");
         const rb = sumKey("f_rb");
@@ -408,14 +479,7 @@ function PlgPjlViewInner({
             </div>
 
             
-            <button
-              onClick={handleKirimSpreadsheet}
-              disabled={sendingSpreadsheet}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-            >
-              <span className="text-[14px]">📤</span>
-              <span>{sendingSpreadsheet ? "Mengirim..." : "Kirim ke Spreadsheet"}</span>
-            </button>
+            
 
           </div>
         </div>
@@ -502,8 +566,23 @@ function PlgPjlViewInner({
                           </td>
 
                           {/* 2. AKM Row */}
-                          <td className="p-2 text-right border-r border-slate-400 font-black text-slate-900">
-                            {fmtInt(valAkm)}
+                          <td className="p-0 border-r border-slate-400 font-black text-slate-900">
+                            {historicalData?.editableAkm && !isTkuDp1 ? (
+                              <input
+                                type="number"
+                                className="w-full h-full p-2 text-right bg-yellow-50 outline-none focus:bg-yellow-200 focus:ring-2 focus:ring-yellow-500 font-black text-slate-900 border-none"
+                                value={valAkm === 0 ? "" : valAkm}
+                                onChange={(e) => historicalData.onAkmChange?.(currentYl.nama, sec.key, prod.code, parseInt(e.target.value) || 0)}
+                                onPaste={(e) => {
+                                  // Compute global row index for paste (24 rows total)
+                                  const secIndex = sectorConfigs.findIndex(s => s.key === sec.key);
+                                  const startIndex = secIndex * 4 + pIdx;
+                                  historicalData.onAkmPaste?.(e, currentYl.nama, startIndex);
+                                }}
+                              />
+                            ) : (
+                              <div className="p-2 text-right">{fmtInt(valAkm)}</div>
+                            )}
                           </td>
 
                           {/* 3. Subtotal AKM (Merged column spanning 4 product rows) */}
@@ -608,32 +687,56 @@ function PlgPjlViewInner({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs font-bold">
             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm">
               <span className="text-[10px] text-slate-600 block uppercase font-bold">JML PELANGGAN</span>
-              <span className="text-sm font-black text-slate-950">{fmtInt(totalPlg)}</span>
+              {historicalData?.editableAkm && !isTkuDp1 ? (
+      <input type="number" className="w-full text-sm font-black text-slate-950 bg-white border border-slate-300 rounded px-1 outline-none focus:ring-2 focus:ring-cyan-500" value={totalPlg === 0 ? "" : totalPlg} onChange={(e) => historicalData.onTxFieldChange?.(currentYl.nama, "f_plg", parseInt(e.target.value) || 0)} />
+   ) : (
+      <span className="text-sm font-black text-slate-950">{fmtInt(totalPlg)}</span>
+   )}
             </div>
 
             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm">
               <span className="text-[10px] text-slate-600 block uppercase font-bold">RK (Kunjungan)</span>
-              <span className="text-sm font-black text-slate-950">{fmtInt(totalRk)}</span>
+              {historicalData?.editableAkm && !isTkuDp1 ? (
+      <input type="number" className="w-full text-sm font-black text-slate-950 bg-white border border-slate-300 rounded px-1 outline-none focus:ring-2 focus:ring-cyan-500" value={totalRk === 0 ? "" : totalRk} onChange={(e) => historicalData.onTxFieldChange?.(currentYl.nama, "f_rk", parseInt(e.target.value) || 0)} />
+   ) : (
+      <span className="text-sm font-black text-slate-950">{fmtInt(totalRk)}</span>
+   )}
             </div>
 
             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm">
               <span className="text-[10px] text-slate-600 block uppercase font-bold">RA (Rumah Ada)</span>
-              <span className="text-sm font-black text-slate-950">{fmtInt(totalRa)}</span>
+              {historicalData?.editableAkm && !isTkuDp1 ? (
+      <input type="number" className="w-full text-sm font-black text-slate-950 bg-white border border-slate-300 rounded px-1 outline-none focus:ring-2 focus:ring-cyan-500" value={totalRa === 0 ? "" : totalRa} onChange={(e) => historicalData.onTxFieldChange?.(currentYl.nama, "f_ra", parseInt(e.target.value) || 0)} />
+   ) : (
+      <span className="text-sm font-black text-slate-950">{fmtInt(totalRa)}</span>
+   )}
             </div>
 
             <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 shadow-sm">
               <span className="text-[10px] text-amber-800 block uppercase font-bold">RB (Rumah Beli)</span>
-              <span className="text-sm font-black text-amber-950">{fmtInt(totalRb)}</span>
+              {historicalData?.editableAkm && !isTkuDp1 ? (
+      <input type="number" className="w-full text-sm font-black text-amber-950 bg-white border border-amber-300 rounded px-1 outline-none focus:ring-2 focus:ring-amber-500" value={totalRb === 0 ? "" : totalRb} onChange={(e) => historicalData.onTxFieldChange?.(currentYl.nama, "f_rb", parseInt(e.target.value) || 0)} />
+   ) : (
+      <span className="text-sm font-black text-amber-950">{fmtInt(totalRb)}</span>
+   )}
             </div>
 
             <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 shadow-sm">
               <span className="text-[10px] text-emerald-800 block uppercase font-bold">PB (Propaganda)</span>
-              <span className="text-sm font-black text-emerald-950">{fmtInt(totalPb)}</span>
+              {historicalData?.editableAkm && !isTkuDp1 ? (
+      <input type="number" className="w-full text-sm font-black text-emerald-950 bg-white border border-emerald-300 rounded px-1 outline-none focus:ring-2 focus:ring-emerald-500" value={totalPb === 0 ? "" : totalPb} onChange={(e) => historicalData.onTxFieldChange?.(currentYl.nama, "pb_p", parseInt(e.target.value) || 0)} />
+   ) : (
+      <span className="text-sm font-black text-emerald-950">{fmtInt(totalPb)}</span>
+   )}
             </div>
 
             <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200 shadow-sm">
               <span className="text-[10px] text-rose-800 block uppercase font-bold">BB (Barang Kembali)</span>
-              <span className="text-sm font-black text-rose-950">{fmtInt(totalBb)}</span>
+              {historicalData?.editableAkm && !isTkuDp1 ? (
+      <input type="number" className="w-full text-sm font-black text-rose-950 bg-white border border-rose-300 rounded px-1 outline-none focus:ring-2 focus:ring-rose-500" value={totalBb === 0 ? "" : totalBb} onChange={(e) => historicalData.onTxFieldChange?.(currentYl.nama, "bb_yo", parseInt(e.target.value) || 0)} />
+   ) : (
+      <span className="text-sm font-black text-rose-950">{fmtInt(totalBb)}</span>
+   )}
             </div>
 
             <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm">
@@ -652,12 +755,7 @@ function PlgPjlViewInner({
             <h4 className="text-[11px] font-black uppercase text-slate-800 mb-2">
               📊 PERSENTASE RASIO KUNJUNGAN & TRANSAKSI:
             </h4>
-            <div className="grid grid-cols-2 gap-2 text-xs font-bold">
-              <div className="flex items-center justify-between bg-cyan-50 p-2 rounded-lg border border-cyan-200 shadow-sm">
-                <span className="text-cyan-900 font-bold">% RK vs Pelanggan:</span>
-                <span className="font-black text-cyan-950 text-sm">{fmtPct(pctRkVsPlg)}</span>
-              </div>
-
+            <div className="grid grid-cols-3 gap-2 text-xs font-bold">
               <div className="flex items-center justify-between bg-cyan-50 p-2 rounded-lg border border-cyan-200 shadow-sm">
                 <span className="text-cyan-900 font-bold">% RA vs RK:</span>
                 <span className="font-black text-cyan-950 text-sm">{fmtPct(pctRaVsRk)}</span>
@@ -715,18 +813,18 @@ function PlgPjlViewInner({
                   <div>
                     <span className="text-[10px] text-slate-600 block mb-0.5 font-bold">Total Sekolah</span>
                     <NumberInput
-                      disabled={true}
+                      disabled={!historicalData?.editableAkm || isTkuDp1}
                       value={manualSklhTotal}
-                      onChange={() => {}}
+                      onChange={(val) => historicalData?.onPotensiChange?.(currentYl.nama, "skhTotal", val)}
                       className="w-full bg-white text-slate-950 font-extrabold text-xs border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 outline-none disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed shadow-sm"
                     />
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-600 block mb-0.5 font-bold">Sekolah Tembus</span>
                     <NumberInput
-                      disabled={true}
+                      disabled={!historicalData?.editableAkm || isTkuDp1}
                       value={manualSklhTembus}
-                      onChange={() => {}}
+                      onChange={(val) => historicalData?.onPotensiChange?.(currentYl.nama, "skhTembus", val)}
                       className="w-full bg-white text-slate-950 font-extrabold text-xs border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 outline-none disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed shadow-sm"
                     />
                   </div>
@@ -743,18 +841,18 @@ function PlgPjlViewInner({
                   <div>
                     <span className="text-[10px] text-slate-600 block mb-0.5 font-bold">Total Kantor</span>
                     <NumberInput
-                      disabled={true}
+                      disabled={!historicalData?.editableAkm || isTkuDp1}
                       value={manualKntrTotal}
-                      onChange={() => {}}
+                      onChange={(val) => historicalData?.onPotensiChange?.(currentYl.nama, "kntrTotal", val)}
                       className="w-full bg-white text-slate-950 font-extrabold text-xs border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 outline-none disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed shadow-sm"
                     />
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-600 block mb-0.5 font-bold">Kantor Tembus</span>
                     <NumberInput
-                      disabled={true}
+                      disabled={!historicalData?.editableAkm || isTkuDp1}
                       value={manualKntrTembus}
-                      onChange={() => {}}
+                      onChange={(val) => historicalData?.onPotensiChange?.(currentYl.nama, "kntrTembus", val)}
                       className="w-full bg-white text-slate-950 font-extrabold text-xs border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 outline-none disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed shadow-sm"
                     />
                   </div>
@@ -771,18 +869,18 @@ function PlgPjlViewInner({
                   <div>
                     <span className="text-[10px] text-slate-600 block mb-0.5 font-bold">Total Toko</span>
                     <NumberInput
-                      disabled={true}
+                      disabled={!historicalData?.editableAkm || isTkuDp1}
                       value={manualTkoTotal}
-                      onChange={() => {}}
+                      onChange={(val) => historicalData?.onPotensiChange?.(currentYl.nama, "tkoTotal", val)}
                       className="w-full bg-white text-slate-950 font-extrabold text-xs border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 outline-none disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed shadow-sm"
                     />
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-600 block mb-0.5 font-bold">Toko Tembus</span>
                     <NumberInput
-                      disabled={true}
+                      disabled={!historicalData?.editableAkm || isTkuDp1}
                       value={manualTkoTembus}
-                      onChange={() => {}}
+                      onChange={(val) => historicalData?.onPotensiChange?.(currentYl.nama, "tkoTembus", val)}
                       className="w-full bg-white text-slate-950 font-extrabold text-xs border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 outline-none disabled:bg-slate-100 disabled:opacity-80 disabled:cursor-not-allowed shadow-sm"
                     />
                   </div>

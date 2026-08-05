@@ -66,6 +66,7 @@ export interface YLLady {
   tanggalMasuk?: string; // e.g. "2024-01-15"
   tanggalDaftar?: string;
   tanggalResign?: string;
+  foto?: string;
 }
 
 export interface CompensationTier {
@@ -174,6 +175,7 @@ export interface EvaluasiData {
     propagandaHariIni: number;
     sampahBotol: number;
     bb: number;
+    akmBb?: number;
     propagandaVs900: number | null;
   }[];
 }

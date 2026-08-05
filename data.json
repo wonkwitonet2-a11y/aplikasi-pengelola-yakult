@@ -1,74 +1,78 @@
 {
-  "scriptUrl": "",
-  "managerPin": "1111",
+  "bl38": 0,
+  "ca25": 25,
+  "kontes": {
+    "rows": [],
+    "enabled": false
+  },
   "ylList": [
     {
+      "pin": "201",
       "area": "201",
       "nama": "201 Gusrina",
-      "pin": "201",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "202",
       "area": "202",
       "nama": "202 Dewi Ati Ani",
-      "pin": "202",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "203",
       "area": "203",
       "nama": "203 Gusrini",
-      "pin": "203",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "204",
       "area": "204",
       "nama": "204 Umi Maisaroh",
-      "pin": "204",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "205",
       "area": "205",
       "nama": "205 Suyik Rahmawati",
-      "pin": "205",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "206",
       "area": "206",
       "nama": "206 Ria Resti W",
-      "pin": "206",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "207",
       "area": "207",
       "nama": "207 Endang Setiowati",
-      "pin": "207",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "208",
       "area": "208",
       "nama": "208 Wakiah",
-      "pin": "208",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "209",
       "area": "209",
       "nama": "209 Titis",
-      "pin": "209",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     },
     {
+      "pin": "210",
       "area": "210",
       "nama": "210 Eni",
-      "pin": "210",
       "status": "Aktif",
       "tanggalDaftar": "2026-01-01"
     }
@@ -85,41 +89,6 @@
     "209": "209 Titis",
     "210": "210 Eni"
   },
-  "compensationConfig": {
-    "tiers": [
-      {
-        "threshold": 0,
-        "rate": 338
-      },
-      {
-        "threshold": 200,
-        "rate": 374
-      },
-      {
-        "threshold": 250,
-        "rate": 409
-      },
-      {
-        "threshold": 280,
-        "rate": 417
-      },
-      {
-        "threshold": 300,
-        "rate": 424
-      },
-      {
-        "threshold": 330,
-        "rate": 428
-      },
-      {
-        "threshold": 350,
-        "rate": 432
-      }
-    ],
-    "pphRate": 2.5,
-    "jkkJkm": 18800,
-    "jht": 24000
-  },
   "motivasi": {
     "list": [
       "Setiap botol yang terjual adalah langkah menuju target bulan ini!",
@@ -131,8 +100,15 @@
       "Jangan bandingkan hari ini dengan kemarin, kalahkan diri sendiri.",
       "Rute boleh sama, tapi semangat harus selalu baru.",
       "Kerja keras hari ini, bonus manis akhir bulan.",
-      "Satu sapaan ramah bisa membuka satu pelanggan baru."
+      "Satu sapaan ramah bisa membuka satu pelanggan baru.",
+      "Semangat menjalani hari ini dengan tulus dan penuh senyuman! 🌸",
+      "Fokus pada pelayanan terbaik, senyum tulus adalah kunci keakraban dengan pelanggan! 😊",
+      "Setiap botol Yakult membawa kesehatan dan kebahagiaan bagi keluarga Indonesia. 🍾",
+      "Usaha dan ketekunan hari ini adalah pijakan sukses esok hari. Terus melangkah! 💪",
+      "Jaga kesehatan dan selalu utamakan keselamatan dalam setiap rute aktivitas! 🛵✨"
     ],
+    "enabled": true,
+    "tkuName": "DP JEMBER 1",
     "terpilih": [
       "Setiap botol yang terjual adalah langkah menuju target bulan ini!",
       "Senyum ke pelanggan hari ini, rezeki mengikuti besok.",
@@ -143,201 +119,3120 @@
       "Jangan bandingkan hari ini dengan kemarin, kalahkan diri sendiri.",
       "Rute boleh sama, tapi semangat harus selalu baru.",
       "Kerja keras hari ini, bonus manis akhir bulan.",
-      "Satu sapaan ramah bisa membuka satu pelanggan baru."
+      "Satu sapaan ramah bisa membuka satu pelanggan baru.",
+      "Semangat menjalani hari ini dengan tulus dan penuh senyuman! 🌸",
+      "Fokus pada pelayanan terbaik, senyum tulus adalah kunci keakraban dengan pelanggan! 😊",
+      "Setiap botol Yakult membawa kesehatan dan kebahagiaan bagi keluarga Indonesia. 🍾",
+      "Usaha dan ketekunan hari ini adalah pijakan sukses esok hari. Terus melangkah! 💪",
+      "Jaga kesehatan dan selalu utamakan keselamatan dalam setiap rute aktivitas! 🛵✨"
     ],
-    "intervalDetik": 30,
-    "enabled": true,
-    "chatbotName": "Suhu",
-    "tkuName": "DP"
+    "chatbotName": "Tanya suhu",
+    "intervalDetik": 30
   },
-  "kontes": {
-    "enabled": true,
-    "rows": [
-      {
-        "nama": "201 Gusrina",
-        "area": "201",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "202 Dewi Ati Ani",
-        "area": "202",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "203 Gusrini",
-        "area": "203",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "204 Umi Maisaroh",
-        "area": "204",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "205 Suyik Rahmawati",
-        "area": "205",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "206 Ria Resti W",
-        "area": "206",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "207 Endang Setiowati",
-        "area": "207",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "208 Wakiah",
-        "area": "208",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "209 Titis",
-        "area": "209",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      },
-      {
-        "nama": "210 Eni",
-        "area": "210",
-        "hasil": "-",
-        "vsTarget": 0,
-        "totalPb": 0,
-        "totalSampah": 0,
-        "poinHarian": 0,
-        "poinKenaikan": 0,
-        "poinSampah": 0,
-        "poinYt": 0,
-        "totalPoin": 0
-      }
-    ]
-  },
-  "ca25": 25,
-  "bl38": 0,
   "targetYL": {
     "201": {
-      "target": 0,
-      "bln_lalu": 0,
-      "thn_lalu": 0
+      "target": 325,
+      "bln_lalu": 326,
+      "thn_lalu": 541
     },
-    "201_2026-07": {
-      "target": 0,
-      "bln_lalu": 0,
-      "thn_lalu": 0
+    "202": {
+      "target": 454,
+      "bln_lalu": 454,
+      "thn_lalu": 426
+    },
+    "203": {
+      "target": 540,
+      "bln_lalu": 541,
+      "thn_lalu": 673
+    },
+    "204": {
+      "target": 450,
+      "bln_lalu": 453,
+      "thn_lalu": 484
+    },
+    "205": {
+      "target": 268,
+      "bln_lalu": 269,
+      "thn_lalu": 327
+    },
+    "206": {
+      "target": 314,
+      "bln_lalu": 314,
+      "thn_lalu": 401
+    },
+    "207": {
+      "target": 350,
+      "bln_lalu": 344,
+      "thn_lalu": 401
+    },
+    "208": {
+      "target": 350,
+      "bln_lalu": 344,
+      "thn_lalu": 265
+    },
+    "209": {
+      "target": 300,
+      "bln_lalu": 291,
+      "thn_lalu": 212
+    },
+    "210": {
+      "target": 300,
+      "bln_lalu": 288,
+      "thn_lalu": 256
     }
+  },
+  "attention": {
+    "201": ""
+  },
+  "scriptUrl": "",
+  "targetTKU": {
+    "target": 3650,
+    "bln_lalu": 3624,
+    "thn_lalu": 3985,
+    "target_om": 210,
+    "target_os": 488,
+    "target_yo": 2817,
+    "target_yt": 135,
+    "bln_lalu_om": 210,
+    "bln_lalu_os": 478,
+    "bln_lalu_yo": 2800,
+    "bln_lalu_yt": 136,
+    "thn_lalu_om": 342,
+    "thn_lalu_os": 0,
+    "thn_lalu_yo": 3493,
+    "thn_lalu_yt": 150
+  },
+  "managerPin": "1111",
+  "plgPjlManual": {},
+  "sheetsConfig": {
+    "lastSynced": "",
+    "spreadsheetId": "",
+    "spreadsheetName": ""
   },
   "transactions": [],
-  "sheetsConfig": {
-    "spreadsheetId": "",
-    "spreadsheetName": "",
-    "lastSynced": ""
-  },
-  "breakdownPlan": {},
-  "breakdownRealisasi": {},
-  "pembagiTanggal": 25,
-  "targetTKU": {
-    "target": 0,
-    "target_yo": 0,
-    "target_om": 0,
-    "target_os": 0,
-    "target_yt": 0,
-    "bln_lalu": 0,
-    "bln_lalu_yo": 0,
-    "bln_lalu_om": 0,
-    "bln_lalu_os": 0,
-    "bln_lalu_yt": 0,
-    "thn_lalu": 0,
-    "thn_lalu_yo": 0,
-    "thn_lalu_om": 0,
-    "thn_lalu_os": 0,
-    "thn_lalu_yt": 0
+  "breakdownPlan": {
+    "2026-07": {
+      "201": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 125,
+            "yo": 600,
+            "yt": 25
+          },
+          "3": {
+            "om": 50,
+            "os": 50,
+            "yo": 475,
+            "yt": 25
+          },
+          "6": {
+            "om": 20,
+            "os": 95,
+            "yo": 625,
+            "yt": 20
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 30,
+            "os": 0,
+            "yo": 500,
+            "yt": 25
+          },
+          "10": {
+            "om": 50,
+            "os": 85,
+            "yo": 500,
+            "yt": 25
+          },
+          "13": {
+            "om": 50,
+            "os": 75,
+            "yo": 550,
+            "yt": 25
+          },
+          "15": {
+            "om": 50,
+            "os": 120,
+            "yo": 700,
+            "yt": 25
+          },
+          "17": {
+            "om": 50,
+            "os": 0,
+            "yo": 500,
+            "yt": 25
+          },
+          "20": {
+            "om": 50,
+            "os": 100,
+            "yo": 730,
+            "yt": 50
+          },
+          "22": {
+            "om": 0,
+            "os": 0,
+            "yo": 565,
+            "yt": 0
+          },
+          "24": {
+            "om": 50,
+            "os": 50,
+            "yo": 555,
+            "yt": 25
+          },
+          "27": {
+            "om": 50,
+            "os": 50,
+            "yo": 800,
+            "yt": 50
+          },
+          "29": {
+            "om": 50,
+            "os": 100,
+            "yo": 475,
+            "yt": 50
+          },
+          "31": {
+            "om": 50,
+            "os": 50,
+            "yo": 650,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "202": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 150,
+            "yo": 850,
+            "yt": 50
+          },
+          "3": {
+            "om": 50,
+            "os": 150,
+            "yo": 500,
+            "yt": 50
+          },
+          "6": {
+            "om": 100,
+            "os": 125,
+            "yo": 1100,
+            "yt": 25
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 50,
+            "yo": 500,
+            "yt": 50
+          },
+          "10": {
+            "om": 50,
+            "os": 100,
+            "yo": 375,
+            "yt": 25
+          },
+          "13": {
+            "om": 50,
+            "os": 200,
+            "yo": 975,
+            "yt": 25
+          },
+          "15": {
+            "om": 100,
+            "os": 150,
+            "yo": 550,
+            "yt": 50
+          },
+          "17": {
+            "om": 50,
+            "os": 150,
+            "yo": 575,
+            "yt": 25
+          },
+          "20": {
+            "om": 50,
+            "os": 150,
+            "yo": 1750,
+            "yt": 50
+          },
+          "22": {
+            "om": 25,
+            "os": 100,
+            "yo": 350,
+            "yt": 25
+          },
+          "24": {
+            "om": 100,
+            "os": 200,
+            "yo": 1100,
+            "yt": 50
+          },
+          "27": {
+            "om": 50,
+            "os": 150,
+            "yo": 975,
+            "yt": 25
+          },
+          "29": {
+            "om": 50,
+            "os": 100,
+            "yo": 550,
+            "yt": 25
+          },
+          "31": {
+            "om": 50,
+            "os": 75,
+            "yo": 750,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "203": {
+        "days": {
+          "1": {
+            "om": 0,
+            "os": 200,
+            "yo": 400,
+            "yt": 0
+          },
+          "3": {
+            "om": 100,
+            "os": 100,
+            "yo": 1100,
+            "yt": 50
+          },
+          "6": {
+            "om": 50,
+            "os": 200,
+            "yo": 700,
+            "yt": 50
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 200,
+            "yo": 1200,
+            "yt": 50
+          },
+          "10": {
+            "om": 100,
+            "os": 300,
+            "yo": 1550,
+            "yt": 50
+          },
+          "13": {
+            "om": 50,
+            "os": 200,
+            "yo": 1700,
+            "yt": 50
+          },
+          "15": {
+            "om": 50,
+            "os": 200,
+            "yo": 500,
+            "yt": 50
+          },
+          "17": {
+            "om": 50,
+            "os": 100,
+            "yo": 800,
+            "yt": 50
+          },
+          "20": {
+            "om": 100,
+            "os": 100,
+            "yo": 1500,
+            "yt": 0
+          },
+          "22": {
+            "om": 100,
+            "os": 100,
+            "yo": 600,
+            "yt": 25
+          },
+          "24": {
+            "om": 0,
+            "os": 0,
+            "yo": 500,
+            "yt": 0
+          },
+          "27": {
+            "om": 100,
+            "os": 200,
+            "yo": 1150,
+            "yt": 50
+          },
+          "29": {
+            "om": 50,
+            "os": 50,
+            "yo": 900,
+            "yt": 10
+          },
+          "31": {
+            "om": 50,
+            "os": 25,
+            "yo": 900,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "204": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 120,
+            "yo": 730,
+            "yt": 50
+          },
+          "3": {
+            "om": 50,
+            "os": 120,
+            "yo": 730,
+            "yt": 50
+          },
+          "6": {
+            "om": 150,
+            "os": 200,
+            "yo": 1020,
+            "yt": 30
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 120,
+            "yo": 800,
+            "yt": 30
+          },
+          "10": {
+            "om": 100,
+            "os": 120,
+            "yo": 750,
+            "yt": 30
+          },
+          "13": {
+            "om": 150,
+            "os": 150,
+            "yo": 1000,
+            "yt": 50
+          },
+          "15": {
+            "om": 0,
+            "os": 50,
+            "yo": 720,
+            "yt": 30
+          },
+          "17": {
+            "om": 50,
+            "os": 50,
+            "yo": 620,
+            "yt": 30
+          },
+          "20": {
+            "om": 100,
+            "os": 100,
+            "yo": 1000,
+            "yt": 50
+          },
+          "22": {
+            "om": 50,
+            "os": 50,
+            "yo": 500,
+            "yt": 50
+          },
+          "24": {
+            "om": 100,
+            "os": 100,
+            "yo": 670,
+            "yt": 30
+          },
+          "27": {
+            "om": 100,
+            "os": 100,
+            "yo": 1150,
+            "yt": 50
+          },
+          "29": {
+            "om": 20,
+            "os": 100,
+            "yo": 600,
+            "yt": 30
+          },
+          "31": {
+            "om": 100,
+            "os": 100,
+            "yo": 670,
+            "yt": 30
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "205": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 140,
+            "yo": 450,
+            "yt": 25
+          },
+          "3": {
+            "om": 25,
+            "os": 85,
+            "yo": 350,
+            "yt": 25
+          },
+          "6": {
+            "om": 25,
+            "os": 100,
+            "yo": 400,
+            "yt": 25
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 25,
+            "os": 120,
+            "yo": 500,
+            "yt": 25
+          },
+          "10": {
+            "om": 25,
+            "os": 120,
+            "yo": 550,
+            "yt": 25
+          },
+          "13": {
+            "om": 50,
+            "os": 180,
+            "yo": 800,
+            "yt": 30
+          },
+          "15": {
+            "om": 50,
+            "os": 120,
+            "yo": 550,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 120,
+            "yo": 550,
+            "yt": 25
+          },
+          "20": {
+            "om": 25,
+            "os": 80,
+            "yo": 400,
+            "yt": 0
+          },
+          "22": {
+            "om": 25,
+            "os": 80,
+            "yo": 400,
+            "yt": 0
+          },
+          "24": {
+            "om": 25,
+            "os": 50,
+            "yo": 150,
+            "yt": 40
+          },
+          "27": {
+            "om": 25,
+            "os": 100,
+            "yo": 400,
+            "yt": 25
+          },
+          "29": {
+            "om": 25,
+            "os": 100,
+            "yo": 250,
+            "yt": 25
+          },
+          "31": {
+            "om": 25,
+            "os": 100,
+            "yo": 350,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "206": {
+        "days": {
+          "1": {
+            "om": 25,
+            "os": 70,
+            "yo": 400,
+            "yt": 25
+          },
+          "3": {
+            "om": 25,
+            "os": 65,
+            "yo": 285,
+            "yt": 25
+          },
+          "6": {
+            "om": 0,
+            "os": 105,
+            "yo": 415,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 25,
+            "os": 75,
+            "yo": 500,
+            "yt": 25
+          },
+          "10": {
+            "om": 25,
+            "os": 120,
+            "yo": 650,
+            "yt": 25
+          },
+          "13": {
+            "om": 50,
+            "os": 100,
+            "yo": 1000,
+            "yt": 25
+          },
+          "15": {
+            "om": 25,
+            "os": 60,
+            "yo": 650,
+            "yt": 25
+          },
+          "17": {
+            "om": 50,
+            "os": 65,
+            "yo": 490,
+            "yt": 35
+          },
+          "20": {
+            "om": 50,
+            "os": 145,
+            "yo": 630,
+            "yt": 35
+          },
+          "22": {
+            "om": 25,
+            "os": 95,
+            "yo": 500,
+            "yt": 25
+          },
+          "24": {
+            "om": 25,
+            "os": 55,
+            "yo": 470,
+            "yt": 25
+          },
+          "27": {
+            "om": 50,
+            "os": 150,
+            "yo": 655,
+            "yt": 50
+          },
+          "29": {
+            "om": 25,
+            "os": 65,
+            "yo": 435,
+            "yt": 35
+          },
+          "31": {
+            "om": 25,
+            "os": 120,
+            "yo": 545,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "207": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 120,
+            "yo": 430,
+            "yt": 50
+          },
+          "3": {
+            "om": 50,
+            "os": 120,
+            "yo": 330,
+            "yt": 50
+          },
+          "6": {
+            "om": 100,
+            "os": 100,
+            "yo": 800,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 100
+          },
+          "10": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 50
+          },
+          "13": {
+            "om": 100,
+            "os": 180,
+            "yo": 770,
+            "yt": 50
+          },
+          "15": {
+            "om": 100,
+            "os": 100,
+            "yo": 400,
+            "yt": 150
+          },
+          "17": {
+            "om": 50,
+            "os": 100,
+            "yo": 400,
+            "yt": 50
+          },
+          "20": {
+            "om": 50,
+            "os": 200,
+            "yo": 1000,
+            "yt": 0
+          },
+          "22": {
+            "om": 100,
+            "os": 120,
+            "yo": 300,
+            "yt": 100
+          },
+          "24": {
+            "om": 100,
+            "os": 120,
+            "yo": 400,
+            "yt": 50
+          },
+          "27": {
+            "om": 50,
+            "os": 100,
+            "yo": 600,
+            "yt": 50
+          },
+          "29": {
+            "om": 100,
+            "os": 150,
+            "yo": 400,
+            "yt": 100
+          },
+          "31": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 50
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "208": {
+        "days": {
+          "1": {
+            "om": 30,
+            "os": 50,
+            "yo": 400,
+            "yt": 20
+          },
+          "3": {
+            "om": 50,
+            "os": 120,
+            "yo": 405,
+            "yt": 25
+          },
+          "6": {
+            "om": 50,
+            "os": 180,
+            "yo": 745,
+            "yt": 25
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 20,
+            "os": 120,
+            "yo": 580,
+            "yt": 30
+          },
+          "10": {
+            "om": 30,
+            "os": 120,
+            "yo": 330,
+            "yt": 20
+          },
+          "13": {
+            "om": 50,
+            "os": 130,
+            "yo": 700,
+            "yt": 20
+          },
+          "15": {
+            "om": 50,
+            "os": 120,
+            "yo": 500,
+            "yt": 30
+          },
+          "17": {
+            "om": 30,
+            "os": 120,
+            "yo": 530,
+            "yt": 20
+          },
+          "20": {
+            "om": 50,
+            "os": 200,
+            "yo": 1020,
+            "yt": 30
+          },
+          "22": {
+            "om": 70,
+            "os": 120,
+            "yo": 420,
+            "yt": 40
+          },
+          "24": {
+            "om": 50,
+            "os": 120,
+            "yo": 460,
+            "yt": 20
+          },
+          "27": {
+            "om": 50,
+            "os": 150,
+            "yo": 880,
+            "yt": 20
+          },
+          "29": {
+            "om": 40,
+            "os": 100,
+            "yo": 490,
+            "yt": 20
+          },
+          "31": {
+            "om": 40,
+            "os": 100,
+            "yo": 490,
+            "yt": 20
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "209": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 0
+          },
+          "3": {
+            "om": 0,
+            "os": 120,
+            "yo": 400,
+            "yt": 0
+          },
+          "6": {
+            "om": 0,
+            "os": 150,
+            "yo": 500,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 25,
+            "os": 100,
+            "yo": 450,
+            "yt": 0
+          },
+          "10": {
+            "om": 25,
+            "os": 115,
+            "yo": 450,
+            "yt": 10
+          },
+          "13": {
+            "om": 50,
+            "os": 120,
+            "yo": 950,
+            "yt": 50
+          },
+          "15": {
+            "om": 50,
+            "os": 50,
+            "yo": 675,
+            "yt": 25
+          },
+          "17": {
+            "om": 20,
+            "os": 100,
+            "yo": 465,
+            "yt": 15
+          },
+          "20": {
+            "om": 25,
+            "os": 100,
+            "yo": 485,
+            "yt": 10
+          },
+          "22": {
+            "om": 10,
+            "os": 100,
+            "yo": 480,
+            "yt": 10
+          },
+          "24": {
+            "om": 15,
+            "os": 100,
+            "yo": 370,
+            "yt": 15
+          },
+          "27": {
+            "om": 50,
+            "os": 70,
+            "yo": 585,
+            "yt": 15
+          },
+          "29": {
+            "om": 15,
+            "os": 100,
+            "yo": 445,
+            "yt": 20
+          },
+          "31": {
+            "om": 10,
+            "os": 100,
+            "yo": 400,
+            "yt": 10
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "210": {
+        "days": {
+          "1": {
+            "om": 0,
+            "os": 50,
+            "yo": 500,
+            "yt": 0
+          },
+          "3": {
+            "om": 25,
+            "os": 0,
+            "yo": 400,
+            "yt": 25
+          },
+          "6": {
+            "om": 0,
+            "os": 120,
+            "yo": 500,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 75,
+            "os": 60,
+            "yo": 500,
+            "yt": 30
+          },
+          "10": {
+            "om": 25,
+            "os": 0,
+            "yo": 500,
+            "yt": 25
+          },
+          "13": {
+            "om": 30,
+            "os": 120,
+            "yo": 650,
+            "yt": 25
+          },
+          "15": {
+            "om": 25,
+            "os": 60,
+            "yo": 550,
+            "yt": 25
+          },
+          "17": {
+            "om": 0,
+            "os": 60,
+            "yo": 450,
+            "yt": 0
+          },
+          "20": {
+            "om": 0,
+            "os": 0,
+            "yo": 480,
+            "yt": 0
+          },
+          "22": {
+            "om": 50,
+            "os": 60,
+            "yo": 520,
+            "yt": 25
+          },
+          "24": {
+            "om": 25,
+            "os": 100,
+            "yo": 600,
+            "yt": 50
+          },
+          "27": {
+            "om": 25,
+            "os": 100,
+            "yo": 700,
+            "yt": 25
+          },
+          "29": {
+            "om": 25,
+            "os": 100,
+            "yo": 500,
+            "yt": 25
+          },
+          "31": {
+            "om": 25,
+            "os": 50,
+            "yo": 600,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      }
+    },
+    "2026-08": {}
   },
   "lhppRealisasi": {},
+  "potensiTembus": {},
+  "pembagiTanggal": 25,
+  "supabaseConfig": {
+    "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkamJ4eGZ6cWVpa21zZGVqbGloIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTI1MzEzMCwiZXhwIjoyMTAwODI5MTMwfQ.mTxcqMg_nJWz0gd1TNbPUeZiJBkgDv28QaDIQKOzvfY",
+    "url": "https://ddjbxxfzqeikmsdejlih.supabase.co"
+  },
   "managerRealisasi": {},
-  "plgPjlManual": {},
-  "potensiTembus": {
+  "_sampleJulySeeded": true,
+  "breakdownRealisasi": {
     "2026-07": {
-      "201 Gusrina": {
-        "skhTotal": 5,
-        "skhTembus": 5,
-        "kntrTotal": 5,
-        "kntrTembus": 0,
-        "tkoTotal": 0,
-        "tkoTembus": 0
+      "201": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 125,
+            "yo": 600,
+            "yt": 25
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 50,
+            "os": 50,
+            "yo": 475,
+            "yt": 25
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 20,
+            "os": 95,
+            "yo": 625,
+            "yt": 20
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 30,
+            "os": 0,
+            "yo": 500,
+            "yt": 25
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 50,
+            "os": 85,
+            "yo": 500,
+            "yt": 25
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 50,
+            "os": 75,
+            "yo": 550,
+            "yt": 25
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 50,
+            "os": 120,
+            "yo": 700,
+            "yt": 25
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 0,
+            "yo": 500,
+            "yt": 25
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 50,
+            "os": 100,
+            "yo": 730,
+            "yt": 50
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 0,
+            "os": 0,
+            "yo": 565,
+            "yt": 0
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 50,
+            "os": 50,
+            "yo": 555,
+            "yt": 25
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 50,
+            "os": 50,
+            "yo": 800,
+            "yt": 50
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 50,
+            "os": 100,
+            "yo": 475,
+            "yt": 50
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 50,
+            "os": 50,
+            "yo": 650,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "202": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 150,
+            "yo": 850,
+            "yt": 50
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 50,
+            "os": 150,
+            "yo": 500,
+            "yt": 50
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 100,
+            "os": 125,
+            "yo": 1100,
+            "yt": 25
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 50,
+            "yo": 500,
+            "yt": 50
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 50,
+            "os": 100,
+            "yo": 375,
+            "yt": 25
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 50,
+            "os": 200,
+            "yo": 975,
+            "yt": 25
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 100,
+            "os": 150,
+            "yo": 550,
+            "yt": 50
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 150,
+            "yo": 575,
+            "yt": 25
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 50,
+            "os": 150,
+            "yo": 1750,
+            "yt": 50
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 25,
+            "os": 100,
+            "yo": 350,
+            "yt": 25
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 100,
+            "os": 200,
+            "yo": 1100,
+            "yt": 50
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 50,
+            "os": 150,
+            "yo": 975,
+            "yt": 25
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 50,
+            "os": 100,
+            "yo": 550,
+            "yt": 25
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 50,
+            "os": 75,
+            "yo": 750,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "203": {
+        "days": {
+          "1": {
+            "om": 0,
+            "os": 200,
+            "yo": 400,
+            "yt": 0
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 100,
+            "os": 100,
+            "yo": 1100,
+            "yt": 50
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 50,
+            "os": 200,
+            "yo": 700,
+            "yt": 50
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 200,
+            "yo": 1200,
+            "yt": 50
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 100,
+            "os": 300,
+            "yo": 1550,
+            "yt": 50
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 50,
+            "os": 200,
+            "yo": 1700,
+            "yt": 50
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 50,
+            "os": 200,
+            "yo": 500,
+            "yt": 50
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 100,
+            "yo": 800,
+            "yt": 50
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 100,
+            "os": 100,
+            "yo": 1500,
+            "yt": 0
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 100,
+            "os": 100,
+            "yo": 600,
+            "yt": 25
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 0,
+            "os": 0,
+            "yo": 500,
+            "yt": 0
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 100,
+            "os": 200,
+            "yo": 1150,
+            "yt": 50
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 50,
+            "os": 50,
+            "yo": 900,
+            "yt": 10
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 50,
+            "os": 25,
+            "yo": 900,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "204": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 120,
+            "yo": 730,
+            "yt": 50
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 50,
+            "os": 120,
+            "yo": 730,
+            "yt": 50
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 150,
+            "os": 200,
+            "yo": 1020,
+            "yt": 30
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 120,
+            "yo": 800,
+            "yt": 30
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 100,
+            "os": 120,
+            "yo": 750,
+            "yt": 30
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 150,
+            "os": 150,
+            "yo": 1000,
+            "yt": 50
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 0,
+            "os": 50,
+            "yo": 720,
+            "yt": 30
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 50,
+            "yo": 620,
+            "yt": 30
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 100,
+            "os": 100,
+            "yo": 1000,
+            "yt": 50
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 50,
+            "os": 50,
+            "yo": 500,
+            "yt": 50
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 100,
+            "os": 100,
+            "yo": 670,
+            "yt": 30
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 100,
+            "os": 100,
+            "yo": 1150,
+            "yt": 50
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 20,
+            "os": 100,
+            "yo": 600,
+            "yt": 30
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 100,
+            "os": 100,
+            "yo": 670,
+            "yt": 30
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "205": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 140,
+            "yo": 450,
+            "yt": 25
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 25,
+            "os": 85,
+            "yo": 350,
+            "yt": 25
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 25,
+            "os": 100,
+            "yo": 400,
+            "yt": 25
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 25,
+            "os": 120,
+            "yo": 500,
+            "yt": 25
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 25,
+            "os": 120,
+            "yo": 550,
+            "yt": 25
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 50,
+            "os": 180,
+            "yo": 800,
+            "yt": 30
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 50,
+            "os": 120,
+            "yo": 550,
+            "yt": 0
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 120,
+            "yo": 550,
+            "yt": 25
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 25,
+            "os": 80,
+            "yo": 400,
+            "yt": 0
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 25,
+            "os": 80,
+            "yo": 400,
+            "yt": 0
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 25,
+            "os": 50,
+            "yo": 150,
+            "yt": 40
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 25,
+            "os": 100,
+            "yo": 400,
+            "yt": 25
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 25,
+            "os": 100,
+            "yo": 250,
+            "yt": 25
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 25,
+            "os": 100,
+            "yo": 350,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "206": {
+        "days": {
+          "1": {
+            "om": 25,
+            "os": 70,
+            "yo": 400,
+            "yt": 25
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 25,
+            "os": 65,
+            "yo": 285,
+            "yt": 25
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 0,
+            "os": 105,
+            "yo": 415,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 25,
+            "os": 75,
+            "yo": 500,
+            "yt": 25
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 25,
+            "os": 120,
+            "yo": 650,
+            "yt": 25
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 50,
+            "os": 100,
+            "yo": 1000,
+            "yt": 25
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 25,
+            "os": 60,
+            "yo": 650,
+            "yt": 25
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 65,
+            "yo": 490,
+            "yt": 35
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 50,
+            "os": 145,
+            "yo": 630,
+            "yt": 35
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 25,
+            "os": 95,
+            "yo": 500,
+            "yt": 25
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 25,
+            "os": 55,
+            "yo": 470,
+            "yt": 25
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 50,
+            "os": 150,
+            "yo": 655,
+            "yt": 50
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 25,
+            "os": 65,
+            "yo": 435,
+            "yt": 35
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 25,
+            "os": 120,
+            "yo": 545,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "207": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 120,
+            "yo": 430,
+            "yt": 50
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 50,
+            "os": 120,
+            "yo": 330,
+            "yt": 50
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 100,
+            "os": 100,
+            "yo": 800,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 100
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 50
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 100,
+            "os": 180,
+            "yo": 770,
+            "yt": 50
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 100,
+            "os": 100,
+            "yo": 400,
+            "yt": 150
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 50,
+            "os": 100,
+            "yo": 400,
+            "yt": 50
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 50,
+            "os": 200,
+            "yo": 1000,
+            "yt": 0
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 100,
+            "os": 120,
+            "yo": 300,
+            "yt": 100
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 100,
+            "os": 120,
+            "yo": 400,
+            "yt": 50
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 50,
+            "os": 100,
+            "yo": 600,
+            "yt": 50
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 100,
+            "os": 150,
+            "yo": 400,
+            "yt": 100
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 50
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "208": {
+        "days": {
+          "1": {
+            "om": 30,
+            "os": 50,
+            "yo": 400,
+            "yt": 20
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 50,
+            "os": 120,
+            "yo": 405,
+            "yt": 25
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 50,
+            "os": 180,
+            "yo": 745,
+            "yt": 25
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 20,
+            "os": 120,
+            "yo": 580,
+            "yt": 30
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 30,
+            "os": 120,
+            "yo": 330,
+            "yt": 20
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 50,
+            "os": 130,
+            "yo": 700,
+            "yt": 20
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 50,
+            "os": 120,
+            "yo": 500,
+            "yt": 30
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 30,
+            "os": 120,
+            "yo": 530,
+            "yt": 20
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 50,
+            "os": 200,
+            "yo": 1020,
+            "yt": 30
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 70,
+            "os": 120,
+            "yo": 420,
+            "yt": 40
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 50,
+            "os": 120,
+            "yo": 460,
+            "yt": 20
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 50,
+            "os": 150,
+            "yo": 880,
+            "yt": 20
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 40,
+            "os": 100,
+            "yo": 490,
+            "yt": 20
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 40,
+            "os": 100,
+            "yo": 490,
+            "yt": 20
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "209": {
+        "days": {
+          "1": {
+            "om": 50,
+            "os": 120,
+            "yo": 400,
+            "yt": 0
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 0,
+            "os": 120,
+            "yo": 400,
+            "yt": 0
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 0,
+            "os": 150,
+            "yo": 500,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 25,
+            "os": 100,
+            "yo": 450,
+            "yt": 0
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 25,
+            "os": 115,
+            "yo": 450,
+            "yt": 10
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 50,
+            "os": 120,
+            "yo": 950,
+            "yt": 50
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 50,
+            "os": 50,
+            "yo": 675,
+            "yt": 25
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 20,
+            "os": 100,
+            "yo": 465,
+            "yt": 15
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 25,
+            "os": 100,
+            "yo": 485,
+            "yt": 10
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 10,
+            "os": 100,
+            "yo": 480,
+            "yt": 10
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 15,
+            "os": 100,
+            "yo": 370,
+            "yt": 15
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 50,
+            "os": 70,
+            "yo": 585,
+            "yt": 15
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 15,
+            "os": 100,
+            "yo": 445,
+            "yt": 20
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 10,
+            "os": 100,
+            "yo": 400,
+            "yt": 10
+          }
+        },
+        "pembagiTanggal": 31
+      },
+      "210": {
+        "days": {
+          "1": {
+            "om": 0,
+            "os": 50,
+            "yo": 500,
+            "yt": 0
+          },
+          "2": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "3": {
+            "om": 25,
+            "os": 0,
+            "yo": 400,
+            "yt": 25
+          },
+          "4": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "5": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "6": {
+            "om": 0,
+            "os": 120,
+            "yo": 500,
+            "yt": 0
+          },
+          "7": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "8": {
+            "om": 75,
+            "os": 60,
+            "yo": 500,
+            "yt": 30
+          },
+          "9": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "10": {
+            "om": 25,
+            "os": 0,
+            "yo": 500,
+            "yt": 25
+          },
+          "11": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "12": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "13": {
+            "om": 30,
+            "os": 120,
+            "yo": 650,
+            "yt": 25
+          },
+          "14": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "15": {
+            "om": 25,
+            "os": 60,
+            "yo": 550,
+            "yt": 25
+          },
+          "16": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "17": {
+            "om": 0,
+            "os": 60,
+            "yo": 450,
+            "yt": 0
+          },
+          "18": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "19": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "20": {
+            "om": 0,
+            "os": 0,
+            "yo": 480,
+            "yt": 0
+          },
+          "21": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "22": {
+            "om": 50,
+            "os": 60,
+            "yo": 520,
+            "yt": 25
+          },
+          "23": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "24": {
+            "om": 25,
+            "os": 100,
+            "yo": 600,
+            "yt": 50
+          },
+          "25": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "26": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "27": {
+            "om": 25,
+            "os": 100,
+            "yo": 700,
+            "yt": 25
+          },
+          "28": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "29": {
+            "om": 25,
+            "os": 100,
+            "yo": 500,
+            "yt": 25
+          },
+          "30": {
+            "om": 0,
+            "os": 0,
+            "yo": 0,
+            "yt": 0
+          },
+          "31": {
+            "om": 25,
+            "os": 50,
+            "yo": 600,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 31
+      }
+    },
+    "2026-08": {
+      "201": {
+        "days": {
+          "3": {
+            "om": 70,
+            "os": 100,
+            "yo": 1150,
+            "yt": 0
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "202": {
+        "days": {
+          "3": {
+            "om": 125,
+            "os": 250,
+            "yo": 1550,
+            "yt": 100
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "203": {
+        "days": {
+          "3": {
+            "om": 50,
+            "os": 50,
+            "yo": 1350,
+            "yt": 50
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "204": {
+        "days": {
+          "3": {
+            "om": 100,
+            "os": 100,
+            "yo": 1400,
+            "yt": 50
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "205": {
+        "days": {
+          "3": {
+            "om": 50,
+            "os": 100,
+            "yo": 915,
+            "yt": 35
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "206": {
+        "days": {
+          "3": {
+            "om": 50,
+            "os": 100,
+            "yo": 900,
+            "yt": 50
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "207": {
+        "days": {
+          "3": {
+            "om": 50,
+            "os": 100,
+            "yo": 1050,
+            "yt": 100
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "208": {
+        "days": {
+          "3": {
+            "om": 50,
+            "os": 180,
+            "yo": 850,
+            "yt": 40
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "209": {
+        "days": {
+          "3": {
+            "om": 50,
+            "os": 100,
+            "yo": 900,
+            "yt": 50
+          }
+        },
+        "pembagiTanggal": 3
+      },
+      "210": {
+        "days": {
+          "3": {
+            "om": 25,
+            "os": 120,
+            "yo": 930,
+            "yt": 25
+          }
+        },
+        "pembagiTanggal": 3
       }
     }
+  },
+  "compensationConfig": {
+    "jht": 24000,
+    "tiers": [
+      {
+        "rate": 338,
+        "threshold": 0
+      },
+      {
+        "rate": 374,
+        "threshold": 200
+      },
+      {
+        "rate": 409,
+        "threshold": 250
+      },
+      {
+        "rate": 417,
+        "threshold": 280
+      },
+      {
+        "rate": 424,
+        "threshold": 300
+      },
+      {
+        "rate": 428,
+        "threshold": 330
+      },
+      {
+        "rate": 432,
+        "threshold": 350
+      }
+    ],
+    "jkkJkm": 18800,
+    "pphRate": 2.5
   }
 }

@@ -12,6 +12,7 @@ import {
   getFallbackDashboardData,
   getFallbackEvaluasiData
 } from "./lib/fallbackData";
+import { resetSupabaseClient } from "./lib/supabaseClient";
 
 // Lazy-loaded: masing-masing hanya di-download & di-parse browser saat memang
 // akan dirender (setelah login berhasil dan role diketahui). Sebelumnya semua
@@ -119,9 +120,15 @@ export default function App() {
       safeFetchJson("/api/getPins"),
       safeFetchJson("/api/getScriptUrl"),
       safeFetchJson("/api/getMotivasi"),
-      safeFetchJson("/api/getYlList")
+      safeFetchJson("/api/getYlList"),
+      safeFetchJson("/api/getSupabaseConfig")
     ])
-      .then(([pins, scr, mot, ylData]) => {
+      .then(([pins, scr, mot, ylData, sbConf]) => {
+        if (sbConf && sbConf.url && sbConf.key) {
+          localStorage.setItem("supabase_url", sbConf.url);
+          localStorage.setItem("supabase_key", sbConf.key);
+          resetSupabaseClient();
+        }
         const mgrPin = pins?.managerPin || getStoredManagerPin();
         const ylPinsMap = (pins?.ylPins && Object.keys(pins.ylPins).length > 0)
           ? pins.ylPins
@@ -251,13 +258,12 @@ export default function App() {
 
       const activeMonth = new Date().toISOString().substring(0, 7) || "2026-07";
       const fallbackDb = getFallbackDashboardData(activeMonth);
-      const finalDb = (db && db.totalPenjualan > 0) ? db : (fallbackDb.totalPenjualan > 0 ? fallbackDb : (db || fallbackDb));
+      const finalDb = db ? db : fallbackDb;
       setIfChanged("dashboard", finalDb, setDashboardData);
 
       const rawEv = ev && ev.evaluasiData ? ev.evaluasiData : (ev && ev.dataRows ? ev : null);
       const fallbackEv = getFallbackEvaluasiData(activeMonth);
-      const hasEvData = rawEv && rawEv.dataRows && rawEv.dataRows.some((r: any) => (r[8] || 0) > 0);
-      const finalEv = hasEvData ? rawEv : (fallbackEv.dataRows.some(r => (r[8] as number) > 0) ? fallbackEv : (rawEv || fallbackEv));
+      const finalEv = rawEv ? rawEv : fallbackEv;
       setIfChanged("evaluasi", finalEv, setEvaluasiData);
       if (mot) {
         const motChanged = setIfChanged("motivasi", mot, () => {});

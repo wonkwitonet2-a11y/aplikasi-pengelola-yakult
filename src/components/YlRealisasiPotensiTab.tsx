@@ -4,8 +4,12 @@ import type { GridSelection } from "./useSimpleGrid";
 import type { Transaction } from "../types";
 
 interface YlRealisasiPotensiTabProps {
+  currentMonth?: string;
   isEditRealisasi: boolean;
   realisasiGridSelection: GridSelection | null;
+  realisasiIsMenuOpen?: boolean;
+  setRealisasiIsMenuOpen?: (open: boolean) => void;
+  realisasiMenuPos?: { x: number; y: number } | null;
   handleRealisasiGridCopy: () => void;
   handleRealisasiGridCut: () => void;
   handleRealisasiGridPaste: (text: string) => void;
@@ -23,8 +27,12 @@ interface YlRealisasiPotensiTabProps {
 }
 
 function YlRealisasiPotensiTabInner({
+  currentMonth,
   isEditRealisasi,
   realisasiGridSelection,
+  realisasiIsMenuOpen,
+  setRealisasiIsMenuOpen,
+  realisasiMenuPos,
   handleRealisasiGridCopy,
   handleRealisasiGridCut,
   handleRealisasiGridPaste,
@@ -53,6 +61,8 @@ function YlRealisasiPotensiTabInner({
           {isEditRealisasi && (
             <GridSelectionToolbar 
               selection={realisasiGridSelection}
+              isMenuOpen={realisasiIsMenuOpen}
+              menuPos={realisasiMenuPos}
               onCopy={handleRealisasiGridCopy}
               onCut={handleRealisasiGridCut}
               onPaste={async () => {
@@ -64,7 +74,10 @@ function YlRealisasiPotensiTabInner({
                 }
               }}
               onClear={handleRealisasiGridClear}
-              onClose={() => setRealisasiGridSelection(null)}
+              onClose={() => {
+                setRealisasiIsMenuOpen?.(false);
+                setRealisasiGridSelection(null);
+              }}
             />
           )}
           <div>
@@ -142,7 +155,15 @@ function YlRealisasiPotensiTabInner({
               <tbody className="divide-y divide-slate-100 font-bold text-slate-800 text-xs sm:text-sm">
                 {daysList.map(d => {
                   const dayStrPadded = String(d).padStart(2, '0');
-                  const tx = transactions.find(t => t.tanggal.endsWith(`-${dayStrPadded}`) || t.tanggal === String(d));
+                  const dayStrUnpadded = String(d);
+                  const targetDatePadded = currentMonth ? `${currentMonth}-${dayStrPadded}` : null;
+                  const targetDateUnpadded = currentMonth ? `${currentMonth}-${dayStrUnpadded}` : null;
+                  const tx = transactions.find(t => {
+                    if (!t || !t.tanggal) return false;
+                    if (targetDatePadded && t.tanggal === targetDatePadded) return true;
+                    if (targetDateUnpadded && t.tanggal === targetDateUnpadded) return true;
+                    return t.tanggal.endsWith(`-${dayStrPadded}`) || t.tanggal.endsWith(`-${dayStrUnpadded}`) || t.tanggal === dayStrUnpadded;
+                  });
                   const dData = editDataRealisasi[d] || {};
                   const editChange = (field: string, val: number) => {
                     setEditDataRealisasi(prev => ({ ...prev, [d]: { ...prev[d], [field]: val } }));
@@ -207,14 +228,22 @@ function YlRealisasiPotensiTabInner({
                     if (isEditRealisasi) {
                       return (
                         <>
-                          {renderCell('bb_yo',  bb_yo, "p-1.5 text-center text-rose-700 bg-rose-50/50", 24)}
-                          {renderCell('bb_om',  bb_om, "p-1.5 text-center text-rose-700 bg-rose-50/50", 25)}
-                          {renderCell('bb_os',  bb_os, "p-1.5 text-center text-rose-700 bg-rose-50/50", 26)}
-                          {renderCell('bb_yt',  bb_yt, "p-1.5 text-center font-bold text-rose-900 border-r border-slate-200 bg-rose-100", 27)}
+                          <td title="📌 BB diinput oleh Manager via menu LHPP" className="p-1.5 text-center text-rose-700 bg-rose-50/50">
+                            <input type="number" value={bb_yo || ""} disabled title="📌 BB diinput oleh Manager via menu LHPP" className="w-10 text-xs border border-slate-200 rounded p-1 text-center font-bold bg-slate-100 text-slate-500 cursor-not-allowed opacity-75" />
+                          </td>
+                          <td title="📌 BB diinput oleh Manager via menu LHPP" className="p-1.5 text-center text-rose-700 bg-rose-50/50">
+                            <input type="number" value={bb_om || ""} disabled title="📌 BB diinput oleh Manager via menu LHPP" className="w-10 text-xs border border-slate-200 rounded p-1 text-center font-bold bg-slate-100 text-slate-500 cursor-not-allowed opacity-75" />
+                          </td>
+                          <td title="📌 BB diinput oleh Manager via menu LHPP" className="p-1.5 text-center text-rose-700 bg-rose-50/50">
+                            <input type="number" value={bb_os || ""} disabled title="📌 BB diinput oleh Manager via menu LHPP" className="w-10 text-xs border border-slate-200 rounded p-1 text-center font-bold bg-slate-100 text-slate-500 cursor-not-allowed opacity-75" />
+                          </td>
+                          <td title="📌 BB diinput oleh Manager via menu LHPP" className="p-1.5 text-center font-bold text-rose-900 border-r border-slate-200 bg-rose-100/70">
+                            <input type="number" value={bb_yt || ""} disabled title="📌 BB diinput oleh Manager via menu LHPP" className="w-10 text-xs border border-slate-200 rounded p-1 text-center font-bold bg-slate-100 text-slate-500 cursor-not-allowed opacity-75" />
+                          </td>
                         </>
                       );
                     }
-                    return <td className="p-1.5 text-center text-rose-700 bg-rose-50/50 font-bold">{bb || "-"}</td>;
+                    return <td title="📌 BB diinput oleh Manager via menu LHPP" className="p-1.5 text-center text-rose-700 bg-rose-50/50 font-bold">{bb || "-"}</td>;
                   };
                   return (
                     <tr key={d} className="hover:bg-slate-50/80 transition-colors optimized-table-row">

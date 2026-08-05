@@ -4,12 +4,6 @@ import { YlProfileRow } from "./YlProfileRow";
 interface ManagerLadyTabProps {
   ylList: any[];
   setYlList: React.Dispatch<React.SetStateAction<any[]>>;
-  names: string[];
-  selectedYLArea: string;
-  setSelectedYLArea: (area: string) => void;
-  ylDetail: any;
-  dashboardData: any;
-  formatRp: (num: number) => string;
   handleSaveYlList: (listToSave?: any[]) => Promise<void>;
   handleDeleteYl: (area: string) => Promise<void>;
   handleAddYl: () => Promise<void>;
@@ -29,12 +23,6 @@ interface ManagerLadyTabProps {
 function ManagerLadyTabInner({
   ylList,
   setYlList,
-  names,
-  selectedYLArea,
-  setSelectedYLArea,
-  ylDetail,
-  dashboardData,
-  formatRp,
   handleSaveYlList,
   handleDeleteYl,
   handleAddYl,
@@ -52,131 +40,7 @@ function ManagerLadyTabInner({
 }: ManagerLadyTabProps) {
   return (
     <div className="space-y-6">
-      {/* 1. SECTION: DETAIL DATA PERFORMANCE YL */}
-      <div className="space-y-4">
-        <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-2">
-            Pilih Yakult Lady
-          </label>
-          <select
-            value={selectedYLArea}
-            onChange={(e) => setSelectedYLArea(e.target.value)}
-            className="w-full p-2.5 text-xs bg-slate-50 rounded-xl border border-slate-200 outline-none font-bold text-slate-700"
-          >
-            {(ylList && ylList.length > 0 ? ylList : names.map((n) => ({ area: n.substring(0, 3), nama: n }))).map((yl: any) => (
-              <option key={yl.area} value={yl.area}>
-                {yl.nama}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Selected YL Details */}
-        {ylDetail ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-white rounded-xl p-3 border border-slate-100 shadow-sm text-center">
-                <span className="text-[8px] font-black text-slate-400 uppercase block">Total Akumulasi</span>
-                <span className="text-sm font-black text-slate-900 mt-1 block">
-                  {Math.trunc(dashboardData?.perYL?.[selectedYLArea]?.akumulasi || 0).toLocaleString("id-ID")} btl
-                </span>
-              </div>
-              <div className="bg-white rounded-xl p-3 border border-slate-100 shadow-sm text-center">
-                <span className="text-[8px] font-black text-slate-400 uppercase block">Rata-Rata</span>
-                <span className="text-sm font-black text-slate-900 mt-1 block">
-                  {Math.trunc(dashboardData?.perYL?.[selectedYLArea]?.rata2 || 0)} btl/hr
-                </span>
-              </div>
-            </div>
-
-            {/* Kompensasi */}
-            {ylDetail.kompensasi && (
-              <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                <div className="p-3 bg-emerald-950 text-white font-black text-[10px] uppercase tracking-wider">
-                  Estimasi Rincian Kompensasi Bulanan
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <tbody className="divide-y divide-slate-100 font-bold">
-                      <tr>
-                        <td className="p-2.5 text-slate-500 font-normal">Kompensasi Kotor</td>
-                        <td className="p-2.5 text-right text-slate-800">{formatRp(ylDetail.kompensasi.kompensasi)}</td>
-                      </tr>
-                      <tr className="text-rose-600">
-                        <td className="p-2.5 font-normal">Pph (5%/2)</td>
-                        <td className="p-2.5 text-right">- {formatRp(ylDetail.kompensasi.pph)}</td>
-                      </tr>
-                      <tr className="text-rose-600">
-                        <td className="p-2.5 font-normal">Iuran JKK / JKM</td>
-                        <td className="p-2.5 text-right">- {formatRp(ylDetail.kompensasi.jkk)}</td>
-                      </tr>
-                      <tr className="text-rose-600">
-                        <td className="p-2.5 font-normal">Iuran JHT</td>
-                        <td className="p-2.5 text-right">- {formatRp(ylDetail.kompensasi.jht)}</td>
-                      </tr>
-                      <tr className="text-rose-600">
-                        <td className="p-2.5 font-normal">Kresek / Potongan Mandiri</td>
-                        <td className="p-2.5 text-right">- {formatRp(ylDetail.kompensasi.kresekDll)}</td>
-                      </tr>
-                      <tr className="bg-emerald-50 text-emerald-800 font-extrabold text-sm border-t border-emerald-200">
-                        <td className="p-2.5">Kompensasi Bersih</td>
-                        <td className="p-2.5 text-right">{formatRp(ylDetail.kompensasi.kompenBersih)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-xs text-slate-400 italic">Pilih nama untuk melihat breakdown sektor dan target...</p>
-        )}
-
-        {/* Performance Tim Summary Table */}
-        {dashboardData && (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-            <div className="p-3 bg-red-950 text-white font-black text-[10px] uppercase tracking-wider">
-              Kinerja Akumulatif & Rata-Rata YL
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100 text-slate-400 font-bold uppercase text-[9px]">
-                    <th className="p-2.5">Nama YL</th>
-                    <th className="p-2.5 text-right">Akm</th>
-                    <th className="p-2.5 text-right">Rata2/hr</th>
-                    <th className="p-2.5 text-right">vs Tgt</th>
-                    <th className="p-2.5 text-right">vs Bln Lalu</th>
-                    <th className="p-2.5 text-right">vs Thn Lalu</th>
-                    <th className="p-2.5 text-right">BB %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-bold">
-                  {Object.values(dashboardData?.perYL || {}).map((y: any) => {
-                    const vsTgt = y.targetYL > 0 ? Math.trunc((y.rata2 / y.targetYL) * 100) : 0;
-                    const vsBln = y.bulanLaluYL > 0 ? Math.trunc((y.rata2 / y.bulanLaluYL) * 100) : 0;
-                    const vsThn = y.tahunLaluYL > 0 ? Math.trunc((y.rata2 / y.tahunLaluYL) * 100) : 0;
-                    const bbPct = (y.akumulasi + y.bbYL) > 0 ? Math.trunc((y.bbYL / (y.akumulasi + y.bbYL)) * 100) : 0;
-                    return (
-                      <tr key={y.nama} className="hover:bg-slate-50 text-slate-800">
-                        <td className="p-2.5 truncate font-extrabold max-w-[100px]">{y.nama}</td>
-                        <td className="p-2.5 text-right text-emerald-600">{y.akumulasi}</td>
-                        <td className="p-2.5 text-right text-slate-900">{Math.trunc(y.rata2)}</td>
-                        <td className="p-2.5 text-right text-blue-600">{vsTgt}%</td>
-                        <td className="p-2.5 text-right text-purple-600">{vsBln}%</td>
-                        <td className="p-2.5 text-right text-teal-600">{vsThn}%</td>
-                        <td className="p-2.5 text-right text-rose-600">{bbPct}%</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 2. SECTION: KELOLA PROFIL & STATUS YL */}
+      {/* KELOLA PROFIL & STATUS YL */}
       <div className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm space-y-3">
         <div className="flex items-center justify-between border-l-4 border-red-600 pl-2">
           <div>

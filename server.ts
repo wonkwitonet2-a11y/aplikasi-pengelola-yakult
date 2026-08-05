@@ -12,7 +12,8 @@ const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const DATA_FILE = path.join(process.cwd(), "data.json");
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // --- Supabase (database persisten) -----------------------------------------
 // Server ini yang menjadi satu-satunya jalur baca/tulis data aplikasi
@@ -23,17 +24,43 @@ app.use(express.json());
 // (bukan anon key) supaya aman dipakai di sisi server dan tidak tergantung
 // pada policy RLS. Kalau env belum diisi, server tetap jalan pakai data.json
 // lokal seperti sebelumnya (dev/Termux) — tapi TIDAK persisten di Netlify.
-const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
+function formatSupabaseUrlServer(rawUrl: string): string {
+  let url = (rawUrl || "").trim();
+  if (!url) return "";
+  if (!/^https?:\/\//i.test(url)) {
+    url = "https://" + url;
+  }
+  return url;
+}
+
+function isValidHttpUrlServer(urlString: string): boolean {
+  if (!urlString) return false;
+  try {
+    const parsed = new URL(urlString);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const SUPABASE_URL = formatSupabaseUrlServer(process.env.SUPABASE_URL || "");
 const SUPABASE_SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
 const SUPABASE_DB_KEY = "main_db";
-const supabase = (SUPABASE_URL && SUPABASE_SERVICE_KEY)
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
-  : null;
+
+let supabase: ReturnType<typeof createClient> | null = null;
+if (isValidHttpUrlServer(SUPABASE_URL) && SUPABASE_SERVICE_KEY) {
+  try {
+    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+  } catch (e: any) {
+    console.warn("[Supabase] Gagal inisialisasi Supabase client di server:", e?.message || e);
+    supabase = null;
+  }
+}
 
 if (!supabase) {
   console.warn(
-    "[Supabase] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diset di environment variables — " +
-    "server memakai data.json lokal, yang TIDAK persisten kalau dihosting di Netlify."
+    "[Supabase] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diset atau URL tidak valid — " +
+    "server memakai data.json lokal."
   );
 }
 
@@ -171,6 +198,46 @@ process.on("SIGTERM", () => { flushPendingWrite(); process.exit(0); });
 
 // Pastikan field wajib selalu ada, baik data berasal dari Supabase maupun
 // dari data.json lokal (dev tanpa Supabase). Data contoh bulan 2026-07 hanya
+function deduplicateTransactions(txList: any[]) {
+  if (!Array.isArray(txList) || txList.length === 0) return txList || [];
+  
+  const map: Record<string, any> = {};
+  const orderedKeys: string[] = [];
+
+  txList.forEach(t => {
+    if (!t || !t.tanggal) return;
+    const area = t.area || (t.nama ? String(t.nama).substring(0, 3) : "");
+    const cleanName = cleanYlName(t.nama || "");
+    const key = `${t.tanggal}_${area || cleanName || t.nama}`;
+    
+    if (!map[key]) {
+      map[key] = { ...t, area: area || t.area || "" };
+      orderedKeys.push(key);
+    } else {
+      const existing = map[key];
+      Object.keys(t).forEach(prop => {
+        const val = t[prop];
+        if (val !== undefined && val !== null && val !== 0 && val !== "") {
+          existing[prop] = val;
+        } else if (existing[prop] === undefined || existing[prop] === null) {
+          existing[prop] = val;
+        }
+      });
+      const secYo = (existing.rmh_yo||0) + (existing.psr_yo||0) + (existing.skh_yo||0) + (existing.ktr_yo||0) + (existing.tk_yo||0) + (existing.ib_yo||0);
+      const secOm = (existing.rmh_om||0) + (existing.psr_om||0) + (existing.skh_om||0) + (existing.ktr_om||0) + (existing.tk_om||0) + (existing.ib_om||0);
+      const secOs = (existing.rmh_os||0) + (existing.psr_os||0) + (existing.skh_os||0) + (existing.ktr_os||0) + (existing.tk_os||0) + (existing.ib_os||0);
+      const secYt = (existing.rmh_yt||0) + (existing.psr_yt||0) + (existing.skh_yt||0) + (existing.ktr_yt||0) + (existing.tk_yt||0) + (existing.ib_yt||0);
+      
+      if (secYo > 0) existing.tot_yo = secYo;
+      if (secOm > 0) existing.tot_om = secOm;
+      if (secOs > 0) existing.tot_os = secOs;
+      if (secYt > 0) existing.tot_yt = secYt;
+    }
+  });
+
+  return orderedKeys.map(k => map[k]);
+}
+
 // dipakai sebagai isian awal kalau memang belum ada data BD/Realisasi sama
 // sekali (pemakaian pertama kali).
 function normalizeDb(db: any) {
@@ -183,9 +250,24 @@ function normalizeDb(db: any) {
   }
   if (!db.compensationConfig) {
     db.compensationConfig = DEFAULT_COMP_CONFIG;
+  } else if (!db.compensationConfig.pphRate || db.compensationConfig.pphRate === 2) {
+    db.compensationConfig.pphRate = 2.5;
   }
   if (!db.transactions || !Array.isArray(db.transactions)) {
     db.transactions = [];
+  } else {
+    db.transactions = deduplicateTransactions(db.transactions);
+    db.transactions.forEach((t: any) => {
+      const secYo = (t.rmh_yo||0) + (t.psr_yo||0) + (t.skh_yo||0) + (t.ktr_yo||0) + (t.tk_yo||0) + (t.ib_yo||0);
+      const secOm = (t.rmh_om||0) + (t.psr_om||0) + (t.skh_om||0) + (t.ktr_om||0) + (t.tk_om||0) + (t.ib_om||0);
+      const secOs = (t.rmh_os||0) + (t.psr_os||0) + (t.skh_os||0) + (t.ktr_os||0) + (t.tk_os||0) + (t.ib_os||0);
+      const secYt = (t.rmh_yt||0) + (t.psr_yt||0) + (t.skh_yt||0) + (t.ktr_yt||0) + (t.tk_yt||0) + (t.ib_yt||0);
+
+      if (secYo > 0 && (!t.tot_yo || t.tot_yo === 0)) t.tot_yo = secYo;
+      if (secOm > 0 && (!t.tot_om || t.tot_om === 0)) t.tot_om = secOm;
+      if (secOs > 0 && (!t.tot_os || t.tot_os === 0)) t.tot_os = secOs;
+      if (secYt > 0 && (!t.tot_yt || t.tot_yt === 0)) t.tot_yt = secYt;
+    });
   }
   if (!db.kontes || db.kontes.enabled !== false) {
     db.kontes = { enabled: false, rows: [] };
@@ -196,9 +278,18 @@ function normalizeDb(db: any) {
   if (!db.breakdownRealisasi || typeof db.breakdownRealisasi !== "object") {
     db.breakdownRealisasi = {};
   }
+  if (!db.potensiTembus || typeof db.potensiTembus !== "object") {
+    db.potensiTembus = {};
+  }
 
+  // FIX: sebelumnya blok ini selalu menyuntik ulang "sample data" 2026-07 setiap kali
+  // breakdownRealisasi/breakdownPlan bulan itu kosong. Karena normalizeDb() dipanggil lagi
+  // setiap server cold-start (Cloud Run scale-to-zero), data yang sudah di-reset oleh user
+  // muncul kembali seolah reset tidak berhasil. Sekarang seeding hanya dijalankan SEKALI
+  // (saat db benar-benar baru pertama kali dibuat), ditandai dengan flag db._sampleJulySeeded.
   const sampleMonth = "2026-07";
-  if (!db.breakdownRealisasi[sampleMonth] || Object.keys(db.breakdownRealisasi[sampleMonth]).length === 0) {
+  if (db._sampleJulySeeded === undefined) {
+   if (!db.breakdownRealisasi[sampleMonth] || Object.keys(db.breakdownRealisasi[sampleMonth]).length === 0) {
     db.breakdownRealisasi[sampleMonth] = {
       "201": { pembagiTanggal: 15, days: { "1": { yo: 475, om: 50, os: 50, yt: 25 }, "2": { yo: 625, om: 20, os: 95, yt: 0 }, "3": { yo: 500, om: 30, os: 60, yt: 10 }, "4": { yo: 550, om: 40, os: 70, yt: 20 }, "5": { yo: 480, om: 50, os: 50, yt: 20 }, "6": { yo: 520, om: 30, os: 80, yt: 10 }, "7": { yo: 600, om: 25, os: 65, yt: 10 }, "8": { yo: 510, om: 40, os: 70, yt: 30 }, "9": { yo: 530, om: 35, os: 75, yt: 10 }, "10": { yo: 580, om: 20, os: 80, yt: 20 }, "11": { yo: 490, om: 45, os: 55, yt: 10 }, "12": { yo: 540, om: 30, os: 70, yt: 20 }, "13": { yo: 560, om: 25, os: 65, yt: 10 }, "14": { yo: 500, om: 50, os: 50, yt: 20 }, "15": { yo: 570, om: 30, os: 80, yt: 20 } } },
       "202": { pembagiTanggal: 15, days: { "1": { yo: 420, om: 30, os: 40, yt: 10 }, "2": { yo: 480, om: 25, os: 55, yt: 15 }, "3": { yo: 450, om: 35, os: 45, yt: 20 }, "4": { yo: 500, om: 20, os: 60, yt: 10 }, "5": { yo: 430, om: 40, os: 50, yt: 10 }, "6": { yo: 470, om: 30, os: 50, yt: 20 }, "7": { yo: 510, om: 25, os: 55, yt: 10 }, "8": { yo: 460, om: 35, os: 45, yt: 15 }, "9": { yo: 490, om: 30, os: 60, yt: 10 }, "10": { yo: 520, om: 20, os: 65, yt: 15 }, "11": { yo: 440, om: 40, os: 50, yt: 10 }, "12": { yo: 480, om: 30, os: 55, yt: 15 }, "13": { yo: 500, om: 25, os: 60, yt: 10 }, "14": { yo: 450, om: 35, os: 45, yt: 20 }, "15": { yo: 510, om: 30, os: 60, yt: 10 } } },
@@ -211,9 +302,11 @@ function normalizeDb(db: any) {
       "209": { pembagiTanggal: 15, days: { "1": { yo: 420, om: 25, os: 40, yt: 10 }, "2": { yo: 460, om: 30, os: 45, yt: 15 }, "3": { yo: 430, om: 35, os: 40, yt: 10 }, "4": { yo: 480, om: 20, os: 50, yt: 15 }, "5": { yo: 420, om: 30, os: 45, yt: 10 }, "6": { yo: 450, om: 25, os: 50, yt: 10 }, "7": { yo: 490, om: 20, os: 55, yt: 15 }, "8": { yo: 440, om: 35, os: 40, yt: 10 }, "9": { yo: 470, om: 25, os: 50, yt: 15 }, "10": { yo: 500, om: 20, os: 55, yt: 10 }, "11": { yo: 430, om: 30, os: 45, yt: 10 }, "12": { yo: 460, om: 25, os: 50, yt: 15 }, "13": { yo: 480, om: 20, os: 55, yt: 10 }, "14": { yo: 440, om: 35, os: 40, yt: 15 }, "15": { yo: 490, om: 25, os: 50, yt: 10 } } },
       "210": { pembagiTanggal: 15, days: { "1": { yo: 450, om: 35, os: 45, yt: 15 }, "2": { yo: 500, om: 30, os: 55, yt: 10 }, "3": { yo: 470, om: 40, os: 50, yt: 20 }, "4": { yo: 520, om: 25, os: 60, yt: 10 }, "5": { yo: 460, om: 35, os: 50, yt: 15 }, "6": { yo: 490, om: 30, os: 55, yt: 10 }, "7": { yo: 530, om: 20, os: 65, yt: 20 }, "8": { yo: 480, om: 40, os: 50, yt: 10 }, "9": { yo: 510, om: 30, os: 60, yt: 15 }, "10": { yo: 540, om: 25, os: 65, yt: 10 }, "11": { yo: 470, om: 35, os: 50, yt: 15 }, "12": { yo: 500, om: 30, os: 55, yt: 20 }, "13": { yo: 520, om: 25, os: 60, yt: 10 }, "14": { yo: 480, om: 40, os: 50, yt: 15 }, "15": { yo: 530, om: 30, os: 65, yt: 10 } } }
     };
-  }
-  if (!db.breakdownPlan[sampleMonth] || Object.keys(db.breakdownPlan[sampleMonth]).length === 0) {
+   }
+   if (!db.breakdownPlan[sampleMonth] || Object.keys(db.breakdownPlan[sampleMonth]).length === 0) {
     db.breakdownPlan[sampleMonth] = JSON.parse(JSON.stringify(db.breakdownRealisasi[sampleMonth]));
+   }
+   db._sampleJulySeeded = true; // tandai sudah pernah di-seed, tidak akan diulang lagi walau data direset
   }
 
   return db;
@@ -244,8 +337,7 @@ function buildDbFromLocal() {
 async function loadDataFromSupabase(): Promise<any | null> {
   if (!supabase) return null;
   try {
-    const { data, error } = await supabase
-      .from("app_store")
+    const { data, error } = await (supabase.from("app_store") as any)
       .select("data")
       .eq("key", SUPABASE_DB_KEY)
       .maybeSingle();
@@ -269,8 +361,7 @@ async function loadDataFromSupabase(): Promise<any | null> {
 async function persistToSupabase(db: any) {
   if (!supabase) return;
   try {
-    const { error } = await supabase
-      .from("app_store")
+    const { error } = await (supabase.from("app_store") as any)
       .upsert({ key: SUPABASE_DB_KEY, data: db, updated_at: new Date().toISOString() }, { onConflict: "key" });
     if (error) console.error("[Supabase] Gagal menyimpan data:", error.message);
   } catch (e: any) {
@@ -335,7 +426,7 @@ async function callProxy(action: string, payload: any = null, method: "GET" | "P
 // Akumulasi total penjualan tim dari data REALISASI di menu "BD & Realisasi"
 // (db.breakdownRealisasi[month][area].days[tgl].{yo,om,os,yt}), bukan lagi dari BL38 sheet.
 function getRealisasiAccumulation(db: any, month: string) {
-  const realisasiMonth = (db.breakdownRealisasi && (db.breakdownRealisasi[month] || db.breakdownRealisasi["2026-07"])) || {};
+  const realisasiMonth = (db.breakdownRealisasi && db.breakdownRealisasi[month]) || {};
   let totalYo = 0, totalOm = 0, totalOs = 0, totalYt = 0;
   const perArea: Record<string, { yo: number; om: number; os: number; yt: number; total: number; pembagiTanggal: number }> = {};
 
@@ -434,7 +525,7 @@ function calculateDashboardDP1(db: any) {
     const areaRealisasi = realisasiAcc.perArea[area];
     const ylTotal = (areaRealisasi && areaRealisasi.total > 0) ? areaRealisasi.total : 0;
 
-    const tgtObj = (targetYL && (targetYL[area] || targetYL[`${area}_${currentMonth}`] || targetYL[`${area}_2026-07`])) || {
+    const tgtObj = (targetYL && (targetYL[`${area}_${currentMonth}`] || targetYL[area])) || {
       target: ylItem?.target ?? 0,
       bln_lalu: ylItem?.bln_lalu ?? 0,
       thn_lalu: ylItem?.thn_lalu ?? 0
@@ -580,6 +671,33 @@ app.post("/api/saveScriptUrl", async (req, res) => {
   db.scriptUrl = scriptUrl;
   await saveData(db);
   res.json({ ok: true });
+});
+
+// 1b. Supabase Configuration
+app.get("/api/getSupabaseConfig", (req, res) => {
+  const db = loadData();
+  const url = db.supabaseConfig?.url || process.env.SUPABASE_URL || "";
+  const key = db.supabaseConfig?.key || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  res.json({ url, key });
+});
+
+app.post("/api/saveSupabaseConfig", async (req, res) => {
+  const { url, key } = req.body;
+  const db = loadData();
+  const cleanUrl = formatSupabaseUrlServer(url || "");
+  const cleanKey = (key || "").trim();
+  db.supabaseConfig = { url: cleanUrl, key: cleanKey };
+  await saveData(db);
+
+  if (cleanUrl && cleanKey && !supabase) {
+    try {
+      supabase = createClient(cleanUrl, cleanKey, { auth: { persistSession: false } });
+    } catch (e) {
+      console.warn("[Supabase] Gagal inisialisasi dari config:", e);
+    }
+  }
+
+  res.json({ ok: true, url: cleanUrl, key: cleanKey });
 });
 
 app.get("/api/verifyIntegrity", (req, res) => {
@@ -879,10 +997,21 @@ app.get("/api/getAll", async (req, res) => {
 });
 
 app.get("/api/getMine", async (req, res) => {
-  const { nama } = req.query;
+  const { nama, month: monthQuery } = req.query;
   const db = loadData();
   const area = String(nama).substring(0, 3);
-  const myTxs = (db.transactions || []).filter((t: any) => t.nama === nama || (t.nama && String(t.nama).startsWith(area)));
+  const cleanName = cleanYlName(String(nama || ""));
+  let myTxs = (db.transactions || []).filter((t: any) => 
+    t.nama === nama || 
+    (t.nama && String(t.nama).startsWith(area)) ||
+    (t.area && (t.area === area || String(nama).startsWith(t.area) || t.area === nama)) ||
+    (cleanName && cleanYlName(t.nama || "") === cleanName)
+  );
+  myTxs = deduplicateTransactions(myTxs);
+
+  if (monthQuery && typeof monthQuery === "string") {
+    myTxs = myTxs.filter((t: any) => t.tanggal && t.tanggal.startsWith(monthQuery));
+  }
 
   // Return targets for YL
   const targetYLList = Object.keys(db.targetYL || {})
@@ -902,8 +1031,9 @@ app.get("/api/getMine", async (req, res) => {
     realisasi: { yo: t.tot_yo || 0, om: t.tot_om || 0, os: t.tot_os || 0, yt: t.tot_yt || 0 }
   }));
 
-  const currentMonthPlan = db.breakdownPlan && db.breakdownPlan["2026-07"] ? db.breakdownPlan["2026-07"][area] : null;
-  const currentMonthAdminRealisasi = db.breakdownRealisasi && db.breakdownRealisasi["2026-07"] ? db.breakdownRealisasi["2026-07"][area] : null;
+  const month = (req.query.month as string) || new Date().toISOString().substring(0, 7);
+  const currentMonthPlan = db.breakdownPlan && db.breakdownPlan[month] ? db.breakdownPlan[month][area] : null;
+  const currentMonthAdminRealisasi = db.breakdownRealisasi && db.breakdownRealisasi[month] ? db.breakdownRealisasi[month][area] : null;
 
   res.json({
     transactions: myTxs,
@@ -917,7 +1047,7 @@ app.get("/api/getMine", async (req, res) => {
 
 // GET /api/getBreakdownPlan
 app.get("/api/getBreakdownPlan", (req, res) => {
-  const month = (req.query.month as string) || "2026-07";
+  const month = (req.query.month as string) || new Date().toISOString().substring(0, 7);
   const db = loadData();
   const planData = (db.breakdownPlan && db.breakdownPlan[month]) ? db.breakdownPlan[month] : {};
   const realisasiData = (db.breakdownRealisasi && db.breakdownRealisasi[month]) ? db.breakdownRealisasi[month] : {};
@@ -926,7 +1056,8 @@ app.get("/api/getBreakdownPlan", (req, res) => {
 
 // POST /api/saveBreakdownPlan
 app.post("/api/saveBreakdownPlan", async (req, res) => {
-  const { month = "2026-07", breakdownPlan, breakdownRealisasi } = req.body;
+  const defaultMonth = new Date().toISOString().substring(0, 7);
+  const { month = defaultMonth, breakdownPlan, breakdownRealisasi } = req.body;
 
   const db = loadData();
   if (breakdownPlan && typeof breakdownPlan === "object") {
@@ -944,7 +1075,8 @@ app.post("/api/saveBreakdownPlan", async (req, res) => {
 
 // GET /api/getLhppRealisasi
 app.get("/api/getLhppRealisasi", (req, res) => {
-  const date = (req.query.date as string) || "2026-07-24";
+  const defaultDate = new Date().toISOString().substring(0, 10);
+  const date = (req.query.date as string) || defaultDate;
   const db = loadData();
   const lhppData = (db.lhppRealisasi && db.lhppRealisasi[date]) ? db.lhppRealisasi[date] : null;
   res.json({ ok: true, date, rows: lhppData?.rows || null, summary: lhppData?.summary || null });
@@ -952,7 +1084,8 @@ app.get("/api/getLhppRealisasi", (req, res) => {
 
 // POST /api/saveLhppRealisasi
 app.post("/api/saveLhppRealisasi", async (req, res) => {
-  const { date = "2026-07-24", rows, summary } = req.body;
+  const defaultDate = new Date().toISOString().substring(0, 10);
+  const { date = defaultDate, rows, summary } = req.body;
   const db = loadData();
   if (!db.lhppRealisasi) db.lhppRealisasi = {};
   db.lhppRealisasi[date] = { rows, summary };
@@ -963,7 +1096,9 @@ app.post("/api/saveLhppRealisasi", async (req, res) => {
 app.get("/api/getDataYL", async (req, res) => {
   const { area } = req.query;
   const db = loadData();
-  const currentMonth = "2026-07";
+  const txs = db.transactions || [];
+  const latestTxDate = txs.length > 0 ? txs[txs.length - 1].tanggal : new Date().toISOString().split("T")[0];
+  const currentMonth = (req.query.month as string) || latestTxDate.substring(0, 7);
   const tgtObj = db.targetYL[`${area}_${currentMonth}`] || db.targetYL[area as string] || { target: 0, bln_lalu: 0, thn_lalu: 0, e6: 0 };
 
   const target = {
@@ -994,8 +1129,8 @@ app.get("/api/getDataYL", async (req, res) => {
   // Calculate dynamic actual sales for the selected YL area to match the dashboard perfectly
   const names = Object.values(db.ylPins || INITIAL_DATA.ylPins) as string[];
   const name = names.find(n => n.startsWith(String(area)));
-  const currentMonthTxs = (db.transactions || []).filter((t: any) => t.tanggal.startsWith(currentMonth));
-  const ylTxs = currentMonthTxs.filter((t: any) => t.nama === name);
+  const currentMonthTxs = (db.transactions || []).filter((t: any) => t.tanggal && t.tanggal.startsWith(currentMonth));
+  const ylTxs = currentMonthTxs.filter((t: any) => t.nama === name || (t.nama && t.nama.startsWith(String(area))));
   let ylYo = 0, ylOm = 0, ylOs = 0, ylYt = 0;
   ylTxs.forEach((t: any) => {
     ylYo += t.tot_yo || 0;
@@ -1009,11 +1144,14 @@ app.get("/api/getDataYL", async (req, res) => {
   const actualFromBreakdown = areaData ? areaData.total : 0;
   const ylTotalActual = actualFromBreakdown > 0 ? actualFromBreakdown : (ylYo + ylOm + ylOs + ylYt);
 
-  let pembagi = tgtObj.e6 || 12;
+  let pembagi = tgtObj.e6 || 15;
   if (db.breakdownRealisasi && db.breakdownRealisasi[currentMonth] && db.breakdownRealisasi[currentMonth][areaStr]) {
     pembagi = db.breakdownRealisasi[currentMonth][areaStr].pembagiTanggal || pembagi;
   }
-  const avgSales = pembagi > 0 ? ylTotalActual / pembagi : 0;
+  if (!pembagi || pembagi <= 0) pembagi = 15;
+
+  const effectiveTotalSales = ylTotalActual > 0 ? ylTotalActual : (tgtObj.target * pembagi);
+  const avgSales = pembagi > 0 ? effectiveTotalSales / pembagi : 0;
 
   const compCfg = db.compensationConfig || DEFAULT_COMP_CONFIG;
   let factor = compCfg.tiers[0].rate;
@@ -1025,12 +1163,12 @@ app.get("/api/getDataYL", async (req, res) => {
     }
   }
 
-  const kompensasi = ylTotalActual * factor;
+  const kompensasi = Math.floor(effectiveTotalSales * factor);
   const pph = Math.floor(kompensasi * (compCfg.pphRate / 100));
-  const jkk = compCfg.jkkJkm;
-  const jht = compCfg.jht;
+  const jkk = compCfg.jkkJkm || 18800;
+  const jht = compCfg.jht || 24000;
   const kresekDll = 0;
-  const kompenBersih = kompensasi - pph - jkk - jht - kresekDll;
+  const kompenBersih = Math.max(0, kompensasi - pph - jkk - jht - kresekDll);
 
   res.json({
     target: {
@@ -1177,30 +1315,38 @@ app.post("/api/saveYlList", async (req, res) => {
   res.json({ ok: true, ylList: db.ylList, managerPin: db.managerPin, ylPins: db.ylPins });
 });
 
-// Setting Targets & Pembagi Tanggal
+// Setting Targets
 app.get("/api/getSettingTargets", (req, res) => {
+  const { bulan } = req.query;
   const db = loadData();
-  const pembagiTanggal = db.pembagiTanggal || db.ca25 || 15;
-  const targetTKU = db.targetTKU || { target: 0, bln_lalu: 0, thn_lalu: 0 };
+  let targetTKU = db.targetTKU || { target: 0, bln_lalu: 0, thn_lalu: 0 };
+  if (bulan && typeof bulan === "string" && db.targetTKUByMonth && db.targetTKUByMonth[bulan]) {
+    targetTKU = db.targetTKUByMonth[bulan];
+  }
   const targetYL = db.targetYL || {};
-  res.json({ pembagiTanggal, targetTKU, targetYL });
+  res.json({ targetTKU, targetYL });
 });
 
 app.post("/api/saveSettingTargets", async (req, res) => {
-  const { pembagiTanggal, targetTKU, targetYL } = req.body;
+  const { targetTKU, targetYL, bulan } = req.body;
   const db = loadData();
-  if (pembagiTanggal !== undefined) {
-    db.pembagiTanggal = Number(pembagiTanggal);
-    db.ca25 = Number(pembagiTanggal);
-  }
   if (targetTKU) {
     db.targetTKU = { ...(db.targetTKU || {}), ...targetTKU };
+    if (bulan && typeof bulan === "string") {
+      if (!db.targetTKUByMonth) db.targetTKUByMonth = {};
+      db.targetTKUByMonth[bulan] = { ...db.targetTKU };
+    }
   }
   if (targetYL) {
     db.targetYL = { ...(db.targetYL || {}), ...targetYL };
+    if (bulan && typeof bulan === "string") {
+      Object.keys(targetYL).forEach(area => {
+        db.targetYL[`${area}_${bulan}`] = targetYL[area];
+      });
+    }
   }
   await saveData(db);
-  res.json({ ok: true, pembagiTanggal: db.pembagiTanggal, targetTKU: db.targetTKU, targetYL: db.targetYL });
+  res.json({ ok: true, targetTKU: db.targetTKU, targetYL: db.targetYL });
 });
 
 // Compensation Config
@@ -1335,6 +1481,189 @@ app.post("/api/saveTransaction", async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET /api/getLhppPdm - Get saved LHPP PDM data for specified month & day, plus previous day's PDM Hari Ini
+app.get("/api/getLhppPdm", (req, res) => {
+  const db = loadData();
+  const month = req.query.month ? String(req.query.month) : new Date().toISOString().slice(0, 7);
+  const day = req.query.day ? parseInt(String(req.query.day), 10) : new Date().getDate();
+  const dayPadded = String(day).padStart(2, "0");
+  const dateKey = req.query.tanggal ? String(req.query.tanggal) : `${month}-${dayPadded}`;
+
+  if (!db.lhppPdm) db.lhppPdm = {};
+  if (!db.lhppPdmYlm) db.lhppPdmYlm = {};
+
+  // Find previous saved day's pdmHariIni to populate PDM Sebelum
+  let prevPdmMap: Record<string, { yo: number; om: number; os: number; yt: number }> = {};
+  for (let d = day - 1; d >= 1; d--) {
+    const prevKey = `${month}-${String(d).padStart(2, "0")}`;
+    if (db.lhppPdm[prevKey] && Object.keys(db.lhppPdm[prevKey]).length > 0) {
+      const dayData = db.lhppPdm[prevKey];
+      Object.keys(dayData).forEach((ylKey) => {
+        const hi = dayData[ylKey]?.pdmHariIni;
+        if (hi && (hi.yo > 0 || hi.om > 0 || hi.os > 0 || hi.yt > 0) && !prevPdmMap[ylKey]) {
+          prevPdmMap[ylKey] = hi;
+        }
+      });
+    }
+  }
+
+  const currentPdm = db.lhppPdm[dateKey] || null;
+  const currentPdmYlm = db.lhppPdmYlm[dateKey] || { yo: 0, om: 0, os: 0, yt: 0 };
+
+  res.json({
+    ok: true,
+    tanggal: dateKey,
+    month,
+    day,
+    pdmYlm: currentPdmYlm,
+    rowsData: currentPdm,
+    prevPdmMap
+  });
+});
+
+// POST /api/saveLhppPdm - Save LHPP PDM data and patch transactions (tot_* and bb_*)
+app.post("/api/saveLhppPdm", async (req, res) => {
+  try {
+    const { month, day, tanggal, summary, rows } = req.body;
+    const db = loadData();
+
+    if (!db.lhppPdm) db.lhppPdm = {};
+    if (!db.lhppPdmYlm) db.lhppPdmYlm = {};
+    if (!db.transactions) db.transactions = [];
+
+    const dayPadded = String(day || 1).padStart(2, "0");
+    const dateKey = tanggal || `${month}-${dayPadded}`;
+
+    // 1. Save summary (PDM YLM)
+    if (summary && summary.pdmYlm) {
+      db.lhppPdmYlm[dateKey] = {
+        yo: Number(summary.pdmYlm.yo || 0),
+        om: Number(summary.pdmYlm.om || 0),
+        os: Number(summary.pdmYlm.os || 0),
+        yt: Number(summary.pdmYlm.yt || 0),
+      };
+    }
+
+    // 2. Save PDM per YL & patch db.transactions
+    if (!db.lhppPdm[dateKey]) db.lhppPdm[dateKey] = {};
+
+    if (Array.isArray(rows)) {
+      rows.forEach((r: any) => {
+        const areaKey = r.area || "";
+        const cleanName = cleanYlName(r.nama || "");
+        const ylKey = areaKey || cleanName;
+
+        if (!ylKey) return;
+
+        const pdmSebelum = {
+          yo: Number(r.pdmSebelum?.yo || 0),
+          om: Number(r.pdmSebelum?.om || 0),
+          os: Number(r.pdmSebelum?.os || 0),
+          yt: Number(r.pdmSebelum?.yt || 0),
+        };
+        const bb = {
+          yo: Number(r.bb?.yo || 0),
+          om: Number(r.bb?.om || 0),
+          os: Number(r.bb?.os || 0),
+          yt: Number(r.bb?.yt || 0),
+        };
+        const pdmHariIni = {
+          yo: Number(r.pdmHariIni?.yo || 0),
+          om: Number(r.pdmHariIni?.om || 0),
+          os: Number(r.pdmHariIni?.os || 0),
+          yt: Number(r.pdmHariIni?.yt || 0),
+        };
+
+        // Store in db.lhppPdm
+        db.lhppPdm[dateKey][ylKey] = { pdmSebelum, bb, pdmHariIni };
+        if (areaKey && cleanName) {
+          db.lhppPdm[dateKey][cleanName] = { pdmSebelum, bb, pdmHariIni };
+        }
+
+        // Terjual = PDM Sebelum - BB (dibatasi minimal 0)
+        const tot_yo = Math.max(0, pdmSebelum.yo - bb.yo);
+        const tot_om = Math.max(0, pdmSebelum.om - bb.om);
+        const tot_os = Math.max(0, pdmSebelum.os - bb.os);
+        const tot_yt = Math.max(0, pdmSebelum.yt - bb.yt);
+
+        // Find transaction matching dateKey and YL
+        const txIdx = db.transactions.findIndex((t: any) => {
+          const matchDate = t.tanggal === dateKey || t.tanggal === String(day) || t.tanggal.endsWith(`-${dayPadded}`);
+          const matchYl = (areaKey && (t.area === areaKey || t.nama?.startsWith(areaKey))) ||
+                          (cleanName && cleanYlName(t.nama || "") === cleanName) ||
+                          (r.nama && t.nama === r.nama);
+          return matchDate && matchYl;
+        });
+
+        if (txIdx !== -1) {
+          // Merge / Patch ONLY tot_* and bb_* fields without modifying other fields
+          db.transactions[txIdx].tot_yo = tot_yo;
+          db.transactions[txIdx].tot_om = tot_om;
+          db.transactions[txIdx].tot_os = tot_os;
+          db.transactions[txIdx].tot_yt = tot_yt;
+
+          db.transactions[txIdx].bb_yo = bb.yo;
+          db.transactions[txIdx].bb_om = bb.om;
+          db.transactions[txIdx].bb_os = bb.os;
+          db.transactions[txIdx].bb_yt = bb.yt;
+          if (areaKey && !db.transactions[txIdx].area) {
+            db.transactions[txIdx].area = areaKey;
+          }
+        } else {
+          // Create new record with tot_* and bb_* filled, others default 0
+          const fullYlName = (areaKey && r.nama && !r.nama.startsWith(areaKey)) ? `${areaKey} - ${cleanName}` : (r.nama || "");
+          db.transactions.push({
+            tanggal: dateKey,
+            nama: fullYlName,
+            area: areaKey || "",
+            tot_yo,
+            tot_om,
+            tot_os,
+            tot_yt,
+            bb_yo: bb.yo,
+            bb_om: bb.om,
+            bb_os: bb.os,
+            bb_yt: bb.yt,
+            rmh_yo: 0, rmh_om: 0, rmh_os: 0, rmh_yt: 0,
+            psr_yo: 0, psr_om: 0, psr_os: 0, psr_yt: 0,
+            skh_yo: 0, skh_om: 0, skh_os: 0, skh_yt: 0,
+            ktr_yo: 0, ktr_om: 0, ktr_os: 0, ktr_yt: 0,
+            tk_yo: 0, tk_om: 0, tk_os: 0, tk_yt: 0,
+            ib_yo: 0, ib_om: 0, ib_os: 0, ib_yt: 0,
+            pb_p: 0, pb_s: 0, f_plg: 0, f_rk: 0, f_ra: 0, f_rb: 0,
+            apk_plg: 0, apk_botol: 0
+          });
+        }
+
+        // --- NEW: Patch db.breakdownRealisasi so it appears in BD & Realisasi grid ---
+        if (areaKey) {
+          if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
+          if (!db.breakdownRealisasi[month]) db.breakdownRealisasi[month] = {};
+          if (!db.breakdownRealisasi[month][areaKey]) {
+            db.breakdownRealisasi[month][areaKey] = { days: {}, pembagiTanggal: 25 };
+          }
+          if (!db.breakdownRealisasi[month][areaKey].days) {
+            db.breakdownRealisasi[month][areaKey].days = {};
+          }
+          db.breakdownRealisasi[month][areaKey].days[String(day)] = {
+            yo: tot_yo,
+            om: tot_om,
+            os: tot_os,
+            yt: tot_yt
+          };
+        }
+      });
+    }
+
+    await saveData(db);
+
+    res.json({ ok: true, message: "✅ Data LHPP tersimpan & tersambung ke Realisasi" });
+  } catch (err: any) {
+    console.error("Error in saveLhppPdm:", err);
+    res.status(500).json({ ok: false, error: err?.message || "Gagal menyimpan data LHPP" });
+  }
+});
+
 app.post("/api/saveTargetYL", async (req, res) => {
   const { nama, bulan, target, bln_lalu, thn_lalu, e6 } = req.body;
   const db = loadData();
@@ -1363,21 +1692,27 @@ app.get("/api/getEvaluasi", async (req, res) => {
   const ylList = db.ylList || INITIAL_YL_LIST;
   const names = ylList.map((y: any) => y.nama);
   
-  const breakdownRealisasiMonth = db.breakdownRealisasi && (db.breakdownRealisasi[currentMonth] || db.breakdownRealisasi["2026-07"]) || {};
+  const breakdownRealisasiMonth = (db.breakdownRealisasi && db.breakdownRealisasi[currentMonth]) || {};
   const plgPjlManual = db.plgPjlManual || {};
 
   const tableData = names.map(name => {
     const ylItem = ylList.find((y: any) => y.nama === name);
     const area = ylItem ? ylItem.area : name.substring(0, 3);
     const yl = dashboard.perYL[area] || { yo:0, om:0, os:0, yt:0, akumulasi:0, bbYL:0, rata2:0 };
-    const ylTxs = db.transactions.filter((t: any) => t.nama === name && t.tanggal && t.tanggal.startsWith(currentMonth));
+    const ylTxs = db.transactions.filter((t: any) => (t.nama === name || (t.area && String(t.area) === String(area)) || (t.nama && t.nama.startsWith(area))) && t.tanggal && t.tanggal.startsWith(currentMonth));
     
     const areaData = breakdownRealisasiMonth[area];
     const pembagi = areaData && areaData.pembagiTanggal > 0 ? Number(areaData.pembagiTanggal) : 15;
     
     // Hari ini is date = pembagi
     const hariIniDateStr = currentMonth + "-" + String(pembagi).padStart(2, '0');
-    const latestTx = ylTxs.find((t: any) => t.tanggal === hariIniDateStr) || {};
+    let latestTx = ylTxs.find((t: any) => t.tanggal === hariIniDateStr);
+    if (!latestTx || !latestTx.tanggal) {
+      // Fallback to the latest valid transaction that has some data (to avoid empty future seeded rows)
+      const validTxs = ylTxs.filter((t: any) => ((t.tot_yo||0) + (t.tot_om||0) + (t.tot_os||0) + (t.tot_yt||0) > 0) || (t.f_plg||0) > 0 || (t.apk_botol||0) > 0 || (t.bb_yo||0) > 0 || (t.rmh_yo||0) > 0);
+      validTxs.sort((a: any, b: any) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+      latestTx = validTxs.length > 0 ? validTxs[validTxs.length - 1] : (ylTxs[ylTxs.length - 1] || {});
+    }
     
     // Rata2 Minggu Ini (7 days ending at pembagi)
     let sumMingguIni = 0;
@@ -1421,8 +1756,11 @@ app.get("/api/getEvaluasi", async (req, res) => {
       ((t.ib_yo||0)  + (t.ib_om||0)  + (t.ib_os||0)  + (t.ib_yt||0)), 0);
     const persenRumah = allAkmSektor > 0 ? Math.trunc((rumahAkm / allAkmSektor) * 100) : 0;
     
-    // Plg pjl manual logic for rb vs plg
-        const plg = ylTxs.reduce((sum: number, t: any) => sum + (t.f_plg||0), 0);
+    // Plg pjl manual logic for rb vs plg (plg dari 3 transaksi/hari harian terakhir yang ada isinya)
+    const validTxsForPlg = ylTxs.filter((t: any) => t.tanggal <= new Date().toISOString().split("T")[0] && ((Number(t.f_plg) > 0) || ((t.tot_yo||0) + (t.tot_om||0) > 0) || ((t.rmh_yo||0) > 0)));
+    const ylTxsSorted = [...validTxsForPlg].sort((a: any, b: any) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+    const last3Txs = ylTxsSorted.slice(-3);
+    const plg = last3Txs.reduce((sum: number, t: any) => sum + (Number(t.f_plg) || 0), 0);
     const rb = ylTxs.reduce((sum: number, t: any) => sum + (t.f_rb||0), 0);
     const persenRbPlg = plg > 0 ? Math.trunc((rb / plg) * 100) : 0;
     
@@ -1475,38 +1813,65 @@ app.get("/api/getEvaluasi", async (req, res) => {
     ];
   });
 
+  const sumRataMingguLalu = tableData.reduce((s: number, r: any) => s + (r[2]||0), 0);
+  const sumRataMingguIni = tableData.reduce((s: number, r: any) => s + (r[14]||0), 0);
+  const sumVsMingguLalu = sumRataMingguLalu > 0 ? Math.trunc((sumRataMingguIni / sumRataMingguLalu) * 100) : 0;
+  
+  const totalYo = tableData.reduce((s: number, r: any) => s + (r[9]||0), 0);
+  const totalOm = tableData.reduce((s: number, r: any) => s + (r[10]||0), 0);
+  const totalOs = tableData.reduce((s: number, r: any) => s + (r[11]||0), 0);
+  const totalYt = tableData.reduce((s: number, r: any) => s + (r[12]||0), 0);
+  const totalAllAkmSektor = totalYo + totalOm + totalOs + totalYt;
+  const sumRumahAkm = tableData.reduce((s: number, r: any) => s + (r[17]||0), 0);
+  const sumPersenRumah = totalAllAkmSektor > 0 ? Math.trunc((sumRumahAkm / totalAllAkmSektor) * 100) : 0;
+  
+  const sumPlg = tableData.reduce((s: number, r: any) => s + (r[19]||0), 0);
+  const sumRb = tableData.reduce((s: number, r: any) => s + (r[20]||0), 0);
+  const sumPersenRbPlg = sumPlg > 0 ? Math.trunc((sumRb / sumPlg) * 100) : 0;
+  
+  const sumSampahAkm = tableData.reduce((s: number, r: any) => s + (r[26]||0), 0);
+  const sumVs900 = sumSampahAkm - (900 * tableData.length);
+  
+  const sumTodayAll = tableData.reduce((s: number, r: any) => s + (r[7]||0), 0);
+  const sumBbHariIni = tableData.reduce((s: number, r: any) => s + (r[28]||0), 0);
+  const sumBbPersenHariIni = (sumTodayAll + sumBbHariIni) > 0 ? Math.trunc((sumBbHariIni / (sumTodayAll + sumBbHariIni)) * 100) : 0;
+  
+  const sumAkm = tableData.reduce((s: number, r: any) => s + (r[8]||0), 0);
+  const sumBbAkm = tableData.reduce((s: number, r: any) => s + (r[30]||0), 0);
+  const sumBbPersenAkm = (sumAkm + sumBbAkm) > 0 ? Math.trunc((sumBbAkm / (sumAkm + sumBbAkm)) * 100) : 0;
+
   const totalRow = [
     "TOTAL", "",
-    tableData.reduce((s: number, r: any) => s + (r[2]||0), 0),
+    sumRataMingguLalu,
     tableData.reduce((s: number, r: any) => s + (r[3]||0), 0),
     tableData.reduce((s: number, r: any) => s + (r[4]||0), 0),
     tableData.reduce((s: number, r: any) => s + (r[5]||0), 0),
     tableData.reduce((s: number, r: any) => s + (r[6]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[7]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[8]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[9]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[10]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[11]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[12]||0), 0),
+    sumTodayAll,
+    sumAkm,
+    totalYo,
+    totalOm,
+    totalOs,
+    totalYt,
     tableData.reduce((s: number, r: any) => s + (r[13]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[14]||0), 0),
-    "0",
+    sumRataMingguIni,
+    sumVsMingguLalu,
     tableData.reduce((s: number, r: any) => s + (r[16]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[17]||0), 0),
-    "0",
-    tableData.reduce((s: number, r: any) => s + (r[19]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[20]||0), 0),
-    "0",
+    sumRumahAkm,
+    sumPersenRumah,
+    sumPlg,
+    sumRb,
+    sumPersenRbPlg,
     tableData.reduce((s: number, r: any) => s + (r[22]||0), 0),
     tableData.reduce((s: number, r: any) => s + (r[23]||0), 0),
     tableData.reduce((s: number, r: any) => s + (r[24]||0), 0),
     tableData.reduce((s: number, r: any) => s + (r[25]||0), 0),
-    tableData.reduce((s: number, r: any) => s + (r[26]||0), 0),
-    "0",
-    tableData.reduce((s: number, r: any) => s + (r[28]||0), 0),
-    "0",
-    tableData.reduce((s: number, r: any) => s + (r[30]||0), 0),
-    "0"
+    sumSampahAkm,
+    sumVs900,
+    sumBbHariIni,
+    sumBbPersenHariIni,
+    sumBbAkm,
+    sumBbPersenAkm
   ];
 
   const analisis = tableData.map(r => ({
@@ -1536,8 +1901,11 @@ app.get("/api/getEvaluasi", async (req, res) => {
 app.get("/api/getPlgPjlData", async (req, res) => {
   const db = loadData();
   const ylList = db.ylList || INITIAL_YL_LIST;
-  const currentMonth = new Date().toISOString().substring(0, 7);
-  const breakdownRealisasiMonth = db.breakdownRealisasi && (db.breakdownRealisasi[currentMonth] || db.breakdownRealisasi["2026-07"]) || {};
+  // FIX: dulu selalu pakai bulan berjalan (new Date()) dan mengembalikan SEMUA transaksi
+  // tanpa filter bulan sama sekali. Sekarang terima query ?month=YYYY-MM (dipakai saat
+  // membuka data arsip, misal bulan Juli) untuk memfilter data sesuai bulan yang diminta.
+  const requestedMonth = (typeof req.query.month === "string" && req.query.month) || new Date().toISOString().substring(0, 7);
+  const breakdownRealisasiMonth = (db.breakdownRealisasi && db.breakdownRealisasi[requestedMonth]) || {};
   
   let realisasiPembagi = 15;
   const brKeys = Object.keys(breakdownRealisasiMonth);
@@ -1548,14 +1916,51 @@ app.get("/api/getPlgPjlData", async (req, res) => {
 
   const pembagiManager = realisasiPembagi;
 
+  const allTransactions = db.transactions || [];
+  // Kalau ?month= diberikan secara eksplisit (dipakai fitur arsip), filter transaksi
+  // supaya hanya menampilkan data bulan itu. Kalau tidak ada query month, perilaku lama
+  // (tanpa filter) dipertahankan supaya tampilan live yang sudah ada tidak berubah.
+  const filteredTransactions = (typeof req.query.month === "string" && req.query.month)
+    ? allTransactions.filter((t: any) => typeof t.tanggal === "string" && t.tanggal.startsWith(requestedMonth))
+    : allTransactions;
+
   res.json({
     ok: true,
     ylList,
     pembagiManager,
-    transactions: db.transactions || [],
+    month: requestedMonth,
+    transactions: filteredTransactions,
     potensiTembus: db.potensiTembus || {},
     breakdownRealisasiMap: breakdownRealisasiMonth
   });
+});
+
+app.post("/api/saveYlFoto", async (req, res) => {
+  const db = loadData();
+  const { nama, foto } = req.body;
+  if (!nama) return res.status(400).json({ ok: false, message: "Nama required" });
+  if (!db.ylPhotos) db.ylPhotos = {};
+  db.ylPhotos[nama] = foto;
+  
+  if (Array.isArray(db.ylList)) {
+    const yl = db.ylList.find((y: any) => y.nama === nama || cleanYlName(y.nama) === cleanYlName(nama));
+    if (yl) yl.foto = foto;
+  }
+  
+  saveData(db);
+  res.json({ ok: true, foto });
+});
+
+app.get("/api/getYlFoto", async (req, res) => {
+  const db = loadData();
+  const nama = String(req.query.nama || "");
+  if (!db.ylPhotos) db.ylPhotos = {};
+  let foto = db.ylPhotos[nama] || "";
+  if (!foto && Array.isArray(db.ylList)) {
+    const yl = db.ylList.find((y: any) => y.nama === nama || cleanYlName(y.nama) === cleanYlName(nama));
+    if (yl && yl.foto) foto = yl.foto;
+  }
+  res.json({ ok: true, foto });
 });
 
 app.post("/api/saveRealisasiPotensiYL", async (req, res) => {
@@ -1564,32 +1969,82 @@ app.post("/api/saveRealisasiPotensiYL", async (req, res) => {
   
   if (!db.transactions) db.transactions = [];
   
-  const idx = db.transactions.findIndex((t: any) => t.tanggal === data.tanggal && t.nama === data.nama);
+  const area = String(data.nama || "").substring(0, 3);
+  const cleanName = cleanYlName(String(data.nama || ""));
+
+  let idx = db.transactions.findIndex((t: any) => {
+    const matchDate = t.tanggal === data.tanggal;
+    const matchYl = (t.nama === data.nama) ||
+                    (area && (t.area === area || (t.nama && String(t.nama).startsWith(area)))) ||
+                    (cleanName && cleanYlName(t.nama || "") === cleanName);
+    return matchDate && matchYl;
+  });
   
+  const rmh_yo = Number(data.sektor?.rmh?.yo) || 0;
+  const rmh_om = Number(data.sektor?.rmh?.om) || 0;
+  const rmh_os = Number(data.sektor?.rmh?.os) || 0;
+  const rmh_yt = Number(data.sektor?.rmh?.yt) || 0;
+
+  const psr_yo = Number(data.sektor?.psr?.yo) || 0;
+  const psr_om = Number(data.sektor?.psr?.om) || 0;
+  const psr_os = Number(data.sektor?.psr?.os) || 0;
+  const psr_yt = Number(data.sektor?.psr?.yt) || 0;
+
+  const skh_yo = Number(data.sektor?.skh?.yo) || 0;
+  const skh_om = Number(data.sektor?.skh?.om) || 0;
+  const skh_os = Number(data.sektor?.skh?.os) || 0;
+  const skh_yt = Number(data.sektor?.skh?.yt) || 0;
+
+  const ktr_yo = Number(data.sektor?.ktr?.yo) || 0;
+  const ktr_om = Number(data.sektor?.ktr?.om) || 0;
+  const ktr_os = Number(data.sektor?.ktr?.os) || 0;
+  const ktr_yt = Number(data.sektor?.ktr?.yt) || 0;
+
+  const tk_yo = Number(data.sektor?.tk?.yo) || 0;
+  const tk_om = Number(data.sektor?.tk?.om) || 0;
+  const tk_os = Number(data.sektor?.tk?.os) || 0;
+  const tk_yt = Number(data.sektor?.tk?.yt) || 0;
+
+  const ib_yo = Number(data.sektor?.ib?.yo) || 0;
+  const ib_om = Number(data.sektor?.ib?.om) || 0;
+  const ib_os = Number(data.sektor?.ib?.os) || 0;
+  const ib_yt = Number(data.sektor?.ib?.yt) || 0;
+
+  const tot_yo = rmh_yo + psr_yo + skh_yo + ktr_yo + tk_yo + ib_yo;
+  const tot_om = rmh_om + psr_om + skh_om + ktr_om + tk_om + ib_om;
+  const tot_os = rmh_os + psr_os + skh_os + ktr_os + tk_os + ib_os;
+  const tot_yt = rmh_yt + psr_yt + skh_yt + ktr_yt + tk_yt + ib_yt;
+
   const updates = {
-    rmh_yo: data.sektor?.rmh?.yo || 0, rmh_om: data.sektor?.rmh?.om || 0, rmh_os: data.sektor?.rmh?.os || 0, rmh_yt: data.sektor?.rmh?.yt || 0,
-    psr_yo: data.sektor?.psr?.yo || 0, psr_om: data.sektor?.psr?.om || 0, psr_os: data.sektor?.psr?.os || 0, psr_yt: data.sektor?.psr?.yt || 0,
-    skh_yo: data.sektor?.skh?.yo || 0, skh_om: data.sektor?.skh?.om || 0, skh_os: data.sektor?.skh?.os || 0, skh_yt: data.sektor?.skh?.yt || 0,
-    ktr_yo: data.sektor?.ktr?.yo || 0, ktr_om: data.sektor?.ktr?.om || 0, ktr_os: data.sektor?.ktr?.os || 0, ktr_yt: data.sektor?.ktr?.yt || 0,
-    tk_yo: data.sektor?.tk?.yo || 0, tk_om: data.sektor?.tk?.om || 0, tk_os: data.sektor?.tk?.os || 0, tk_yt: data.sektor?.tk?.yt || 0,
-    ib_yo: data.sektor?.ib?.yo || 0, ib_om: data.sektor?.ib?.om || 0, ib_os: data.sektor?.ib?.os || 0, ib_yt: data.sektor?.ib?.yt || 0,
-    bb_yo: data.bb_yo || 0, bb_om: data.bb_om || 0, bb_os: data.bb_os || 0, bb_yt: data.bb_yt || 0,
-    pb_p: data.pb_p || 0, pb_s: data.pb_s || 0,
-    apk_plg: data.apk_plg || 0, apk_botol: data.apk_botol || 0,
-    f_plg: data.f_plg || 0, f_rk: data.f_rk || 0, f_ra: data.f_ra || 0, f_rb: data.f_rb || 0
+    rmh_yo, rmh_om, rmh_os, rmh_yt,
+    psr_yo, psr_om, psr_os, psr_yt,
+    skh_yo, skh_om, skh_os, skh_yt,
+    ktr_yo, ktr_om, ktr_os, ktr_yt,
+    tk_yo, tk_om, tk_os, tk_yt,
+    ib_yo, ib_om, ib_os, ib_yt,
+    tot_yo, tot_om, tot_os, tot_yt,
+    bb_yo: Number(data.bb_yo) || 0, bb_om: Number(data.bb_om) || 0, bb_os: Number(data.bb_os) || 0, bb_yt: Number(data.bb_yt) || 0,
+    pb_p: Number(data.pb_p) || 0, pb_s: Number(data.pb_s) || 0,
+    apk_plg: Number(data.apk_plg) || 0, apk_botol: Number(data.apk_botol) || 0,
+    f_plg: Number(data.f_plg) || 0, f_rk: Number(data.f_rk) || 0, f_ra: Number(data.f_ra) || 0, f_rb: Number(data.f_rb) || 0
   };
 
   if (idx !== -1) {
-    db.transactions[idx] = { ...db.transactions[idx], ...updates };
+    db.transactions[idx] = {
+      ...db.transactions[idx],
+      area: db.transactions[idx].area || area,
+      ...updates
+    };
   } else {
-    // If not exists, insert it with base fields 0 so it doesn't break dashboard
     db.transactions.push({
       tanggal: data.tanggal,
       nama: data.nama,
-      tot_yo: 0, tot_om: 0, tot_os: 0, tot_yt: 0,
+      area: area,
       ...updates
     });
   }
+
+  db.transactions = deduplicateTransactions(db.transactions);
   
   await saveData(db);
   res.json({ ok: true });
@@ -1602,12 +2057,71 @@ app.post("/api/savePotensiTembus", async (req, res) => {
   if (!db.potensiTembus) db.potensiTembus = {};
   if (!db.potensiTembus[data.bulan]) db.potensiTembus[data.bulan] = {};
   
-  db.potensiTembus[data.bulan][data.nama] = {
-    skhTotal: data.skhTotal || 0, skhTembus: data.skhTembus || 0,
-    kntrTotal: data.kntrTotal || 0, kntrTembus: data.kntrTembus || 0,
-    tkoTotal: data.tkoTotal || 0, tkoTembus: data.tkoTembus || 0
+  const val = {
+    skhTotal: Number(data.skhTotal) || 0, skhTembus: Number(data.skhTembus) || 0,
+    kntrTotal: Number(data.kntrTotal) || 0, kntrTembus: Number(data.kntrTembus) || 0,
+    tkoTotal: Number(data.tkoTotal) || 0, tkoTembus: Number(data.tkoTembus) || 0
   };
+
+  const rawName = String(data.nama || "");
+  const cleanName = cleanYlName(rawName);
+  const areaCode = rawName.substring(0, 3).trim();
+
+  db.potensiTembus[data.bulan][rawName] = val;
+  if (cleanName) db.potensiTembus[data.bulan][cleanName] = val;
+  if (areaCode) db.potensiTembus[data.bulan][areaCode] = val;
   
+  await saveData(db);
+  res.json({ ok: true });
+});
+
+app.get("/api/getBreakdownPlan", async (req, res) => {
+  const db = loadData();
+  const reqMonth = (req.query.month as string) || new Date().toISOString().substring(0, 7);
+  
+  if (!db.breakdownPlan) db.breakdownPlan = {};
+  if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
+
+  let plan = db.breakdownPlan[reqMonth];
+  let realisasi = db.breakdownRealisasi[reqMonth];
+
+  // If requested month has no data, fallback to latest available month with data or sample month "2026-07"
+  if ((!plan || Object.keys(plan).length === 0) && (!realisasi || Object.keys(realisasi).length === 0)) {
+    const availableMonths = Array.from(new Set([
+      ...Object.keys(db.breakdownPlan),
+      ...Object.keys(db.breakdownRealisasi)
+    ])).sort().reverse();
+
+    if (availableMonths.length > 0) {
+      const fallbackMonth = availableMonths[0];
+      plan = db.breakdownPlan[fallbackMonth] || {};
+      realisasi = db.breakdownRealisasi[fallbackMonth] || {};
+    }
+  }
+
+  res.json({
+    ok: true,
+    month: reqMonth,
+    breakdownPlan: plan || {},
+    breakdownRealisasi: realisasi || {}
+  });
+});
+
+app.post("/api/saveBreakdownPlan", async (req, res) => {
+  const { month, breakdownPlan, breakdownRealisasi } = req.body;
+  const db = loadData();
+  
+  const m = month || new Date().toISOString().substring(0, 7);
+  if (!db.breakdownPlan) db.breakdownPlan = {};
+  if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
+
+  if (breakdownPlan && typeof breakdownPlan === "object" && Object.keys(breakdownPlan).length > 0) {
+    db.breakdownPlan[m] = breakdownPlan;
+  }
+  if (breakdownRealisasi && typeof breakdownRealisasi === "object" && Object.keys(breakdownRealisasi).length > 0) {
+    db.breakdownRealisasi[m] = breakdownRealisasi;
+  }
+
   await saveData(db);
   res.json({ ok: true });
 });
@@ -1617,16 +2131,36 @@ app.get("/api/getPotensiTembus", async (req, res) => {
   const db = loadData();
   
   if (db.potensiTembus) {
-    const monthData = db.potensiTembus[bulan as string] || db.potensiTembus[Object.keys(db.potensiTembus).sort().pop() || ""];
-    if (monthData) {
-      if (monthData[nama as string]) {
-        return res.json({ data: monthData[nama as string] });
+    const reqMonth = (bulan as string) || "";
+    const reqName = (nama as string) || "";
+    const cleanReq = cleanYlName(reqName).toLowerCase();
+    const areaReq = reqName.substring(0, 3).trim();
+
+    const findInMonth = (monthData: any) => {
+      if (!monthData || typeof monthData !== "object") return null;
+      if (monthData[reqName]) return monthData[reqName];
+      if (cleanReq && monthData[cleanReq]) return monthData[cleanReq];
+      if (areaReq && monthData[areaReq]) return monthData[areaReq];
+
+      const matchKey = Object.keys(monthData).find(k => {
+        const ck = cleanYlName(k).toLowerCase();
+        return (ck && ck === cleanReq) || (areaReq && k.substring(0, 3).trim() === areaReq);
+      });
+      return matchKey ? monthData[matchKey] : null;
+    };
+
+    let found = findInMonth(db.potensiTembus[reqMonth]);
+
+    if (!found) {
+      const sortedMonths = Object.keys(db.potensiTembus).sort().reverse();
+      for (const m of sortedMonths) {
+        found = findInMonth(db.potensiTembus[m]);
+        if (found) break;
       }
-      const cleanReq = ((nama as string) || "").replace(/^\d+\s+/, "").trim().toLowerCase();
-      const matchKey = Object.keys(monthData).find(k => k.replace(/^\d+\s+/, "").trim().toLowerCase() === cleanReq);
-      if (matchKey && monthData[matchKey]) {
-        return res.json({ data: monthData[matchKey] });
-      }
+    }
+
+    if (found) {
+      return res.json({ data: found });
     }
   }
   res.json({ data: null });
@@ -1722,10 +2256,13 @@ app.get("/api/exportRealisasi", async (req, res) => {
         data.ktr_yo += Number(t.ktr_yo) || 0; data.ktr_om += Number(t.ktr_om) || 0; data.ktr_os += Number(t.ktr_os) || 0; data.ktr_yt += Number(t.ktr_yt) || 0;
         data.tk_yo += Number(t.tk_yo) || 0; data.tk_om += Number(t.tk_om) || 0; data.tk_os += Number(t.tk_os) || 0; data.tk_yt += Number(t.tk_yt) || 0;
         data.ib_yo += Number(t.ib_yo) || 0; data.ib_om += Number(t.ib_om) || 0; data.ib_os += Number(t.ib_os) || 0; data.ib_yt += Number(t.ib_yt) || 0;
-        data.f_plg += Number(t.f_plg) || 0;
         data.f_rb += Number(t.f_rb) || 0;
         data.pb += (Number(t.pb_p) || 0) + (Number(t.pb_s) || 0);
       });
+
+      const myTxsSorted = [...myTxs].sort((a: any, b: any) => (a.tanggal || "").localeCompare(b.tanggal || ""));
+      const last3Txs = myTxsSorted.slice(-3);
+      data.f_plg = last3Txs.reduce((sum: number, t: any) => sum + (Number(t.f_plg) || 0), 0);
 
       let skhT = 0, skhTm = 0, ktrT = 0, ktrTm = 0, tkoT = 0, tkoTm = 0;
       if (db.potensiTembus) {
@@ -1866,6 +2403,7 @@ app.post("/api/savePlgPjlManual", async (req, res) => {
 // 7. General DP1 Target loading
 app.get("/api/getTarget", async (req, res) => {
   const db = loadData();
+  const currentMonth = (req.query.month as string) || new Date().toISOString().substring(0, 7);
   const perArea: any = {};
   const total = {
     target: { YO: 0, OM: 0, OS: 0, YT: 0, ALL: 0 },
@@ -1878,7 +2416,7 @@ app.get("/api/getTarget", async (req, res) => {
   names.forEach(name => {
     const ylItem = ylList.find((y: any) => y.nama === name);
     const area = ylItem ? ylItem.area : name.substring(0, 3);
-    const tgtObj = db.targetYL[`${area}_2026-07`] || db.targetYL[area] || { target: 0, bln_lalu: 0, thn_lalu: 0, e6: 0 };
+    const tgtObj = db.targetYL[`${area}_${currentMonth}`] || db.targetYL[area] || { target: 0, bln_lalu: 0, thn_lalu: 0, e6: 0 };
     perArea[area] = {
       target: { YO: Math.floor(tgtObj.target * 0.9), OM: Math.floor(tgtObj.target * 0.05), OS: Math.floor(tgtObj.target * 0.03), YT: Math.floor(tgtObj.target * 0.02), ALL: tgtObj.target },
       bulanLalu: { YO: Math.floor(tgtObj.bln_lalu * 0.9), OM: Math.floor(tgtObj.bln_lalu * 0.05), OS: Math.floor(tgtObj.bln_lalu * 0.03), YT: Math.floor(tgtObj.bln_lalu * 0.02), ALL: tgtObj.bln_lalu },
@@ -2007,7 +2545,18 @@ app.post("/api/resetData", async (req, res) => {
 app.post("/api/resetDataTargeted", async (req, res) => {
   try {
     const { scope, currentMonth } = req.body;
-    const db = loadData();
+    // FIX: sebelumnya pakai loadData() yang mengembalikan cachedDb di MEMORI
+    // instance ini saja. Kalau Cloud Run sedang menjalankan lebih dari satu
+    // instance (jamak terjadi karena banyak YL + manager akses bersamaan),
+    // instance lain yang melayani permintaan berikutnya masih punya cachedDb
+    // versi LAMA di memorinya sendiri dan akan terus menampilkan/menimpa data
+    // lama itu — sehingga reset terlihat "tidak berhasil". Di sini kita paksa
+    // ambil data PALING BARU langsung dari Supabase (bukan cache lokal
+    // instance ini) sebagai dasar sebelum menghapus, supaya hasil hapusnya
+    // benar-benar berdasar kondisi terkini, bukan salinan basi.
+    let db = await loadDataFromSupabase();
+    if (!db) db = loadData(); // fallback kalau Supabase belum aktif / gagal dibaca
+    db = normalizeDb(db);
     const activeMonth = currentMonth || new Date().toISOString().substring(0, 7);
 
     if (scope === "all") {
@@ -2076,13 +2625,9 @@ async function startServer() {
   const distIndexHtml = path.join(distPath, "index.html");
   const hasProdBuild = fs.existsSync(distIndexHtml);
 
-  // Prefer the built (fast, minified, no-HMR) version whenever it exists.
-  // Relying on NODE_ENV alone is fragile: if `npm start` is ever launched
-  // without that variable set (Termux, PM2, a plain `node dist/server.cjs`),
-  // this used to silently fall back to the heavy Vite dev server — the
-  // exact cause of the app feeling slow on entry-level phones even after
-  // a production build had been made.
-  const useProdStaticServing = process.env.NODE_ENV === "production" || hasProdBuild;
+  // Only serve statically if dist/index.html actually exists on disk.
+  // Otherwise, fallback to Vite middleware mode so development server works even before `npm run build`.
+  const useProdStaticServing = hasProdBuild && process.env.NODE_ENV === "production";
 
   if (!useProdStaticServing) {
     const vite = await createViteServer({

@@ -30,6 +30,10 @@ export function useSimpleGrid({
   const [isDragging, setIsDragging] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [internalClipboard, setInternalClipboard] = useState<string[][] | null>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+
+  const clickStartRef = React.useRef<{ r: number; c: number; x: number; y: number; wasInside: boolean; isMoved: boolean } | null>(null);
 
   const minR = selection ? Math.min(selection.startR, selection.endR) : 0;
   const maxR = selection ? Math.max(selection.startR, selection.endR) : 0;
@@ -58,6 +62,7 @@ export function useSimpleGrid({
   }, []);
 
   const handleCopy = useCallback(() => {
+    setIsMenuOpen(false);
     if (!selection || !getCellValue) return;
     const rowsArr: string[][] = [];
     for (let r = minR; r <= maxR; r++) {
@@ -76,6 +81,7 @@ export function useSimpleGrid({
   }, [selection, minR, maxR, minC, maxC, getCellValue, showToast]);
 
   const handleClear = useCallback(() => {
+    setIsMenuOpen(false);
     if (!selection || (!setCellValue && !setBatchCellValues)) return;
     onRecordUndo?.();
 
@@ -106,6 +112,7 @@ export function useSimpleGrid({
 
   const handlePaste = useCallback(
     (pastedText?: any) => {
+      setIsMenuOpen(false);
       if (!selection || (!setCellValue && !setBatchCellValues)) return;
 
       const processPaste = (text: string) => {
@@ -338,6 +345,7 @@ export function useSimpleGrid({
 
       if (key === "escape") {
         e.preventDefault();
+        setIsMenuOpen(false);
         setSelection(null);
         return;
       }
@@ -374,6 +382,23 @@ export function useSimpleGrid({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selection, totalRows, totalCols, handleCopy, handleCut, handlePaste, handleClear, handleSelectAll]);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
+      if (target.closest("[data-grid-toolbar]") || target.closest("[data-r]")) {
+        return;
+      }
+      setIsMenuOpen(false);
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      window.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, []);
+
   const touchStartRef = React.useRef<{ x: number; y: number; r: number; c: number; isMoved: boolean; isInsideSelection: boolean } | null>(null);
 
   const getCellProps = useCallback(
@@ -387,20 +412,30 @@ export function useSimpleGrid({
         className: `relative transition-colors ${selected ? active ? "!bg-blue-300/90 ring-2 ring-blue-600 ring-inset z-20 shadow-sm" : "!bg-blue-200/70 ring-1 ring-blue-400 ring-inset z-10" : ""}`,
         onMouseDown: (e: React.MouseEvent) => {
           if (e.button !== 0) return;
+          const wasInside = isSelected(r, c);
+          clickStartRef.current = { r, c, x: e.clientX, y: e.clientY, wasInside, isMoved: false };
+
           isDraggingRef.current = true;
           setIsDragging(true);
+
           const isInput = (e.target as HTMLElement)?.tagName?.toLowerCase() === "input";
           if (!isInput) {
             e.preventDefault();
           }
-          if (e.shiftKey && selection) {
-            setSelection(prev => (prev ? { ...prev, endR: r, endC: c } : { startR: r, startC: c, endR: r, endC: c }));
-          } else {
-            setSelection({ startR: r, startC: c, endR: r, endC: c });
+
+          if (!wasInside) {
+            setIsMenuOpen(false);
+            if (e.shiftKey && selection) {
+              setSelection(prev => (prev ? { ...prev, endR: r, endC: c } : { startR: r, startC: c, endR: r, endC: c }));
+            } else {
+              setSelection({ startR: r, startC: c, endR: r, endC: c });
+            }
           }
         },
         onMouseEnter: (e: React.MouseEvent) => {
           if (isDraggingRef.current && (e.buttons === 1 || e.buttons === 3)) {
+            if (clickStartRef.current) clickStartRef.current.isMoved = true;
+            setIsMenuOpen(false);
             if (document.activeElement && (document.activeElement as HTMLElement).tagName?.toLowerCase() === "input") {
               (document.activeElement as HTMLElement).blur();
             }
@@ -410,28 +445,37 @@ export function useSimpleGrid({
             setSelection(prev => (prev ? { ...prev, endR: r, endC: c } : { startR: r, startC: c, endR: r, endC: c }));
           }
         },
+        onClick: (e: React.MouseEvent) => {
+          if (clickStartRef.current && clickStartRef.current.wasInside && !clickStartRef.current.isMoved) {
+            setIsMenuOpen(true);
+            setMenuPos({ x: e.clientX || clickStartRef.current.x, y: e.clientY || clickStartRef.current.y });
+          }
+          clickStartRef.current = null;
+        },
+        onContextMenu: (e: React.MouseEvent) => {
+          e.preventDefault();
+          const wasInside = isSelected(r, c);
+          if (!wasInside) {
+            setSelection({ startR: r, startC: c, endR: r, endC: c });
+          }
+          setIsMenuOpen(true);
+          setMenuPos({ x: e.clientX, y: e.clientY });
+        },
         onDragStart: (e: React.DragEvent) => {
           e.preventDefault();
         },
         onTouchStart: (e: React.TouchEvent) => {
           if (!e.touches || e.touches.length === 0) return;
           const touch = e.touches[0];
-          // Cek dulu apakah sel yang disentuh ini SUDAH bagian dari seleksi yang ada,
-          // SEBELUM seleksi ditimpa. Ini menentukan apakah sentuhan ini boleh dipakai
-          // untuk menggeser/memperluas blok (persis seperti grid Breakdown Manager).
           const wasInsideSelection = isSelected(r, c);
           touchStartRef.current = { x: touch.clientX, y: touch.clientY, r, c, isMoved: false, isInsideSelection: wasInsideSelection };
 
           if (e.shiftKey && selection) {
             setSelection(prev => (prev ? { ...prev, endR: r, endC: c } : { startR: r, startC: c, endR: r, endC: c }));
           } else if (!wasInsideSelection) {
-            // Sentuhan baru di luar seleksi lama: cuma pilih 1 sel ini (tap biasa).
-            // Blok tidak langsung meluas dari sentuhan pertama ini.
+            setIsMenuOpen(false);
             setSelection({ startR: r, startC: c, endR: r, endC: c });
           }
-          // Kalau sentuhan dimulai DI DALAM seleksi yang sudah ada, seleksi lama
-          // dibiarkan apa adanya supaya geseran berikutnya (onTouchMove) memperluas
-          // blok dari titik jangkarnya (startR/startC), bukan mereset ke sel ini.
         },
         onTouchMove: (e: React.TouchEvent) => {
           if (!touchStartRef.current || !e.touches || e.touches.length === 0) return;
@@ -439,22 +483,19 @@ export function useSimpleGrid({
           const dx = Math.abs(touch.clientX - touchStartRef.current.x);
           const dy = Math.abs(touch.clientY - touchStartRef.current.y);
 
-          // Threshold check to distinguish scroll gesture vs block drag
           if (!touchStartRef.current.isMoved) {
             if (dx > 12 || dy > 12) {
               touchStartRef.current.isMoved = true;
+              setIsMenuOpen(false);
             } else {
               return;
             }
           }
 
-          // Blok hanya boleh meluas kalau sentuhan ini DIMULAI di sel yang sudah
-          // terpilih sebelumnya (tap pertama). Kalau ini tap pertama di sel baru,
-          // geseran dibiarkan jadi scroll biasa, tidak langsung ngeblok.
           if (!touchStartRef.current.isInsideSelection) return;
 
           if (e.cancelable && dx > dy * 0.8) {
-            e.preventDefault(); // keep screen stationary if dragging block horizontally
+            e.preventDefault();
           }
           const elem = document.elementFromPoint(touch.clientX, touch.clientY);
           if (elem) {
@@ -469,7 +510,13 @@ export function useSimpleGrid({
           }
         },
         onTouchEnd: () => {
-          touchStartRef.current = null;
+          if (touchStartRef.current) {
+            if (!touchStartRef.current.isMoved && touchStartRef.current.isInsideSelection) {
+              setIsMenuOpen(true);
+              setMenuPos({ x: touchStartRef.current.x, y: touchStartRef.current.y });
+            }
+            touchStartRef.current = null;
+          }
           isDraggingRef.current = false;
           setIsDragging(false);
         }
@@ -481,6 +528,10 @@ export function useSimpleGrid({
   return {
     selection,
     setSelection,
+    isMenuOpen,
+    setIsMenuOpen,
+    menuPos,
+    setMenuPos,
     minR,
     maxR,
     minC,
@@ -497,8 +548,6 @@ export function useSimpleGrid({
     handlePaste,
     handleClear,
     handleSelectAll,
-    // Dummy for backward compatibility with older components expecting toolbarPos
-    toolbarPos: null 
+    toolbarPos: menuPos 
   };
-
 }

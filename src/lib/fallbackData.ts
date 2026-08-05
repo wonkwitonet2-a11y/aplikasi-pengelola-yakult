@@ -204,55 +204,38 @@ export const INITIAL_BREAKDOWN_REALISASI: Record<string, { pembagiTanggal: numbe
   }
 };
 
-export function getStoredBreakdownRealisasi(month: string = "2026-07") {
+export function getStoredBreakdownRealisasi(month?: string) {
+  const currentM = month || new Date().toISOString().substring(0, 7);
   try {
-    const raw = localStorage.getItem(`bd_realisasi_${month}`);
+    const raw = localStorage.getItem(`bd_realisasi_${currentM}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
-    }
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith("bd_realisasi_")) {
-        const item = localStorage.getItem(key);
-        if (item) {
-          const parsed = JSON.parse(item);
-          if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
-        }
-      }
+      if (parsed && typeof parsed === "object") return parsed;
     }
   } catch (e) {
     console.warn("Failed to read local bd_realisasi:", e);
   }
-  return INITIAL_BREAKDOWN_REALISASI;
+  return {};
 }
 
-export function getStoredBreakdownPlan(month: string = "2026-07") {
+export function getStoredBreakdownPlan(month?: string) {
+  const currentM = month || new Date().toISOString().substring(0, 7);
   try {
-    const raw = localStorage.getItem(`bd_plan_${month}`);
+    const raw = localStorage.getItem(`bd_plan_${currentM}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
-    }
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith("bd_plan_")) {
-        const item = localStorage.getItem(key);
-        if (item) {
-          const parsed = JSON.parse(item);
-          if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
-        }
-      }
+      if (parsed && typeof parsed === "object") return parsed;
     }
   } catch (e) {
     console.warn("Failed to read local bd_plan:", e);
   }
-  return INITIAL_BREAKDOWN_REALISASI;
+  return {};
 }
 
-export function getFallbackDashboardData(month: string = "2026-07"): DashboardData {
+export function getFallbackDashboardData(month?: string): DashboardData {
+  const currentM = month || new Date().toISOString().substring(0, 7);
   const ylList = getStoredYlList() || INITIAL_YL_LIST;
-  const realMap = getStoredBreakdownRealisasi(month);
+  const realMap = getStoredBreakdownRealisasi(currentM);
 
   const perYL: Record<string, any> = {};
   let grandTotal = 0;
@@ -329,6 +312,24 @@ export function getFallbackDashboardData(month: string = "2026-07"): DashboardDa
   const datesList = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
   const salesList = datesList.map((_, i) => dailySalesMap[i + 1] || 0);
 
+  let fbRmh = 0, fbPsr = 0, fbSkh = 0, fbKtr = 0, fbTk = 0, fbIb = 0;
+  try {
+    const rawTxs = localStorage.getItem("plg_pjl_transactions") || localStorage.getItem("transactions");
+    if (rawTxs) {
+      const txs = JSON.parse(rawTxs);
+      if (Array.isArray(txs)) {
+        txs.forEach((t: any) => {
+          fbRmh += (Number(t.rmh_yo)||0) + (Number(t.rmh_om)||0) + (Number(t.rmh_os)||0) + (Number(t.rmh_yt)||0);
+          fbPsr += (Number(t.psr_yo)||0) + (Number(t.psr_om)||0) + (Number(t.psr_os)||0) + (Number(t.psr_yt)||0);
+          fbSkh += (Number(t.skh_yo)||0) + (Number(t.skh_om)||0) + (Number(t.skh_os)||0) + (Number(t.skh_yt)||0);
+          fbKtr += (Number(t.ktr_yo)||0) + (Number(t.ktr_om)||0) + (Number(t.ktr_os)||0) + (Number(t.ktr_yt)||0);
+          fbTk  += (Number(t.tk_yo)||0)  + (Number(t.tk_om)||0)  + (Number(t.tk_os)||0)  + (Number(t.tk_yt)||0);
+          fbIb  += (Number(t.ib_yo)||0)  + (Number(t.ib_om)||0)  + (Number(t.ib_os)||0)  + (Number(t.ib_yt)||0);
+        });
+      }
+    }
+  } catch (e) {}
+
   return {
     totalPenjualan: grandTotal,
     rataHarian: Math.round(teamTotalRata2),
@@ -353,19 +354,20 @@ export function getFallbackDashboardData(month: string = "2026-07"): DashboardDa
       balikBotol: Array(31).fill(0)
     },
     sektorTim: {
-      rumah: 0,
-      pasar: 0,
-      sekolah: 0,
-      kantor: 0,
-      toko: 0,
-      ib: 0
+      rumah: fbRmh,
+      pasar: fbPsr,
+      sekolah: fbSkh,
+      kantor: fbKtr,
+      toko: fbTk,
+      ib: fbIb
     }
   };
 }
 
-export function getFallbackEvaluasiData(month: string = "2026-07"): EvaluasiData {
+export function getFallbackEvaluasiData(month?: string): EvaluasiData {
+  const currentM = month || new Date().toISOString().substring(0, 7);
   const ylList = getStoredYlList() || INITIAL_YL_LIST;
-  const realMap = getStoredBreakdownRealisasi(month);
+  const realMap = getStoredBreakdownRealisasi(currentM);
 
   const dataRows = ylList.map(y => {
     const area = y.area;
