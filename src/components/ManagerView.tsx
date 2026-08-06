@@ -27,7 +27,8 @@ import {
   Menu,
   X,
   Layers,
-  Calendar
+  Calendar,
+  RefreshCw
 } from "lucide-react";
 import { Rata2BulananTab } from "./Rata2BulananTab";
 import { PlgPjlView } from "./PlgPjlView";
@@ -69,6 +70,7 @@ interface ManagerViewProps {
   dashboardData: DashboardData | null;
   evaluasiData: EvaluasiData | null;
   onRefresh: () => Promise<void>;
+  isRefreshing?: boolean;
   motivasiConfig: MotivasiConfig;
   onUpdateMotivasi: (config: MotivasiConfig) => void;
   kontesConfig: { enabled: boolean; rows: KontesRow[] };
@@ -87,6 +89,7 @@ export function ManagerView({
   dashboardData,
   evaluasiData,
   onRefresh,
+  isRefreshing,
   motivasiConfig,
   onUpdateMotivasi,
   kontesConfig,
@@ -103,6 +106,15 @@ export function ManagerView({
   const [breakdownRealisasiMap, setBreakdownRealisasiMap] = useState<BreakdownGridMap>({});
   const [gridSubMode, setGridSubMode] = useState<"BD" | "Realisasi">("BD");
   const [localEval, setLocalEval] = useState<EvaluasiData | null>(evaluasiData);
+
+  // Supabase Monthly Archive & Retrieval State
+  const [selectedMonthlyArchive, setSelectedMonthlyArchive] = useState<string>(() => new Date().toISOString().substring(0, 7));
+  const [isViewingHistoricalMonth, setIsViewingHistoricalMonth] = useState<boolean>(false);
+  const [historicalDataSnapshot, setHistoricalDataSnapshot] = useState<any | null>(null);
+  const [historicalDataNotFound, setHistoricalDataNotFound] = useState<boolean>(false);
+  const [historicalMonthLabel, setHistoricalMonthLabel] = useState<string>("");
+  const [archivedMonthsList, setArchivedMonthsList] = useState<string[]>([]);
+  const [archiveStatusMsg, setArchiveStatusMsg] = useState<string>("");
 
   useEffect(() => {
     if (evaluasiData) setLocalEval(evaluasiData);
@@ -121,6 +133,12 @@ export function ManagerView({
   }, [activeTab]);
 
   const activeEval = localEval || evaluasiData;
+
+  const activeEvaluasiData = (isViewingHistoricalMonth && historicalDataSnapshot?.evaluasiData)
+    ? historicalDataSnapshot.evaluasiData
+    : (isViewingHistoricalMonth && historicalDataNotFound)
+      ? null
+      : activeEval;
 
   const [undoStack, setUndoStack] = useState<BreakdownGridMap[]>([]);
   const [redoStack, setRedoStack] = useState<BreakdownGridMap[]>([]);
@@ -241,14 +259,7 @@ export function ManagerView({
     }).catch(() => {});
   }, []);
 
-  // Supabase Monthly Archive & Retrieval State
-  const [selectedMonthlyArchive, setSelectedMonthlyArchive] = useState<string>(() => new Date().toISOString().substring(0, 7));
-  const [isViewingHistoricalMonth, setIsViewingHistoricalMonth] = useState<boolean>(false);
-  const [historicalDataSnapshot, setHistoricalDataSnapshot] = useState<any | null>(null);
-  const [historicalDataNotFound, setHistoricalDataNotFound] = useState<boolean>(false);
-  const [historicalMonthLabel, setHistoricalMonthLabel] = useState<string>("");
-  const [archivedMonthsList, setArchivedMonthsList] = useState<string[]>([]);
-  const [archiveStatusMsg, setArchiveStatusMsg] = useState<string>("");
+
 
   // Helper to convert YYYY-MM to Indonesian Month Label (e.g. "2026-06" -> "Juni 2026")
   const getIndonesianMonthLabel = useCallback((yearMonthStr: string): string => {
@@ -639,28 +650,51 @@ export function ManagerView({
   }, [isGridFullScreen]);
 
   // Get active grid map depending on mode (BD or Realisasi)
-  const activeGridMap = gridSubMode === "BD" ? breakdownPlanMap : breakdownRealisasiMap;
+  const activeBreakdownPlanMap = (isViewingHistoricalMonth && historicalDataSnapshot?.breakdownPlanMap)
+    ? historicalDataSnapshot.breakdownPlanMap
+    : breakdownPlanMap;
+  const activeBreakdownRealisasiMap = (isViewingHistoricalMonth && historicalDataSnapshot?.breakdownRealisasiMap)
+    ? historicalDataSnapshot.breakdownRealisasiMap
+    : breakdownRealisasiMap;
+  const activeGridMap = gridSubMode === "BD" ? activeBreakdownPlanMap : activeBreakdownRealisasiMap;
   const [isBreakdownLoading, setIsBreakdownLoading] = useState(false);
 
   // Helper to update grid state and record undo history
   const updateActiveGridMap = (updater: (prev: typeof breakdownPlanMap) => typeof breakdownPlanMap) => {
-    if (gridSubMode === "BD") {
-      setBreakdownPlanMap(prev => {
-        setUndoStack(u => [...u.slice(-19), JSON.parse(JSON.stringify(prev))]);
-        setRedoStack([]);
-        return updater(prev);
+    if (isViewingHistoricalMonth) {
+      setHistoricalDataSnapshot((prevSnap: any) => {
+        if (!prevSnap) return prevSnap;
+        const currentMap = gridSubMode === "BD" ? (prevSnap.breakdownPlanMap || {}) : (prevSnap.breakdownRealisasiMap || {});
+        const updatedMap = typeof updater === "function" ? updater(currentMap) : updater;
+        return {
+          ...prevSnap,
+          [gridSubMode === "BD" ? "breakdownPlanMap" : "breakdownRealisasiMap"]: updatedMap
+        };
       });
     } else {
-      setBreakdownRealisasiMap(prev => {
-        setUndoStack(u => [...u.slice(-19), JSON.parse(JSON.stringify(prev))]);
-        setRedoStack([]);
-        return updater(prev);
-      });
+      if (gridSubMode === "BD") {
+        setBreakdownPlanMap(prev => {
+          setUndoStack(u => [...u.slice(-19), JSON.parse(JSON.stringify(prev))]);
+          setRedoStack([]);
+          return updater(prev);
+        });
+      } else {
+        setBreakdownRealisasiMap(prev => {
+          setUndoStack(u => [...u.slice(-19), JSON.parse(JSON.stringify(prev))]);
+          setRedoStack([]);
+          return updater(prev);
+        });
+      }
     }
   };
 
   // Handler: Undo last grid edit
   const handleUndo = () => {
+    if (isViewingHistoricalMonth) {
+      setBreakdownMsg("⚠️ Fitur Undo dinonaktifkan di mode Arsip.");
+      setTimeout(() => setBreakdownMsg(""), 2500);
+      return;
+    }
     if (undoStack.length === 0) {
       setBreakdownMsg("⚠️ Tidak ada histori perubahan yang dapat di-undo.");
       setTimeout(() => setBreakdownMsg(""), 2500);
@@ -681,6 +715,11 @@ export function ManagerView({
 
   // Handler: Redo last undone edit
   const handleRedo = () => {
+    if (isViewingHistoricalMonth) {
+      setBreakdownMsg("⚠️ Fitur Redo dinonaktifkan di mode Arsip.");
+      setTimeout(() => setBreakdownMsg(""), 2500);
+      return;
+    }
     if (redoStack.length === 0) {
       setBreakdownMsg("⚠️ Tidak ada histori perubahan yang dapat di-redo.");
       setTimeout(() => setBreakdownMsg(""), 2500);
@@ -2163,14 +2202,14 @@ export function ManagerView({
 
   // Run AI Insight Generator
   const runAiInsight = async () => {
-    if (!activeEval) return;
+    if (!activeEvaluasiData) return;
     setIsAiLoading(true);
     setAiInsight("");
     try {
       const response = await fetch("/api/gemini/evaluate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: activeEval })
+        body: JSON.stringify({ data: activeEvaluasiData })
       });
       const d = await parseJsonResponse(response);
       setAiInsight(d?.insight || "Tidak ada hasil analisis.");
@@ -2187,11 +2226,11 @@ export function ManagerView({
   };
 
 
-  // Normalize analysis data list from activeEval
+  // Normalize analysis data list from activeEvaluasiData
   const normalizedAnalisis = useMemo(() => {
-    if (!activeEval) return [];
-    if (activeEval.dataRows && activeEval.dataRows.length > 0) {
-      return activeEval.dataRows.map(row => {
+    if (!activeEvaluasiData) return [];
+    if (activeEvaluasiData.dataRows && activeEvaluasiData.dataRows.length > 0) {
+      return activeEvaluasiData.dataRows.map(row => {
         const area = String(row[0] || "");
         const nama = String(row[1] || "");
         const jualHariIni = typeof row[7] === "number" ? row[7] : parseFloat(row[7]) || 0;
@@ -2221,8 +2260,8 @@ export function ManagerView({
         };
       });
     }
-    return (activeEval.analisis || []).map(a => ({ ...a, akmBb: a.akmBb ?? a.bb ?? 0 }));
-  }, [activeEval]);
+    return (activeEvaluasiData.analisis || []).map(a => ({ ...a, akmBb: a.akmBb ?? a.bb ?? 0 }));
+  }, [activeEvaluasiData]);
 
   // Find overall highest performing and needy YL
   const evaluasiHighlights = useMemo(() => {
@@ -2493,11 +2532,7 @@ export function ManagerView({
       ? null
       : dashboardData;
 
-  const activeEvaluasiData = (isViewingHistoricalMonth && historicalDataSnapshot?.evaluasiData)
-    ? historicalDataSnapshot.evaluasiData
-    : (isViewingHistoricalMonth && historicalDataNotFound)
-      ? null
-      : activeEval;
+
 
   const activeTargetTKU = (isViewingHistoricalMonth && historicalDataSnapshot?.targetTKU)
     ? historicalDataSnapshot.targetTKU
@@ -2542,6 +2577,13 @@ export function ManagerView({
             )}
 
             {/* Tombol Garis Tiga (Hamburger Menu) di Pojok Kanan Atas */}
+            <button
+              onClick={() => onRefresh && onRefresh()}
+              className="bg-black/20 hover:bg-black/40 text-white font-extrabold text-xs px-3 py-2 rounded-xl border border-white/20 shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 backdrop-blur-sm"
+              title="Refresh Data"
+            >
+              <RefreshCw className={`w-5 h-5 text-white ${isRefreshing ? "animate-spin" : ""}`} />
+            </button>
             <button
               onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
               className="bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer flex items-center gap-1.5"
@@ -2750,7 +2792,7 @@ export function ManagerView({
 
         {/* Tab Evaluasi */}
         {activeTab === "evaluasi" && (
-          !activeEval ? (
+          !activeEvaluasiData ? (
             <div className="p-12 text-center text-slate-500 dark:text-slate-400 font-bold bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center gap-3">
               <div className="w-8 h-8 border-3 border-red-600 border-t-transparent rounded-full animate-spin" />
               <span>Memuat Data Evaluasi Harian...</span>
@@ -2922,8 +2964,8 @@ export function ManagerView({
                       <tbody className="divide-y divide-slate-200 bg-white text-slate-800">
                         {(() => {
                           let maxCols = { c7: -1, c13: -1, c15: -Infinity, c18: -1, c21: -1, pb: -1, c26: -1, c28: Infinity };
-                          if (activeEval?.dataRows) {
-                            activeEval.dataRows.forEach(row => {
+                          if (activeEvaluasiData?.dataRows) {
+                            activeEvaluasiData.dataRows.forEach(row => {
                               if ((row[7] || 0) > maxCols.c7) maxCols.c7 = row[7] || 0;
                               if ((row[13] || 0) > maxCols.c13) maxCols.c13 = row[13] || 0;
                               if ((row[15] || 0) > maxCols.c15) maxCols.c15 = row[15] || 0;
@@ -2940,7 +2982,7 @@ export function ManagerView({
 
                           const visibleCols = [0, 1, 3, 4, 5, 6, 7, 13, 15, 18, 21, 22, 23, 26, 30];
 
-                          return (activeEval?.dataRows || []).map((row, rIdx) => (
+                          return (activeEvaluasiData?.dataRows || []).map((row, rIdx) => (
                             <tr key={rIdx} className="hover:bg-red-50/80 border-b border-slate-200 transition-colors">
                               {(row || []).map((val, cIdx) => {
                                 if (!showFullEvalTable && !visibleCols.includes(cIdx)) return null;
@@ -2975,9 +3017,9 @@ export function ManagerView({
                             </tr>
                           ));
                         })()}
-                        {activeEval?.totalRow && (
+                        {activeEvaluasiData?.totalRow && (
                           <tr className="bg-amber-100 font-extrabold border-t-2 border-amber-300 text-amber-900">
-                            {(activeEval.totalRow || []).map((val, cIdx) => {
+                            {(activeEvaluasiData.totalRow || []).map((val, cIdx) => {
                               const visibleCols = [0, 1, 3, 4, 5, 6, 7, 13, 15, 18, 21, 22, 23, 26, 30];
                               if (!showFullEvalTable && !visibleCols.includes(cIdx)) return null;
                               const displayVal = (cIdx === 1 && typeof val === "string") ? cleanYlName(val) : val;

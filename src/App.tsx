@@ -350,8 +350,9 @@ export default function App() {
     localStorage.removeItem("yakult_session");
     setTransactions([]);
     setTargetYL([]);
-    setDashboardData(null);
-    setEvaluasiData(null);
+    setDashboardData(getFallbackDashboardData());
+    setEvaluasiData(getFallbackEvaluasiData());
+    lastPayloadRef.current = {};
   };
 
   // 5. Save Report Transaction (YL view)
@@ -517,6 +518,7 @@ export default function App() {
           dashboardData={dashboardData}
           evaluasiData={evaluasiData}
           onRefresh={refreshAllData}
+        isRefreshing={loading}
           motivasiConfig={motivasiConfig}
           onUpdateMotivasi={handleSaveMotivasiConfig}
           kontesConfig={kontesConfig}
@@ -537,6 +539,7 @@ export default function App() {
         ylName={session.name}
         onLogout={handleLogout}
         onRefresh={refreshAllData}
+        isRefreshing={loading}
         transactions={transactions}
         targetYL={targetYL}
         breakdownRealisasi={breakdownRealisasi}

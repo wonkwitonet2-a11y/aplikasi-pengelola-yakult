@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import {
   PieChart as Sparkles,
   AlertCircle,
-  Camera
+  Camera,
+  RefreshCw
 } from "lucide-react";
 import { Transaction, MotivasiConfig, cleanYlName } from "../types";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
@@ -21,6 +22,7 @@ interface YLViewProps {
   ylName: string;
   onLogout: () => void;
   onRefresh?: () => Promise<void>;
+  isRefreshing?: boolean;
   transactions: Transaction[];
   targetYL: any[];
   breakdownRealisasi?: any[];
@@ -36,6 +38,7 @@ export function YLView({
   ylName,
   onLogout,
   onRefresh,
+  isRefreshing,
   transactions,
   targetYL,
   breakdownRealisasi = [],
@@ -856,6 +859,13 @@ export function YLView({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => onRefresh && onRefresh()}
+              className="flex items-center justify-center p-2 bg-black/20 hover:bg-black/40 text-white rounded-xl border border-red-500/40 transition-all cursor-pointer shadow-sm active:scale-95"
+              title="Refresh Data"
+            >
+              <RefreshCw className={`w-5 h-5 sm:w-6 sm:h-6 text-white ${isRefreshing ? "animate-spin" : ""}`} />
+            </button>
             <button
               onClick={onLogout}
               className="bg-slate-900/80 hover:bg-slate-950 text-white text-xs sm:text-sm font-black px-4 py-2 rounded-xl border border-red-500/40 shadow-sm transition-all active:scale-95"
