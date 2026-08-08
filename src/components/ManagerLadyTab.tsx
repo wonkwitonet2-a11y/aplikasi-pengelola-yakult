@@ -17,6 +17,10 @@ interface ManagerLadyTabProps {
   setNewYlTanggalMasuk: (val: string) => void;
   newYlPin: string;
   setNewYlPin: (val: string) => void;
+  newYlNik: string;
+  setNewYlNik: (val: string) => void;
+  newYlTglLahir: string;
+  setNewYlTglLahir: (val: string) => void;
   ylSavedMsg: string | null;
 }
 
@@ -36,6 +40,10 @@ function ManagerLadyTabInner({
   setNewYlTanggalMasuk,
   newYlPin,
   setNewYlPin,
+  newYlNik,
+  setNewYlNik,
+  newYlTglLahir,
+  setNewYlTglLahir,
   ylSavedMsg,
 }: ManagerLadyTabProps) {
   return (
@@ -66,6 +74,8 @@ function ManagerLadyTabInner({
                 <th className="p-3 min-w-[240px] w-72">Nama Lengkap YL</th>
                 <th className="p-3 text-center min-w-[140px]">Tanggal Masuk</th>
                 <th className="p-3 text-center min-w-[100px]">PIN Login</th>
+                <th className="p-3 text-center min-w-[100px]">NIK</th>
+                <th className="p-3 text-center min-w-[100px]">Tgl Lahir</th>
                 <th className="p-3 text-center min-w-[100px]">Status</th>
                 <th className="p-3 text-right min-w-[160px]">Aksi</th>
               </tr>
@@ -125,6 +135,20 @@ function ManagerLadyTabInner({
               value={newYlPin}
               onChange={(e) => setNewYlPin(e.target.value)}
               className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 font-mono"
+            />
+            <input
+              type="text"
+              placeholder="NIK (opsional)"
+              value={newYlNik}
+              onChange={(e) => setNewYlNik(e.target.value)}
+              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
+            />
+            <input
+              type="date"
+              placeholder="Tgl Lahir"
+              value={newYlTglLahir}
+              onChange={(e) => setNewYlTglLahir(e.target.value)}
+              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
             />
           </div>
           <button

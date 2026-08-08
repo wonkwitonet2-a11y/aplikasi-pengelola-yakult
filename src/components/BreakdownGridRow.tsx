@@ -226,18 +226,21 @@ function BreakdownGridRowInner({
                 min={0}
                 value={dData[item] || 0}
                 onChange={(val) => handleBreakdownCellChange(area, day, item, Math.max(0, val))}
+                onPaste={(e) => {
+                  const text = e.clipboardData.getData("text/plain");
+                  if (!text) return;
+                  const clean = text.trim();
+                  if (/[\t\n\r,;/|\s]/.test(clean) || clean.length > 0) {
+                    e.preventDefault();
+                    setGridSelection({ startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx });
+                    setTimeout(() => {
+                      handlePasteIntoGrid(text, { r: rIdx, c: cIdx });
+                    }, 0);
+                  }
+                }}
                 onFocus={() => {
                   if (!gridSelection) {
                     setGridSelection({ startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx });
-                  }
-                }}
-                onPaste={(e: React.ClipboardEvent<HTMLInputElement>) => {
-                  const text = e.clipboardData?.getData("text/plain");
-                  if (text) {
-                    if (text.includes("\t") || text.includes("\n") || text.includes("\r") || text.includes(",") || text.includes(";")) {
-                      e.preventDefault();
-                      handlePasteIntoGrid(text, { r: rIdx, c: cIdx });
-                    }
                   }
                 }}
                 className={`w-10 text-center text-[11px] font-bold py-1 border rounded outline-none ${

@@ -27,6 +27,7 @@ export async function safeFetchJson<T = any>(url: string, options?: RequestInit)
 
 export async function parseJsonResponse<T = any>(res: Response): Promise<T | null> {
   try {
+    if (!res) return null;
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("application/json")) {
       const text = await res.text();

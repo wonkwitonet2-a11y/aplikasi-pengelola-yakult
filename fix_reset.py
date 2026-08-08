@@ -1,0 +1,80 @@
+with open("src/components/YLView.tsx", "r") as f:
+  code = f.read()
+
+bad_block = """              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  onClick={async () => {
+                    const savedSbUrl = localStorage.getItem("supabase_url") || "";
+                    const savedSbKey = localStorage.getItem("supabase_key") || "";
+                    const savedSession = localStorage.getItem("yakult_session") || "";
+
+                    localStorage.clear();
+
+                    if (savedSbUrl) localStorage.setItem("supabase_url", savedSbUrl);
+                    if (savedSbKey) localStorage.setItem("supabase_key", savedSbKey);
+                    if (savedSession) localStorage.setItem("yakult_session", savedSession);
+
+                    if (onRefresh) {
+                      await onRefresh();
+                    }
+                    alert("Cache browser berhasil dibersihkan dan data dimuat ulang!");
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-xs sm:text-sm py-3 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  🧹 Bersihkan Cache
+                </button>
+                <button
+                  onClick={async () => {
+                    if (confirm("Apakah Anda yakin ingin mengembalikan seluruh data ke semula? Semua input laporan baru akan dihapus.")) {
+                      try {
+                        const res = await fetch("/api/resetData", { method: "POST" });
+                        const resData = await parseJsonResponse(res);
+                        if (resData && resData.ok) {
+                          if (onRefresh) {
+                            await onRefresh();
+                          }
+                          alert("Data berhasil dikembalikan ke semula!");
+                        } else {
+                          alert("Gagal mengembalikan data.");
+                        }
+                      } catch (e) {
+                        console.error(e);
+                        alert("Terjadi kesalahan saat mereset data.");
+                      }
+                    }
+                  }}
+                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-black text-xs sm:text-sm py-3 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 border border-rose-200"
+                >
+                  ↩️ Kembali ke Semula
+                </button>
+              </div>"""
+
+good_block = """              <div className="pt-1">
+                <button
+                  onClick={async () => {
+                    const savedSbUrl = localStorage.getItem("supabase_url") || "";
+                    const savedSbKey = localStorage.getItem("supabase_key") || "";
+                    const savedSession = localStorage.getItem("yakult_session") || "";
+
+                    localStorage.clear();
+
+                    if (savedSbUrl) localStorage.setItem("supabase_url", savedSbUrl);
+                    if (savedSbKey) localStorage.setItem("supabase_key", savedSbKey);
+                    if (savedSession) localStorage.setItem("yakult_session", savedSession);
+
+                    if (onRefresh) {
+                      await onRefresh();
+                    }
+                    alert("Cache browser berhasil dibersihkan dan data dimuat ulang!");
+                  }}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-xs sm:text-sm py-3 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+                >
+                  🧹 Bersihkan Cache
+                </button>
+              </div>"""
+
+import re
+code = re.sub(r'<div className="grid grid-cols-2 gap-3 pt-1">.*?</button>\n\s*</div>', good_block, code, flags=re.DOTALL)
+
+with open("src/components/YLView.tsx", "w") as f:
+  f.write(code)

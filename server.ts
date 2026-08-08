@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+const PORT = 3000;
 const DATA_FILE = path.join(process.cwd(), "data.json");
 
 app.use(express.json({ limit: "50mb" }));
@@ -64,15 +64,24 @@ if (!supabase) {
   );
 }
 
-// Initialize Gemini
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "",
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
-});
+// Initialize Gemini lazily
+let _ai: GoogleGenAI | null = null;
+function getAI(): GoogleGenAI {
+  if (!_ai) {
+    if (!process.env.GEMINI_API_KEY) {
+      console.warn("GEMINI_API_KEY is not set.");
+    }
+    _ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY || "dummy",
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  }
+  return _ai;
+}
 
 // DEFAULT KALIMAT MOTIVASI
 const DEFAULT_MOTIVASI = [
@@ -144,7 +153,7 @@ const INITIAL_DATA = {
     chatbotName: "AI Jember 1 Pro",
     tkuName: "DP Jember 1"
   },
-  kontes: {
+  seragam: { images: {}, schedules: {} }, kontes: {
     enabled: false,
     rows: []
   },
@@ -206,7 +215,11 @@ function deduplicateTransactions(txList: any[]) {
 
   txList.forEach(t => {
     if (!t || !t.tanggal) return;
-    const area = t.area || (t.nama ? String(t.nama).substring(0, 3) : "");
+    let area = t.area || "";
+    if (!area && t.nama) {
+      const am = String(t.nama).match(/^(\d{3})/);
+      area = am ? am[1] : "";
+    }
     const cleanName = cleanYlName(t.nama || "");
     const key = `${t.tanggal}_${area || cleanName || t.nama}`;
     
@@ -333,40 +346,111 @@ function buildDbFromLocal() {
 // Baca data dari Supabase (tabel app_store, satu baris JSON di bawah key
 // SUPABASE_DB_KEY — tabel yang sama dipakai panel "Test Koneksi" di Setting
 // Admin). Return null kalau Supabase belum dikonfigurasi, tabelnya kosong,
+let lastSavedDb: any = {};
+let isPersisting = false;
+let pendingDbSnapshot: any = null;
+
 // atau terjadi error (supaya bisa fallback ke data lokal).
 async function loadDataFromSupabase(): Promise<any | null> {
   if (!supabase) return null;
   try {
-    const { data, error } = await (supabase.from("app_store") as any)
+    // 1. Cek apakah sudah ada data pecahan
+    const { data: splitData, error: splitError } = await (supabase.from("app_store") as any)
+      .select("key, data")
+      .like("key", "main_db_%");
+
+    if (splitError) {
+      console.error("[Supabase] Gagal membaca data pecahan:", splitError.message);
+    }
+
+    if (splitData && splitData.length > 0) {
+      const db: any = {};
+      for (const row of splitData) {
+        const prop = row.key.replace("main_db_", "");
+        db[prop] = row.data;
+      }
+      lastSavedDb = JSON.parse(JSON.stringify(db)); // Simpan baseline untuk perbandingan
+      return db;
+    }
+
+    // 2. Fallback: ambil data utuh lama jika belum dipecah
+    const { data: legacyData, error: legacyError } = await (supabase.from("app_store") as any)
       .select("data")
       .eq("key", SUPABASE_DB_KEY)
       .maybeSingle();
-    if (error) {
-      console.error("[Supabase] Gagal membaca data awal, fallback ke data.json lokal:", error.message);
+
+    if (legacyError) {
+      console.error("[Supabase] Gagal membaca data awal, fallback ke data.json lokal:", legacyError.message);
       return null;
     }
-    if (!data || !data.data) return null; // belum pernah ada data tersimpan di Supabase
-    return data.data;
+    if (!legacyData || !legacyData.data) return null; // belum pernah ada data tersimpan di Supabase
+    
+    // Kosongkan baseline agar penyimpanan pertama berikutnya akan meng-upsert semua key sebagai pecahan
+    lastSavedDb = {}; 
+    return legacyData.data;
   } catch (e: any) {
     console.error("[Supabase] Exception membaca data awal, fallback ke data.json lokal:", e?.message || e);
     return null;
   }
 }
 
-// Simpan seluruh db sebagai satu baris JSON ke Supabase. Dipanggil dan
-// DITUNGGU (awaited) oleh saveData() SEBELUM endpoint membalas response —
-// ini penting di Netlify Functions, karena proses bisa "dibekukan" tepat
-// setelah response terkirim, sehingga penulisan yang tidak ditunggu
-// (mis. lewat setTimeout) berisiko tidak sempat selesai / datanya hilang.
+// Menyimpan hanya sebagian (partial) objek db yang berubah ke Supabase
+// dengan memecah property root (seperti db.transactions) ke row yang berbeda.
 async function persistToSupabase(db: any) {
   if (!supabase) return;
-  try {
-    const { error } = await (supabase.from("app_store") as any)
-      .upsert({ key: SUPABASE_DB_KEY, data: db, updated_at: new Date().toISOString() }, { onConflict: "key" });
-    if (error) console.error("[Supabase] Gagal menyimpan data:", error.message);
-  } catch (e: any) {
-    console.error("[Supabase] Exception menyimpan data:", e?.message || e);
+  
+  // Jika sedang menyimpan, antrekan snapshot terbaru agar diproses setelah ini selesai
+  if (isPersisting) {
+    pendingDbSnapshot = JSON.parse(JSON.stringify(db));
+    return;
   }
+  
+  isPersisting = true;
+  let currentDb = db;
+
+  while (currentDb) {
+    try {
+      const updates: any[] = [];
+      
+      for (const key of Object.keys(currentDb)) {
+        // Bandingkan secara deep untuk melihat apakah ada perubahan
+        if (JSON.stringify(currentDb[key]) !== JSON.stringify(lastSavedDb[key])) {
+          updates.push({ 
+            key: `main_db_${key}`, 
+            data: currentDb[key], 
+            updated_at: new Date().toISOString() 
+          });
+        }
+      }
+      
+      if (updates.length > 0) {
+        const { error } = await (supabase.from("app_store") as any)
+          .upsert(updates, { onConflict: "key" });
+          
+        if (error) {
+          console.error("[Supabase] Gagal menyimpan data (partial):", error.message);
+        } else {
+          // Perbarui baseline in-memory agar tau bahwa data ini sudah tersimpan
+          for (const u of updates) {
+            const prop = u.key.replace("main_db_", "");
+            lastSavedDb[prop] = JSON.parse(JSON.stringify(u.data));
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error("[Supabase] Exception menyimpan data (partial):", e?.message || e);
+    }
+    
+    // Cek apakah ada antrean data baru yang masuk saat kita sedang proses simpan
+    if (pendingDbSnapshot) {
+      currentDb = pendingDbSnapshot;
+      pendingDbSnapshot = null;
+    } else {
+      currentDb = null;
+    }
+  }
+  
+  isPersisting = false;
 }
 
 let dbReadyPromise: Promise<void> | null = null;
@@ -404,18 +488,25 @@ function loadData() {
   return cachedDb;
 }
 
+let supabaseWriteTimeout: ReturnType<typeof setTimeout> | null = null;
+
 async function saveData(data: any) {
   // Update salinan in-memory dulu supaya request berikutnya (bahkan di tick
   // yang sama) langsung melihat data terbaru.
   cachedDb = data;
   dashboardCacheDirty = true;
 
-  // Tetap tulis ke data.json lokal — berguna untuk dev lokal/Termux; di
-  // Netlify ini otomatis di-skip diam-diam (filesystem read-only).
-  safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
+  // Debounce penulisan ke disk lokal
+  if (writeTimeout) clearTimeout(writeTimeout);
+  writeTimeout = setTimeout(() => {
+    safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
+  }, 500);
 
-  // Simpan ke Supabase dan DITUNGGU (lihat komentar di persistToSupabase).
-  await persistToSupabase(cachedDb);
+  // Debounce dan simpan ke Supabase di background tanpa memblokir HTTP response
+  if (supabaseWriteTimeout) clearTimeout(supabaseWriteTimeout);
+  supabaseWriteTimeout = setTimeout(() => {
+    persistToSupabase(cachedDb).catch(err => console.error("[Supabase background save error]:", err));
+  }, 1000);
 }
 
 // PROXY FUNCTION DISABLED TO PREVENT SPREADSHEET CONFLICTS AND DATA LOSS
@@ -512,9 +603,13 @@ function calculateDashboardDP1(db: any) {
 
   names.forEach(name => {
     let ylItem = ylList.find((y: any) => y.nama === name);
-    const area = ylItem ? ylItem.area : name.substring(0, 3);
-    if (!ylItem) ylItem = ylList.find((y: any) => y.area === area || (y.nama && String(y.nama).startsWith(area)));
-    const ylTxs = currentMonthTxs.filter((t: any) => t.nama === name || (t.nama && String(t.nama).startsWith(area)));
+    let area = ylItem ? ylItem.area : "";
+    if (!area) {
+      const am = name.match(/^(\d{3})/);
+      area = am ? am[1] : "";
+    }
+    if (!ylItem && area) ylItem = ylList.find((y: any) => y.area === area || (y.nama && String(y.nama).startsWith(area)));
+    const ylTxs = currentMonthTxs.filter((t: any) => t.nama === name || (area && t.nama && String(t.nama).startsWith(area)));
     
     let ylBb = 0;
     ylTxs.forEach((t: any) => {
@@ -773,15 +868,15 @@ async function generateGeminiWithRetry(params: {
     throw new Error("GEMINI_API_KEY belum terpasang di server.");
   }
 
-  const modelsToTry = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-2.0-flash"];
+  const modelsToTry = ["gemini-3.6-flash", "gemini-3.1-flash-lite"];
   let lastError: any = null;
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
   for (const modelName of modelsToTry) {
-    const attempts = 3;
+    const attempts = 2;
     for (let i = 0; i < attempts; i++) {
       try {
-        const response = await ai.models.generateContent({
+        const response = await getAI().models.generateContent({
           model: modelName,
           contents: params.contents,
           config: {
@@ -796,17 +891,27 @@ async function generateGeminiWithRetry(params: {
         lastError = err;
         const status = err.status || (err.error && err.error.status) || "";
         const msg = err.message || "";
-        const isTransient = status === "UNAVAILABLE" || status === "RESOURCE_EXHAUSTED" || msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE") || msg.includes("429");
+        const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.includes("quota") || msg.includes("rate-limits");
+        const isTransient = isQuotaExceeded || status === "UNAVAILABLE" || msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE");
 
-        if (isTransient && i < attempts - 1) {
-          console.warn(`[Gemini Retry] Model ${modelName} returned 503/UNAVAILABLE (attempt ${i + 1}/${attempts}). Waiting 1500ms...`);
-          await sleep(status === "RESOURCE_EXHAUSTED" || msg.includes("429") ? 17000 : 1500);
+        if (isQuotaExceeded) {
+          console.warn(`[Gemini Quota Exceeded] Model ${modelName}: ${msg}`);
+          // Don't wait 17 seconds in blocking sleep. Try next model immediately or short pause.
+          break; // Switch to next fallback model immediately
+        } else if (isTransient && i < attempts - 1) {
+          console.warn(`[Gemini Retry] Model ${modelName} returned transient error (attempt ${i + 1}/${attempts}). Waiting 1000ms...`);
+          await sleep(1000);
         } else {
           console.warn(`[Gemini Fail] Model ${modelName} failed on attempt ${i + 1}/${attempts}:`, msg);
           break; // Try next model in list
         }
       }
     }
+  }
+
+  const errMsg = lastError?.message || "";
+  if (errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.includes("rate-limits")) {
+    throw new Error("Kuota API Key Gemini telah melampaui batas penggunaan harian/menit (Quota Exceeded / Rate Limit). Silakan coba lagi beberapa saat lagi atau periksa penggunaan kuota di https://ai.dev/rate-limit.");
   }
 
   throw lastError || new Error("Model Gemini sedang mengalami lonjakan beban sementara. Silakan coba kembali beberapa saat lagi.");
@@ -880,7 +985,7 @@ app.get("/api/getMotivasi", async (req, res) => {
 
 app.post("/api/saveMotivasi", async (req, res) => {
   try {
-    const { list, terpilih, chatbotName, tkuName } = req.body || {};
+    const { list, terpilih, chatbotName, tkuName, intervalDetik, enabled } = req.body || {};
     const db = loadData();
     if (!db.motivasi) {
       db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
@@ -889,6 +994,8 @@ app.post("/api/saveMotivasi", async (req, res) => {
     if (terpilih !== undefined && Array.isArray(terpilih)) db.motivasi.terpilih = terpilih;
     if (chatbotName !== undefined) db.motivasi.chatbotName = chatbotName;
     if (tkuName !== undefined) db.motivasi.tkuName = tkuName;
+    if (intervalDetik !== undefined) db.motivasi.intervalDetik = intervalDetik;
+    if (enabled !== undefined) db.motivasi.enabled = enabled;
     await saveData(db);
 
     res.json({ ok: true, motivasi: db.motivasi });
@@ -985,6 +1092,30 @@ app.post("/api/bersihkanSampah", (req, res) => {
 });
 
 // 4. Papan Kontes
+
+app.get("/api/getSeragam", async (req, res) => {
+  res.json(cachedDb.seragam || { images: {}, schedules: {} });
+});
+
+app.post("/api/saveSeragam", async (req, res) => {
+  if (!cachedDb.seragam) cachedDb.seragam = { images: {}, schedules: {}, schedulesKaryawan: {} };
+  
+  if (req.body.images) {
+    cachedDb.seragam.images = { ...cachedDb.seragam.images, ...req.body.images };
+  }
+  
+  if (req.body.schedules) {
+    cachedDb.seragam.schedules = req.body.schedules;
+  }
+
+  if (req.body.schedulesKaryawan) {
+    cachedDb.seragam.schedulesKaryawan = req.body.schedulesKaryawan;
+  }
+  
+  await saveData(cachedDb);
+  res.json({ success: true, seragam: cachedDb.seragam });
+});
+
 app.get("/api/getKontes", async (req, res) => {
   const db = loadData();
   res.json(db.kontes);
@@ -999,12 +1130,13 @@ app.get("/api/getAll", async (req, res) => {
 app.get("/api/getMine", async (req, res) => {
   const { nama, month: monthQuery } = req.query;
   const db = loadData();
-  const area = String(nama).substring(0, 3);
+  const areaMatch = String(nama || "").match(/^(\d{3})/);
+  const area = areaMatch ? areaMatch[1] : null;
   const cleanName = cleanYlName(String(nama || ""));
   let myTxs = (db.transactions || []).filter((t: any) => 
     t.nama === nama || 
-    (t.nama && String(t.nama).startsWith(area)) ||
-    (t.area && (t.area === area || String(nama).startsWith(t.area) || t.area === nama)) ||
+    (area && t.nama && String(t.nama).startsWith(area)) ||
+    (area && t.area && (t.area === area || String(nama).startsWith(t.area) || t.area === nama)) ||
     (cleanName && cleanYlName(t.nama || "") === cleanName)
   );
   myTxs = deduplicateTransactions(myTxs);
@@ -1056,21 +1188,26 @@ app.get("/api/getBreakdownPlan", (req, res) => {
 
 // POST /api/saveBreakdownPlan
 app.post("/api/saveBreakdownPlan", async (req, res) => {
-  const defaultMonth = new Date().toISOString().substring(0, 7);
-  const { month = defaultMonth, breakdownPlan, breakdownRealisasi } = req.body;
+  try {
+    const defaultMonth = new Date().toISOString().substring(0, 7);
+    const { month = defaultMonth, breakdownPlan, breakdownRealisasi } = req.body;
 
-  const db = loadData();
-  if (breakdownPlan && typeof breakdownPlan === "object") {
-    if (!db.breakdownPlan) db.breakdownPlan = {};
-    db.breakdownPlan[month] = breakdownPlan;
-  }
-  if (breakdownRealisasi && typeof breakdownRealisasi === "object") {
-    if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
-    db.breakdownRealisasi[month] = breakdownRealisasi;
-  }
+    const db = loadData();
+    if (breakdownPlan && typeof breakdownPlan === "object") {
+      if (!db.breakdownPlan) db.breakdownPlan = {};
+      db.breakdownPlan[month] = breakdownPlan;
+    }
+    if (breakdownRealisasi && typeof breakdownRealisasi === "object") {
+      if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
+      db.breakdownRealisasi[month] = breakdownRealisasi;
+    }
 
-  await saveData(db);
-  res.json({ ok: true, message: "Data Breakdown Rencana & Realisasi berhasil disimpan." });
+    await saveData(db);
+    res.json({ ok: true, message: "Data Breakdown Rencana & Realisasi berhasil disimpan." });
+  } catch (err) {
+    console.error("Save Breakdown error:", err);
+    res.status(500).json({ ok: false, message: err.message });
+  }
 });
 
 // GET /api/getLhppRealisasi
@@ -1670,7 +1807,11 @@ app.post("/api/saveTargetYL", async (req, res) => {
 
   const cleanNama = cleanYlName(String(nama || ""));
   const ylItem = (db.ylList || INITIAL_YL_LIST).find((y: any) => cleanYlName(y.nama) === cleanNama || y.nama === nama);
-  const area = ylItem ? ylItem.area : String(nama).substring(0, 3);
+  let area = ylItem ? ylItem.area : "";
+  if (!area) {
+    const am = String(nama).match(/^(\d{3})/);
+    area = am ? am[1] : "";
+  }
 
   if (!db.targetYL) db.targetYL = {};
   const targetObj = { target: Number(target) || 0, bln_lalu: Number(bln_lalu) || 0, thn_lalu: Number(thn_lalu) || 0, e6: Number(e6) || 0 };
@@ -1969,7 +2110,8 @@ app.post("/api/saveRealisasiPotensiYL", async (req, res) => {
   
   if (!db.transactions) db.transactions = [];
   
-  const area = String(data.nama || "").substring(0, 3);
+  const areaMatch = String(data.nama || "").match(/^(\d{3})/);
+  const area = areaMatch ? areaMatch[1] : null;
   const cleanName = cleanYlName(String(data.nama || ""));
 
   let idx = db.transactions.findIndex((t: any) => {
@@ -2065,7 +2207,8 @@ app.post("/api/savePotensiTembus", async (req, res) => {
 
   const rawName = String(data.nama || "");
   const cleanName = cleanYlName(rawName);
-  const areaCode = rawName.substring(0, 3).trim();
+  const areaMatch = rawName.match(/^(\d{3})/);
+  const areaCode = areaMatch ? areaMatch[1] : null;
 
   db.potensiTembus[data.bulan][rawName] = val;
   if (cleanName) db.potensiTembus[data.bulan][cleanName] = val;
@@ -2107,24 +2250,7 @@ app.get("/api/getBreakdownPlan", async (req, res) => {
   });
 });
 
-app.post("/api/saveBreakdownPlan", async (req, res) => {
-  const { month, breakdownPlan, breakdownRealisasi } = req.body;
-  const db = loadData();
-  
-  const m = month || new Date().toISOString().substring(0, 7);
-  if (!db.breakdownPlan) db.breakdownPlan = {};
-  if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
 
-  if (breakdownPlan && typeof breakdownPlan === "object" && Object.keys(breakdownPlan).length > 0) {
-    db.breakdownPlan[m] = breakdownPlan;
-  }
-  if (breakdownRealisasi && typeof breakdownRealisasi === "object" && Object.keys(breakdownRealisasi).length > 0) {
-    db.breakdownRealisasi[m] = breakdownRealisasi;
-  }
-
-  await saveData(db);
-  res.json({ ok: true });
-});
 
 app.get("/api/getPotensiTembus", async (req, res) => {
   const { bulan, nama } = req.query;
@@ -2134,7 +2260,8 @@ app.get("/api/getPotensiTembus", async (req, res) => {
     const reqMonth = (bulan as string) || "";
     const reqName = (nama as string) || "";
     const cleanReq = cleanYlName(reqName).toLowerCase();
-    const areaReq = reqName.substring(0, 3).trim();
+    const areaMatch = reqName.match(/^(\d{3})/);
+    const areaReq = areaMatch ? areaMatch[1] : null;
 
     const findInMonth = (monthData: any) => {
       if (!monthData || typeof monthData !== "object") return null;
@@ -2400,6 +2527,22 @@ app.post("/api/savePlgPjlManual", async (req, res) => {
   res.json({ ok: true, plgPjlManual: db.plgPjlManual });
 });
 
+app.post("/api/kirimPlgPjlKeSpreadsheet", async (req, res) => {
+  try {
+    const { bulan, data } = req.body;
+    const db = loadData();
+    if (!db.plgPjlSpreadsheetData) db.plgPjlSpreadsheetData = {};
+    if (bulan) {
+      db.plgPjlSpreadsheetData[bulan] = data;
+    }
+    await saveData(db);
+    res.json({ ok: true, message: "Data Pelanggan & Penjualan berhasil dikirim dan disimpan." });
+  } catch (err: any) {
+    console.error("Error in kirimPlgPjlKeSpreadsheet:", err);
+    res.status(500).json({ ok: false, error: err?.message || "Gagal menyimpan data ke spreadsheet." });
+  }
+});
+
 // 7. General DP1 Target loading
 app.get("/api/getTarget", async (req, res) => {
   const db = loadData();
@@ -2415,7 +2558,11 @@ app.get("/api/getTarget", async (req, res) => {
   const names = Object.values(db.ylPins || INITIAL_DATA.ylPins) as string[];
   names.forEach(name => {
     const ylItem = ylList.find((y: any) => y.nama === name);
-    const area = ylItem ? ylItem.area : name.substring(0, 3);
+    let area = ylItem ? ylItem.area : "";
+    if (!area) {
+      const am = String(name).match(/^(\d{3})/);
+      area = am ? am[1] : "";
+    }
     const tgtObj = db.targetYL[`${area}_${currentMonth}`] || db.targetYL[area] || { target: 0, bln_lalu: 0, thn_lalu: 0, e6: 0 };
     perArea[area] = {
       target: { YO: Math.floor(tgtObj.target * 0.9), OM: Math.floor(tgtObj.target * 0.05), OS: Math.floor(tgtObj.target * 0.03), YT: Math.floor(tgtObj.target * 0.02), ALL: tgtObj.target },
@@ -2452,6 +2599,13 @@ app.post("/api/gemini/evaluate", async (req, res) => {
 
   const prompt = `
 Anda adalah konsultan bisnis senior khusus manajemen sales Yakult Lady (YL) Unit DP Jember 1.
+
+PENTING UNTUK DIPAHAMI TERKAIT METRIK:
+- "BB" atau "Balik Botol" adalah sisa botol/produk yang tidak terjual di lapangan dan harus dikembalikan (retur).
+- Semakin TINGGI nilai BB, artinya semakin BURUK/NEGATIF kinerjanya (karena botol tidak laku).
+- Nilai BB yang KECIL atau 0 adalah indikator KINERJA SANGAT BAGUS/POSITIF.
+- Tolong pastikan analisis Anda menyoroti BB yang tinggi sebagai masalah (kerugian) dan BB yang rendah sebagai prestasi.
+
 Berikut adalah data kinerja harian tim YL saat ini:
 ${JSON.stringify(data, null, 2)}
 
@@ -2507,7 +2661,8 @@ ATURAN PENTING:
 1. Buat kalimat yang SANGAT SIMPEL, SINGKAT, dan LANGSUNG KE INTI (Maksimal 3-4 paragraf pendek/poin).
 2. Gunakan gaya bahasa keibuan yang sangat hangat, manis, dan menyemangati (seperti: "Ibu ${ylNama} sayang", "Ibu tahu betapa hebatnya Ibu", "Tetap semangat nggih Bu").
 3. Jangan pakai istilah teknis yang rumit. Gunakan bahasa sehari-hari yang sangat mudah dipahami ibu-ibu Yakult Lady yang sudah sepuh/tua.
-4. Format dalam HTML bersih (<p>, <b>, <ul>, <li>) dengan emoji yang hangat.`;
+4. Format dalam HTML bersih (<p>, <b>, <ul>, <li>) dengan emoji yang hangat.
+5. PENGERTIAN BB (Balik Botol): BB adalah botol sisa yang tidak laku terjual. Nilai BB yang BESAR itu SANGAT JELEK/MERUGIKAN (berikan saran lembut untuk menghabiskan stok), sedangkan BB yang KECIL atau NOL itu SANGAT BAGUS (berikan pujian). JANGAN PERNAH memuji jika BB-nya tinggi!`;
 
   try {
     const text = await generateGeminiWithRetry({
@@ -2527,18 +2682,7 @@ ATURAN PENTING:
 
 // 10. Reset Data to defaults
 app.post("/api/resetData", async (req, res) => {
-  try {
-    const freshDb = JSON.parse(JSON.stringify(INITIAL_DATA));
-    safeWriteFile(DATA_FILE, JSON.stringify(freshDb, null, 2));
-    cachedDb = freshDb;
-    dashboardDP1Cache = null;
-    dashboardCacheDirty = true;
-    await persistToSupabase(cachedDb);
-    res.json({ ok: true });
-  } catch (err: any) {
-    console.error("Error resetting data:", err);
-    res.status(500).json({ error: "Gagal mengembalikan data ke semula." });
-  }
+  res.status(403).json({ error: "Fitur reset global dinonaktifkan demi keamanan data." });
 });
 
 // Reset Data Khusus (4 Kategori)
@@ -2627,7 +2771,7 @@ async function startServer() {
 
   // Only serve statically if dist/index.html actually exists on disk.
   // Otherwise, fallback to Vite middleware mode so development server works even before `npm run build`.
-  const useProdStaticServing = hasProdBuild && process.env.NODE_ENV === "production";
+  const useProdStaticServing = hasProdBuild;
 
   if (!useProdStaticServing) {
     const vite = await createViteServer({
@@ -2652,3 +2796,4 @@ export { app, loadData, ensureDbReady };
 if (!process.env.NETLIFY) {
   startServer();
 }
+// Force deploy 1

@@ -12,7 +12,7 @@ interface YlRealisasiPotensiTabProps {
   realisasiMenuPos?: { x: number; y: number } | null;
   handleRealisasiGridCopy: () => void;
   handleRealisasiGridCut: () => void;
-  handleRealisasiGridPaste: (text: string) => void;
+  handleRealisasiGridPaste: (text?: string) => void;
   handleRealisasiGridClear: () => void;
   setRealisasiGridSelection: React.Dispatch<React.SetStateAction<GridSelection | null>>;
   handleToggleEditRealisasi: () => void;
@@ -65,14 +65,7 @@ function YlRealisasiPotensiTabInner({
               menuPos={realisasiMenuPos}
               onCopy={handleRealisasiGridCopy}
               onCut={handleRealisasiGridCut}
-              onPaste={async () => {
-                try {
-                  const text = await navigator.clipboard.readText();
-                  if (text) handleRealisasiGridPaste(text);
-                } catch (err) {
-                  console.error("Paste failed", err);
-                }
-              }}
+              onPaste={() => handleRealisasiGridPaste()}
               onClear={handleRealisasiGridClear}
               onClose={() => {
                 setRealisasiIsMenuOpen?.(false);

@@ -1,3 +1,4 @@
+import { ClipboardFallbackModal } from "./ClipboardFallbackModal";
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { MotivasiConfig, cleanYlName } from "../types";
 import { useSimpleGrid } from "./useSimpleGrid";
@@ -43,13 +44,22 @@ interface LhppRealisasiViewProps {
 
 const parseInputInt = (val: string | number): number => {
   if (val === "" || val === null || val === undefined) return 0;
-  const strVal = val.toString().trim();
-  if (strVal.startsWith("0,") || strVal.startsWith("0.")) {
-    const num = parseFloat(strVal.replace(",", "."));
-    return isNaN(num) ? 0 : num;
+  let strVal = val.toString().trim();
+  strVal = strVal.replace(/^[^\d-]+/, "");
+  if (strVal.includes(",") && strVal.includes(".")) {
+    strVal = strVal.split(",")[0].replace(/\./g, "");
+  } else if (strVal.includes(".")) {
+    const parts = strVal.split(".");
+    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+      strVal = parts.join("");
+    } else {
+      strVal = parts[0];
+    }
+  } else if (strVal.includes(",")) {
+    strVal = strVal.split(",")[0];
   }
   const cleaned = strVal.replace(/^-?0+(?=\d)/, strVal.startsWith("-") ? "-" : "");
-  const num = parseInt(cleaned, 10);
+  const num = parseInt(cleaned.replace(/[^0-9-]/g, ""), 10);
   return isNaN(num) ? 0 : num;
 };
 
@@ -127,10 +137,18 @@ function LhppRealisasiViewInner({
   const [undoStack, setUndoStack] = useState<Array<{ rows: LhppRow[]; summary: LhppYlmSummary }>>([]);
   const [redoStack, setRedoStack] = useState<Array<{ rows: LhppRow[]; summary: LhppYlmSummary }>>([]);
 
+  const isDirtyRef = useRef(false);
+
   const recordHistory = useCallback(() => {
+    isDirtyRef.current = true;
     setUndoStack(u => [...u.slice(-19), JSON.parse(JSON.stringify({ rows, summary }))]);
     setRedoStack([]);
   }, [rows, summary]);
+
+  const handlePdmYlmChange = (field: "yo" | "om" | "os" | "yt", val: number) => {
+    recordHistory();
+    setSummary(s => ({ ...s, pdmYlm: { ...s.pdmYlm, [field]: val } }));
+  };
 
   const handleCellChange = (
     rIdx: number,
@@ -264,11 +282,21 @@ function LhppRealisasiViewInner({
     return { yo, om, os, yt, total };
   }, [summary.pdmYlm, totals.turun]);
 
+  // Auto-save Effect
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isDirtyRef.current && rows.length > 0) {
+        handleSaveLhpp(true);
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [rows, summary, selectedDay, selectedMonth]);
+
   // Save Handler: Save PDM to server & patch Realisasi db.transactions
-  const handleSaveLhpp = async () => {
-    if (isSaving) return;
+  const handleSaveLhpp = async (isAutoSave = false) => {
+    if (isSaving || (!isAutoSave && !isDirtyRef.current)) return;
     setIsSaving(true);
-    setMsg("⏳ Menyimpan data LHPP & memperbarui Realisasi...");
+    if (!isAutoSave) setMsg("⏳ Menyimpan data LHPP & memperbarui Realisasi...");
 
     try {
       const formattedDate = `${selectedMonth}-${String(selectedDay).padStart(2, "0")}`;
@@ -294,15 +322,18 @@ function LhppRealisasiViewInner({
       });
 
       if (res && res.ok) {
-        setMsg("✅ Data LHPP tersimpan & tersambung ke Realisasi");
+        isDirtyRef.current = false;
+        if (!isAutoSave) {
+          setMsg("✅ Data LHPP tersimpan & tersambung ke Realisasi");
+          setTimeout(() => setMsg(""), 4000);
+        }
         window.dispatchEvent(new Event("lhpp_saved"));
-        setTimeout(() => setMsg(""), 4000);
       } else {
-        setMsg(`⚠️ ${res?.error || "Gagal menyimpan data LHPP ke server."}`);
+        if (!isAutoSave) setMsg(`⚠️ ${res?.error || "Gagal menyimpan data LHPP ke server."}`);
       }
     } catch (err: any) {
       console.error("Failed to save LHPP:", err);
-      setMsg("❌ Gagal menyimpan data LHPP. Periksa koneksi jaringan.");
+      if (!isAutoSave) setMsg("❌ Gagal menyimpan data LHPP. Periksa koneksi jaringan.");
     } finally {
       setIsSaving(false);
     }
@@ -384,7 +415,10 @@ function LhppRealisasiViewInner({
     handleCopy,
     handleCut,
     handlePaste,
-    handleClear
+    handleClear,
+    clipboardModal,
+    confirmManualPaste,
+    closeClipboardModal,
   } = useSimpleGrid({
     totalRows: computedRows.length,
     totalCols: 21,
@@ -405,6 +439,7 @@ function LhppRealisasiViewInner({
     const fields: ("yo" | "om" | "os" | "yt")[] = ["yo", "om", "os", "yt"];
     const startIdx = fields.indexOf(startField);
 
+    recordHistory();
     setSummary(s => {
       const nextYlm = { ...s.pdmYlm };
       tokens.forEach((val, i) => {
@@ -424,9 +459,10 @@ function LhppRealisasiViewInner({
     const clean = text.trim();
     if (/[\t\n\r,;/|\s]/.test(clean) || clean.length > 0) {
       e.preventDefault();
-      setSelection({ startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx });
+      const newSelection = { startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx };
+      setSelection(newSelection);
       setTimeout(() => {
-        handlePaste(text);
+        handlePaste(text, newSelection);
       }, 0);
     }
   };
@@ -457,8 +493,10 @@ function LhppRealisasiViewInner({
           if (selection) handleClear();
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        if (selection) {
-           handleCopy();
+        if (targetTag !== "input" && targetTag !== "textarea") {
+          if (selection) {
+             handleCopy();
+          }
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (targetTag !== "input" && targetTag !== "textarea") {
@@ -475,7 +513,7 @@ function LhppRealisasiViewInner({
       const text = e.clipboardData?.getData("text/plain");
       if (text) {
         const clean = text.trim();
-        if (targetTag !== "input" || /[\t\n\r,;/|\s]/.test(clean)) {
+        if (targetTag !== "input" || /[\t\n\r]/.test(clean)) {
           e.preventDefault();
           handlePaste(text);
         }
@@ -650,13 +688,13 @@ function LhppRealisasiViewInner({
             </div>
 
             <div className="bg-slate-50 p-2 sm:p-2.5 rounded-lg sm:rounded-xl border border-slate-200 shadow-2xs flex flex-col justify-between">
-              <span className="text-[9px] sm:text-[10px] text-slate-500 block font-bold uppercase tracking-wider">TURUN PDM</span>
-              <span className="text-base sm:text-lg font-black text-sky-700 font-mono my-0.5 sm:my-1">{totals.turun.sum} <span className="text-[10px] sm:text-xs font-bold">btl</span></span>
+              <span className="text-[9px] sm:text-[10px] text-slate-500 block font-bold uppercase tracking-wider">PDM HARI INI</span>
+              <span className="text-base sm:text-lg font-black text-sky-700 font-mono my-0.5 sm:my-1">{totals.pdmHariIni.sum} <span className="text-[10px] sm:text-xs font-bold">btl</span></span>
               <div className="text-[8px] sm:text-[9px] font-mono font-extrabold text-slate-700 flex items-center justify-center gap-0.5 sm:gap-1 mt-0.5 pt-0.5 sm:pt-1 border-t border-slate-200">
-                <span className="text-rose-600">YO:{totals.turun.yo}</span>
-                <span className="text-amber-600">OM:{totals.turun.om}</span>
-                <span className="text-fuchsia-600">OS:{totals.turun.os}</span>
-                <span className="text-sky-600">YT:{totals.turun.yt}</span>
+                <span className="text-rose-600">YO:{totals.pdmHariIni.yo}</span>
+                <span className="text-amber-600">OM:{totals.pdmHariIni.om}</span>
+                <span className="text-fuchsia-600">OS:{totals.pdmHariIni.os}</span>
+                <span className="text-sky-600">YT:{totals.pdmHariIni.yt}</span>
               </div>
             </div>
           </div>
@@ -688,7 +726,7 @@ function LhppRealisasiViewInner({
                   <td className="p-1 border-r border-slate-200">
                     <NumberInput
                       value={summary.pdmYlm.yo || ""}
-                      onChange={(val) => setSummary(s => ({ ...s, pdmYlm: { ...s.pdmYlm, yo: val } }))}
+                      onChange={(val) => handlePdmYlmChange("yo", val)}
                       onPaste={e => handlePdmYlmPaste(e, "yo")}
                       onFocus={e => e.target.select()}
                       className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
@@ -697,7 +735,7 @@ function LhppRealisasiViewInner({
                   <td className="p-1 border-r border-slate-200">
                     <NumberInput
                       value={summary.pdmYlm.om || ""}
-                      onChange={(val) => setSummary(s => ({ ...s, pdmYlm: { ...s.pdmYlm, om: val } }))}
+                      onChange={(val) => handlePdmYlmChange("om", val)}
                       onPaste={e => handlePdmYlmPaste(e, "om")}
                       onFocus={e => e.target.select()}
                       className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
@@ -706,7 +744,7 @@ function LhppRealisasiViewInner({
                   <td className="p-1 border-r border-slate-200">
                     <NumberInput
                       value={summary.pdmYlm.os || ""}
-                      onChange={(val) => setSummary(s => ({ ...s, pdmYlm: { ...s.pdmYlm, os: val } }))}
+                      onChange={(val) => handlePdmYlmChange("os", val)}
                       onPaste={e => handlePdmYlmPaste(e, "os")}
                       onFocus={e => e.target.select()}
                       className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
@@ -715,7 +753,7 @@ function LhppRealisasiViewInner({
                   <td className="p-1 border-r border-slate-200">
                     <NumberInput
                       value={summary.pdmYlm.yt || ""}
-                      onChange={(val) => setSummary(s => ({ ...s, pdmYlm: { ...s.pdmYlm, yt: val } }))}
+                      onChange={(val) => handlePdmYlmChange("yt", val)}
                       onPaste={e => handlePdmYlmPaste(e, "yt")}
                       onFocus={e => e.target.select()}
                       className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
@@ -756,16 +794,21 @@ function LhppRealisasiViewInner({
             setSelection(null);
           }}
         />
+        {clipboardModal && (
+          <ClipboardFallbackModal
+            mode={clipboardModal.mode}
+            initialText={clipboardModal.text}
+            onConfirmPaste={confirmManualPaste}
+            onClose={closeClipboardModal}
+          />
+        )}
         <div className="overflow-x-auto max-h-[680px]">
           <table className="w-full text-left text-[11px] font-mono border-collapse select-none">
             {/* Header Level 1 */}
             <thead className="sticky top-0 bg-slate-800 text-white z-30 shadow-xs">
               <tr className="bg-slate-800 text-white font-black uppercase text-[10px] divide-x divide-slate-700">
-                <th className="p-2 sticky left-0 bg-slate-800 z-40 min-w-[50px] text-center border-r border-slate-700">
-                  Area
-                </th>
-                <th className="p-2 sticky left-[50px] bg-slate-800 z-40 min-w-[125px] text-left border-r border-slate-700">
-                  Nama
+                <th className="p-2 sticky left-0 bg-slate-800 z-40 min-w-[140px] max-w-[140px] text-left border-r border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
+                  YAKULT LADY
                 </th>
                 <th
                   colSpan={4}
@@ -813,8 +856,7 @@ function LhppRealisasiViewInner({
 
               {/* Header Level 2 Sub-columns */}
               <tr className="bg-slate-100 text-slate-800 font-black uppercase text-[9px] border-t border-slate-300 divide-x divide-slate-200">
-                <th className="p-1 sticky left-0 bg-slate-100 z-40 border-r border-slate-300"></th>
-                <th className="p-1 sticky left-[50px] bg-slate-100 z-40 border-r border-slate-300"></th>
+                <th className="p-1 sticky left-0 bg-slate-100 z-40 border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"></th>
 
                 {[
                   { label: "YO", c: 0 }, { label: "OM", c: 1 }, { label: "OS", c: 2 }, { label: "YT", c: 3, borderRight: true },
@@ -846,26 +888,15 @@ function LhppRealisasiViewInner({
                       isTku ? "bg-slate-100 font-black text-slate-900" : "bg-white text-slate-900"
                     }`}
                   >
-                    {/* Area Column */}
+                    {/* YAKULT LADY Column */}
                     <td
                       data-r={rIdx}
-                      className="p-1.5 sticky left-0 bg-slate-100 z-20 font-black border-r border-slate-200 text-center cursor-pointer hover:bg-slate-200 transition-colors select-none"
+                      className="p-1.5 sticky left-0 bg-slate-50 z-20 border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors select-none min-w-[140px] max-w-[140px] truncate shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
                       onClick={() => selectRow(rIdx)}
                     >
-                      <span className="px-1.5 py-0.5 bg-rose-100 text-rose-800 rounded font-mono font-bold text-[11px]">
-                        {row.area}
-                      </span>
+                      <span className="text-rose-700 font-black mr-1">[{row.area}]</span>
+                      <span className="font-extrabold text-slate-900 text-[10px] sm:text-[11px]">{cleanYlName(row.nama)}</span>
                     </td>
-
-                    {/* Nama Column */}
-                    <td
-                      data-r={rIdx}
-                      className="p-1.5 sticky left-[50px] bg-slate-50 z-20 font-extrabold text-slate-900 truncate max-w-[125px] border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors select-none"
-                      onClick={() => selectRow(rIdx)}
-                    >
-                      {cleanYlName(row.nama)}
-                    </td>
-
                     {/* PDM SEBELUMNYA (Auto / Read-Only dari PDM Hari Ini tanggal sebelumnya) */}
                     <td {...getCellProps(rIdx, 0)} className={`p-1 text-center text-red-700 font-extrabold bg-slate-50 border-r border-slate-200 ${getCellProps(rIdx, 0).className}`}>
                       {row.pdmSebelum.yo}
@@ -1009,7 +1040,7 @@ function LhppRealisasiViewInner({
             <tfoot className="bg-slate-900 text-slate-100 font-black border-t-2 border-slate-800">
               {/* Row 1: Subtotal Item Totals */}
               <tr className="text-[11px] divide-x divide-slate-800">
-                <td className="p-2.5 sticky left-0 bg-slate-900 z-20 font-black text-slate-200 text-left" colSpan={2}>
+                <td className="p-2.5 sticky left-0 bg-slate-900 z-20 font-black text-slate-200 text-left shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
                   Subtotal
                 </td>
 
@@ -1059,7 +1090,7 @@ function LhppRealisasiViewInner({
 
               {/* Row 2: Grand Total Combined Bottle Sum */}
               <tr className="bg-emerald-900 text-white font-black text-xs uppercase divide-x divide-slate-800">
-                <td className="p-2.5 sticky left-0 bg-emerald-950 z-20 text-left font-black tracking-wide text-emerald-200" colSpan={2}>
+                <td className="p-2.5 sticky left-0 bg-emerald-950 z-20 text-left font-black tracking-wide text-emerald-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
                   Total Yo, Om, Os & Yt
                 </td>
 

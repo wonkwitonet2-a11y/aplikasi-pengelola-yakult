@@ -79,6 +79,31 @@ function YlProfileRowInner({
         />
       </td>
       <td className="p-2.5 text-center">
+        <input
+          type="text"
+          value={yl.nik || ""}
+          placeholder="350xxx"
+          onChange={(e) => {
+            const copy = [...ylList];
+            copy[idx].nik = e.target.value;
+            setYlList(copy);
+          }}
+          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none text-center font-mono w-32 text-slate-900 font-bold focus:border-red-500 focus:bg-white"
+        />
+      </td>
+      <td className="p-2.5 text-center">
+        <input
+          type="date"
+          value={yl.tglLahir || ""}
+          onChange={(e) => {
+            const copy = [...ylList];
+            copy[idx].tglLahir = e.target.value;
+            setYlList(copy);
+          }}
+          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white"
+        />
+      </td>
+      <td className="p-2.5 text-center">
         <span className={`text-[10px] font-black px-2.5 py-1 rounded-full ${isResign ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-800"}`}>
           {isResign ? "Resign" : "Aktif"}
         </span>

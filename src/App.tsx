@@ -20,12 +20,33 @@ import { resetSupabaseClient } from "./lib/supabaseClient";
 // kode ManagerView (3900+ baris + library chart recharts) padahal tidak
 // pernah dipakainya — salah satu penyebab app berat di HP entry-level.
 const ManagerView = lazy(() =>
-  import("./components/ManagerView").then(m => ({ default: m.ManagerView }))
+  import("./components/ManagerView")
+    .then(m => ({ default: m.ManagerView }))
+    .catch((err) => {
+      console.warn("Chunk loading error, reloading...", err);
+      window.location.reload();
+      return { default: () => null };
+    })
 );
+
 const YLView = lazy(() =>
-  import("./components/YLView").then(m => ({ default: m.YLView }))
+  import("./components/YLView")
+    .then(m => ({ default: m.YLView }))
+    .catch((err) => {
+      console.warn("Chunk loading error, reloading...", err);
+      window.location.reload();
+      return { default: () => null };
+    })
 );
-const AIChatBot = lazy(() => import("./components/AIChatBot"));
+
+const AIChatBot = lazy(() => 
+  import("./components/AIChatBot")
+    .catch((err) => {
+      console.warn("Chunk loading error, reloading...", err);
+      window.location.reload();
+      return { default: () => null };
+    })
+);
 
 // Fallback ringan selagi chunk sedang di-download (biasanya sekejap di HP
 // dgn koneksi normal, tapi tetap perlu ada agar tidak blank/error).
@@ -63,6 +84,7 @@ export default function App() {
   // Global Datasets
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(() => getFallbackDashboardData());
   const [evaluasiData, setEvaluasiData] = useState<EvaluasiData | null>(() => getFallbackEvaluasiData());
+  const [ylList, setYlList] = useState<any[]>([]);
   const [scriptUrl, setScriptUrl] = useState<string>("");
   const [motivasiConfig, setMotivasiConfig] = useState<MotivasiConfig>(() => {
     try {
@@ -93,28 +115,75 @@ export default function App() {
   const [activeManagerPin, setActiveManagerPin] = useState<string>(() => getStoredManagerPin());
   const [activeYlPins, setActiveYlPins] = useState<Record<string, string>>(() => getStoredYlPins());
 
+  const AUTO_LOGOUT_SECONDS = 120; // 2 menit (dalam detik)
+
   // 1. Initial Load & Session Recovery
   useEffect(() => {
-    const saved = localStorage.getItem("yakult_session");
-    if (saved) {
-      try {
-        setSession(JSON.parse(saved));
-      } catch (e) {
-        localStorage.removeItem("yakult_session");
+    const checkAutoLogout = () => {
+      const lastActive = localStorage.getItem("lastActiveTimestamp");
+      if (lastActive) {
+        const diffSeconds = (Date.now() - parseInt(lastActive, 10)) / 1000;
+        if (diffSeconds > AUTO_LOGOUT_SECONDS) {
+          setSession(null);
+          localStorage.removeItem("yakult_session");
+          localStorage.removeItem("lastActiveTimestamp");
+          setTransactions([]);
+          setTargetYL([]);
+          setDashboardData(getFallbackDashboardData());
+          setEvaluasiData(getFallbackEvaluasiData());
+          return true; // Sesi di-logout
+        }
       }
-    }
+      return false; // Sesi masih aman
+    };
 
-    // Load PIN dictionary and script url from backend
-    const safeFetchJson = async (url: string) => {
-      try {
-        const r = await fetch(url);
-        if (!r.ok) return null;
-        return await r.json();
-      } catch (e) {
-        console.warn(`Fetch failed for ${url}`, e);
-        return null;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        // App masuk background / layar mati, catat waktunya
+        localStorage.setItem("lastActiveTimestamp", Date.now().toString());
+      } else if (document.visibilityState === "visible") {
+        // App aktif kembali, cek apakah butuh logout
+        const wasLoggedOut = checkAutoLogout();
+        if (!wasLoggedOut) {
+          // Kalau belum waktunya logout, hapus timestamp karena sekarang aktif
+          localStorage.setItem("lastActiveTimestamp", Date.now().toString());
+        }
       }
     };
+
+    const handleBeforeUnload = () => {
+      localStorage.setItem("lastActiveTimestamp", Date.now().toString());
+    };
+
+    // Listeners
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Initial Check saat aplikasi baru dibuka
+    const isLoggedOut = checkAutoLogout();
+
+    if (!isLoggedOut) {
+      const saved = localStorage.getItem("yakult_session");
+      if (saved) {
+        try {
+          setSession(JSON.parse(saved));
+        } catch (e) {
+          localStorage.removeItem("yakult_session");
+        }
+      }
+      // Set timestamp saat ini agar aman
+      localStorage.setItem("lastActiveTimestamp", Date.now().toString());
+    }
+
+    // Ping / update timestamp setiap 10 detik selama app terbuka & aktif
+    // (Bermanfaat jika browser/webview force-close tanpa event beforeunload/visibilitychange)
+    const pingInterval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        localStorage.setItem("lastActiveTimestamp", Date.now().toString());
+      }
+    }, 10000);
+
+    // Load PIN dictionary and script url from backend
 
     Promise.all([
       safeFetchJson("/api/getPins"),
@@ -165,6 +234,12 @@ export default function App() {
         setActiveYlPins(getStoredYlPins());
       })
       .finally(() => setLoading(false));
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      clearInterval(pingInterval);
+    };
   }, []);
 
   // 2. Fetch Datasets when session is active
@@ -235,16 +310,6 @@ export default function App() {
 
   const refreshAllData = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
-    const safeFetchJson = async (url: string) => {
-      try {
-        const r = await fetch(url);
-        if (!r.ok) return null;
-        return await r.json();
-      } catch (e) {
-        console.warn(`Fetch failed for ${url}`, e);
-        return null;
-      }
-    };
 
     try {
       const [db, ev, mot, knt, pins, ylListData] = await Promise.all([
@@ -283,16 +348,14 @@ export default function App() {
 
       // Auto-update YL session name if YL was renamed in Setting/Profil YL
       if (session?.role === "yl" && session.name) {
-        const area = session.name.substring(0, 3);
         const ylListArray = (ylListData && Array.isArray(ylListData.ylList)) ? ylListData.ylList : [];
-        const matchedYl = ylListArray.find((y: any) => String(y.area).substring(0, 3) === area);
-        const updatedYlName = matchedYl?.nama || (pins?.ylPins ? Object.values(pins.ylPins).find((n: any) => String(n).startsWith(area)) as string : null);
-        
-        if (updatedYlName && updatedYlName !== session.name) {
-          activeName = updatedYlName;
-          const updatedSession = { ...session, name: updatedYlName };
-          setSession(updatedSession);
-          localStorage.setItem("yakult_session", JSON.stringify(updatedSession));
+        setIfChanged("ylList", ylListArray, setYlList);
+
+        const isValid = pins?.ylPins && Object.values(pins.ylPins).includes(session.name);
+        if (pins?.ylPins && !isValid) {
+          setSession(null);
+          localStorage.removeItem("yakult_session");
+          return;
         }
       }
 
@@ -537,6 +600,7 @@ export default function App() {
     <Suspense fallback={<ViewLoadingFallback />}>
       <YLView
         ylName={session.name}
+        ylList={ylList}
         onLogout={handleLogout}
         onRefresh={refreshAllData}
         isRefreshing={loading}

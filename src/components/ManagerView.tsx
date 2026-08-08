@@ -1,11 +1,13 @@
+import { ClipboardFallbackModal } from "./ClipboardFallbackModal";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useTabHistory } from "../hooks/useTabHistory";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
 import { useSimpleGrid } from "./useSimpleGrid";
 import {
   TrendingUp,
   Award,
   Users,
-  Settings,
+  Settings, BookOpen,
   AlertCircle,
   Sparkles,
   Maximize2,
@@ -38,7 +40,11 @@ import { BreakdownGridRow } from "./BreakdownGridRow";
 import { TargetManagerRow } from "./TargetManagerRow";
 import { YlProfileRow } from "./YlProfileRow";
 import { ManagerDashboardTab } from "./ManagerDashboardTab";
+import { AdminBentoMenu } from "./AdminBentoMenu";
+import ProductKnowledgeView from "./ProductKnowledgeView";
 import { ManagerLadyTab } from "./ManagerLadyTab";
+import ManagerSeragamView from "./ManagerSeragamView";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
 import { getFallbackEvaluasiData } from "../lib/fallbackData";
 import { getSupabaseCredentials, resetSupabaseClient, saveToSupabase, loadFromSupabase, testSupabaseConnection } from "../lib/supabaseClient";
@@ -84,6 +90,27 @@ type BreakdownGridMap = Record<string, { pembagiTanggal: number; days: Record<st
 
 import { ArchiveEditor } from "./archive/ArchiveEditor";
 
+
+export const parseIndonesianNumber = (val: string | number): number => {
+  if (val === "" || val === null || val === undefined) return 0;
+  let strVal = val.toString().trim();
+  strVal = strVal.replace(/^[^\d-]+/, "");
+  if (strVal.includes(",") && strVal.includes(".")) {
+    strVal = strVal.split(",")[0].replace(/\./g, "");
+  } else if (strVal.includes(".")) {
+    const parts = strVal.split(".");
+    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+      strVal = parts.join("");
+    } else {
+      strVal = parts[0];
+    }
+  } else if (strVal.includes(",")) {
+    strVal = strVal.split(",")[0];
+  }
+  const cleanNum = parseInt(strVal.replace(/[^0-9-]/g, ""), 10);
+  return Math.max(0, cleanNum || 0);
+};
+
 export function ManagerView({
   onLogout,
   dashboardData,
@@ -98,7 +125,9 @@ export function ManagerView({
   theme,
   onToggleTheme
 }: ManagerViewProps) {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "rata2_bulanan" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "setting">("lhpp_realisasi");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "grafik" | "rata2_bulanan" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "seragam" | "product_knowledge" | "setting">("dashboard");
+  useTabHistory(activeTab, setActiveTab, "dashboard");
+
   const [isNavMenuOpen, setIsNavMenuOpen] = useState<boolean>(false);
   
   // Breakdown Plan & Realisasi state (Manager)
@@ -366,6 +395,7 @@ export function ManagerView({
       let plgPjlPotensiTembus: any = {};
       try {
         const plgRes = await fetch(`/api/getPlgPjlData?month=${encodeURIComponent(mKey)}`);
+        if (!plgRes.ok) throw new Error("Failed to fetch PlgPjlData");
         const plgJson = await plgRes.json();
         if (plgJson && plgJson.ok) {
           plgPjlTransactions = plgJson.transactions || [];
@@ -432,6 +462,7 @@ export function ManagerView({
       let plgPjlPotensiTembus: any = {};
       try {
         const plgRes = await fetch(`/api/getPlgPjlData?month=${encodeURIComponent(mKey)}`);
+        if (!plgRes.ok) throw new Error("Failed to fetch PlgPjlData");
         const plgJson = await plgRes.json();
         if (plgJson && plgJson.ok) {
           plgPjlTransactions = plgJson.transactions || [];
@@ -661,6 +692,7 @@ export function ManagerView({
 
   // Helper to update grid state and record undo history
   const updateActiveGridMap = (updater: (prev: typeof breakdownPlanMap) => typeof breakdownPlanMap) => {
+    isBreakdownDirtyRef.current = true;
     if (isViewingHistoricalMonth) {
       setHistoricalDataSnapshot((prevSnap: any) => {
         if (!prevSnap) return prevSnap;
@@ -820,6 +852,7 @@ export function ManagerView({
   const [pasteInputText, setPasteInputText] = useState<string>("");
   const [showCopyResultModal, setShowCopyResultModal] = useState<boolean>(false);
   const [copiedText, setCopiedText] = useState<string>("");
+  const [breakdownClipboardModal, setBreakdownClipboardModal] = useState<{ mode: "copy" | "paste"; text: string } | null>(null);
 
   // Handler: Select All Grid Cells
   const handleSelectAllGridCells = () => {
@@ -945,10 +978,10 @@ export function ManagerView({
           setTimeout(() => setBreakdownMsg(""), 3000);
         })
         .catch(() => {
-          setShowCopyResultModal(true);
+          setBreakdownClipboardModal({ mode: "copy", text: clipboardContent });
         });
     } else {
-      setShowCopyResultModal(true);
+      setBreakdownClipboardModal({ mode: "copy", text: clipboardContent });
     }
   };
 
@@ -981,32 +1014,28 @@ export function ManagerView({
     }
     if (rawLines.length === 0) return;
 
-    const isTabDelimited = rawLines.some(l => l.includes("\t"));
-
     const parseRowCells = (rowStr: string): string[] => {
-      if (isTabDelimited) {
-        return rowStr.split("\t");
-      }
-      if (rowStr.includes(";")) {
-        return rowStr.split(";");
-      }
-      if (rowStr.includes("/")) {
-        return rowStr.split("/");
-      }
-      if (rowStr.includes("|")) {
-        return rowStr.split("|");
-      }
-      if (rowStr.includes(",")) {
-        return rowStr.split(",");
-      }
-      return rowStr.trim() ? rowStr.trim().split(/\s+/) : [""];
+      return rowStr.split("\t");
     };
 
     const parsedMatrix: number[][] = rawLines.map(rowStr => {
       const cells = parseRowCells(rowStr);
       return cells.map(valStr => {
-        const cleanStr = valStr.replace(/[^0-9-]/g, "");
-        return Math.max(0, parseInt(cleanStr, 10) || 0);
+        let cleanStr = valStr.replace(/^[^\d-]+/, "");
+        if (cleanStr.includes(",") && cleanStr.includes(".")) {
+          cleanStr = cleanStr.split(",")[0].replace(/\./g, "");
+        } else if (cleanStr.includes(".")) {
+          const parts = cleanStr.split(".");
+          if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+            cleanStr = parts.join("");
+          } else {
+            cleanStr = parts[0];
+          }
+        } else if (cleanStr.includes(",")) {
+          cleanStr = cleanStr.split(",")[0];
+        }
+        const cleanNum = parseInt(cleanStr.replace(/[^0-9-]/g, ""), 10);
+        return Math.max(0, cleanNum || 0);
       });
     });
 
@@ -1094,7 +1123,7 @@ export function ManagerView({
       handlePasteIntoGrid(copiedText);
       return;
     }
-    setShowPasteModal(true);
+    setBreakdownClipboardModal({ mode: "paste", text: "" });
   };
 
   // Touch move handler for mobile screen cell dragging and fill dragging
@@ -1305,6 +1334,8 @@ export function ManagerView({
   const [newYlPin, setNewYlPin] = useState<string>("");
   const [newYlKode, setNewYlKode] = useState<string>("");
   const [newYlTanggalMasuk, setNewYlTanggalMasuk] = useState<string>("");
+  const [newYlNik, setNewYlNik] = useState<string>("");
+  const [newYlTglLahir, setNewYlTglLahir] = useState<string>("");
   const [ylSavedMsg, setYlSavedMsg] = useState<string>("");
   const [ylToDelete, setYlToDelete] = useState<{ idx: number; yl: any } | null>(null);
   const [isDeletingYl, setIsDeletingYl] = useState<boolean>(false);
@@ -1349,25 +1380,26 @@ export function ManagerView({
   const getTargetCellValue = useCallback((r: number, c: number) => {
     const yl = activeYLsList[r];
     if (!yl) return 0;
-    const tgt = targetYLMap[yl.area] ?? { target: 0, bln_lalu: 0, thn_lalu: 0 };
+    const targetMapToUse = (isViewingHistoricalMonth && historicalDataSnapshot?.targetYLMap) ? historicalDataSnapshot.targetYLMap : targetYLMap;
+    const tgt = targetMapToUse[yl.area] ?? { target: 0, bln_lalu: 0, thn_lalu: 0 };
     const fields = ["target", "bln_lalu", "thn_lalu"] as const;
     return tgt[fields[c]] ?? 0;
-  }, [activeYLsList, targetYLMap]);
+  }, [activeYLsList, targetYLMap, isViewingHistoricalMonth, historicalDataSnapshot]);
 
   const setTargetBatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
-    setTargetYLMap(prev => {
+    handleUpdateTargetYLMap((prev: any) => {
       const next = { ...prev };
       const fields = ["target", "bln_lalu", "thn_lalu"] as const;
       updates.forEach(({ r, c, val }) => {
         const yl = activeYLsList[r];
         if (!yl) return;
-        const numVal = Math.max(0, Math.round(Number(val)) || 0);
+        const numVal = parseIndonesianNumber(val);
         const existing = next[yl.area] ?? { target: 0, bln_lalu: 0, thn_lalu: 0 };
         next[yl.area] = { ...existing, [fields[c]]: numVal };
       });
       return next;
     });
-  }, [activeYLsList]);
+  }, [activeYLsList, handleUpdateTargetYLMap]);
 
   const {
     selection: targetGridSelection,
@@ -1383,6 +1415,9 @@ export function ManagerView({
     handleCut: handleTargetGridCut,
     handlePaste: handleTargetGridPaste,
     handleClear: handleTargetGridClear,
+    clipboardModal: targetClipboardModal,
+    confirmManualPaste: targetConfirmManualPaste,
+    closeClipboardModal: closeTargetClipboardModal,
   } = useSimpleGrid({
     totalRows: activeYLsList.length,
     totalCols: 3,
@@ -1398,8 +1433,9 @@ export function ManagerView({
     const prefix = TKU_ROW_PREFIXES[r] ?? "target";
     const suffixes = ["_yo", "_om", "_os", "_yt"] as const;
     const key = `${prefix}${suffixes[c]}`;
-    return ((targetTKU as any)[key] as number | undefined) ?? 0;
-  }, [targetTKU]);
+    const tkuToUse = (isViewingHistoricalMonth && historicalDataSnapshot?.targetTKU) ? historicalDataSnapshot.targetTKU : targetTKU;
+    return ((tkuToUse as any)[key] as number | undefined) ?? 0;
+  }, [targetTKU, isViewingHistoricalMonth, historicalDataSnapshot]);
 
   const setTargetTKUBatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
     handleUpdateTargetTKU(prev => {
@@ -1408,7 +1444,7 @@ export function ManagerView({
       updates.forEach(({ r, c, val }) => {
         const prefix = TKU_ROW_PREFIXES[r] ?? "target";
         const key = `${prefix}${suffixes[c]}`;
-        const numVal = Math.max(0, Math.round(Number(val)) || 0);
+        const numVal = parseIndonesianNumber(val);
         next = { ...next, [key]: numVal };
       });
       TKU_ROW_PREFIXES.forEach(prefix => {
@@ -1433,6 +1469,9 @@ export function ManagerView({
     handleCut: handleTkuGridCut,
     handlePaste: handleTkuGridPaste,
     handleClear: handleTkuGridClear,
+    clipboardModal: tkuClipboardModal,
+    confirmManualPaste: tkuConfirmManualPaste,
+    closeClipboardModal: closeTkuClipboardModal,
   } = useSimpleGrid({
     totalRows: 3,
     totalCols: 4,
@@ -1466,11 +1505,13 @@ export function ManagerView({
           if (activeTab === "breakdown") handleRedo();
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-        if (activeTab === "breakdown" && gridSelection) {
-          handleCopyGridCells();
-        } else if (activeTab === "target_kompensasi") {
-          if (targetGridSelection) handleTargetGridCopy();
-          if (tkuGridSelection) handleTkuGridCopy();
+        if (targetTag !== "input" && targetTag !== "textarea") {
+          if (activeTab === "breakdown" && gridSelection) {
+            handleCopyGridCells();
+          } else if (activeTab === "target_kompensasi") {
+            if (targetGridSelection) handleTargetGridCopy();
+            if (tkuGridSelection) handleTkuGridCopy();
+          }
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (targetTag !== "input" && targetTag !== "textarea") {
@@ -1491,7 +1532,7 @@ export function ManagerView({
       const text = e.clipboardData?.getData("text/plain");
       if (text) {
         const clean = text.trim();
-        if (targetTag !== "input" || /[\t\n\r,;/|\s]/.test(clean)) {
+        if (targetTag !== "input" || /[\t\n\r]/.test(clean)) {
           e.preventDefault();
           if (activeTab === "breakdown" && gridSelection) handlePasteIntoGrid(text);
           else if (activeTab === "target_kompensasi") {
@@ -1623,6 +1664,8 @@ export function ManagerView({
 
   const breakdownPlanMapRef = useRef(breakdownPlanMap);
   const breakdownRealisasiMapRef = useRef(breakdownRealisasiMap);
+  const isBreakdownDirtyRef = useRef(false);
+
   useEffect(() => {
     breakdownPlanMapRef.current = breakdownPlanMap;
     breakdownRealisasiMapRef.current = breakdownRealisasiMap;
@@ -1649,7 +1692,7 @@ export function ManagerView({
   // Auto-save Breakdown
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (Object.keys(breakdownPlanMap).length > 0 || Object.keys(breakdownRealisasiMap).length > 0) {
+      if (isBreakdownDirtyRef.current && (Object.keys(breakdownPlanMap).length > 0 || Object.keys(breakdownRealisasiMap).length > 0)) {
         handleSaveBreakdownPlan();
       }
     }, 500);
@@ -1657,23 +1700,36 @@ export function ManagerView({
   }, [breakdownPlanMap, breakdownRealisasiMap]);
 
   // Handler: Save Breakdown Plan & Realisasi (hanya lewat server, satu sumber kebenaran)
-  const handleSaveBreakdownPlan = async () => {
+  const handleSaveBreakdownPlan = async (isManual = false) => {
+    if (!isManual && !isBreakdownDirtyRef.current) return; // Prevent unnecessary save
     setIsBreakdownSaving(true);
     try {
-      const res = await fetch("/api/saveBreakdownPlan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const payloadStr = JSON.stringify({
           month: selectedBreakdownMonth,
           breakdownPlan: breakdownPlanMap,
           breakdownRealisasi: breakdownRealisasiMap
-        })
+        });
+      console.log("Saving breakdown, payload size:", payloadStr.length);
+      const res = await fetch("/api/saveBreakdownPlan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payloadStr
       });
-      const resData = await parseJsonResponse(res);
+      console.log("Save breakdown status:", res.status);
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error("Save breakdown error response:", errText.substring(0, 500));
+        if (isManual) alert("Gagal menyimpan data breakdown: Server merespon " + res.status);
+        return;
+      }
+      const resData = await res.json();
       if (resData && resData.ok) {
+        isBreakdownDirtyRef.current = false; // Clear dirty flag on success
         if (onRefresh) await onRefresh();
+        if (isManual) alert("Berhasil menyimpan data breakdown!");
       } else {
-        console.error("Gagal menyimpan data breakdown ke server.");
+        console.error("Gagal menyimpan data breakdown ke server, resData:", resData);
+        if (isManual) alert("Gagal menyimpan data breakdown ke server.");
       }
     } catch (e: any) {
       console.error("Error: " + (e.message || "Gagal menyimpan"));
@@ -1783,10 +1839,10 @@ export function ManagerView({
     });
   };
 
-  const handleGlobalPembagiChange = (val: number) => {
+  const handleGlobalPembagiChange = (val: number | string) => {
     updateActiveGridMap(prev => {
       const copy = { ...prev };
-      const newPembagi = Math.max(1, val);
+      const newPembagi = val === '' ? ('' as any) : Math.max(1, Number(val));
       // Update all existing entries
       Object.keys(copy).forEach(area => {
         if (copy[area]) {
@@ -1910,6 +1966,8 @@ export function ManagerView({
       pin: newYlPin,
       kodeYl: newYlKode || `YL-${newYlArea}`,
       tanggalMasuk: newYlTanggalMasuk || today,
+      nik: newYlNik || undefined,
+      tglLahir: newYlTglLahir || undefined,
       status: "Aktif",
       tanggalDaftar: today
     }];
@@ -1919,6 +1977,8 @@ export function ManagerView({
     setNewYlPin("");
     setNewYlKode("");
     setNewYlTanggalMasuk("");
+    setNewYlNik("");
+    setNewYlTglLahir("");
   };
 
   // Handler: Open Permanent Delete YL Modal
@@ -2039,7 +2099,7 @@ export function ManagerView({
   // Local states for Kalimat Motivasi Running Banner YL
   const [localMotivasiList, setLocalMotivasiList] = useState<string[]>(motivasiConfig?.list || []);
   const [localMotivasiTerpilih, setLocalMotivasiTerpilih] = useState<string[]>(motivasiConfig?.terpilih || []);
-  const [localMotivasiInterval, setLocalMotivasiInterval] = useState<number>(motivasiConfig?.intervalDetik || 30);
+  const [localMotivasiInterval, setLocalMotivasiInterval] = useState<number | string>(motivasiConfig?.intervalDetik || 30);
   const [localMotivasiEnabled, setLocalMotivasiEnabled] = useState<boolean>(motivasiConfig?.enabled ?? true);
   const [newMotivasiInput, setNewMotivasiInput] = useState<string>("");
   const [motivasiSavedMsg, setMotivasiSavedMsg] = useState<string>("");
@@ -2113,7 +2173,7 @@ export function ManagerView({
       ...motivasiConfig,
       list: localMotivasiList,
       terpilih: localMotivasiTerpilih,
-      intervalDetik: localMotivasiInterval,
+      intervalDetik: Number(localMotivasiInterval) || 30,
       enabled: localMotivasiEnabled,
       chatbotName: chatbotNameInput.trim() || "AI Jember 1 Pro",
       tkuName: tkuNameInput.trim() || "DP Jember 1"
@@ -2576,7 +2636,6 @@ export function ManagerView({
               </div>
             )}
 
-            {/* Tombol Garis Tiga (Hamburger Menu) di Pojok Kanan Atas */}
             <button
               onClick={() => onRefresh && onRefresh()}
               className="bg-black/20 hover:bg-black/40 text-white font-extrabold text-xs px-3 py-2 rounded-xl border border-white/20 shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 backdrop-blur-sm"
@@ -2585,14 +2644,28 @@ export function ManagerView({
               <RefreshCw className={`w-5 h-5 text-white ${isRefreshing ? "animate-spin" : ""}`} />
             </button>
             <button
-              onClick={() => setIsNavMenuOpen(!isNavMenuOpen)}
-              className="bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-              title="Buka Menu Navigasi (Garis Tiga)"
+              onClick={() => {
+                if (activeTab !== "dashboard") {
+                  setActiveTab("dashboard");
+                } else {
+                  setIsNavMenuOpen(!isNavMenuOpen);
+                }
+              }}
+              className="flex bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-2.5 sm:px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer items-center gap-1.5"
+              title={activeTab !== "dashboard" ? "Kembali ke Dasbor" : "Buka Menu Navigasi (Garis Tiga)"}
             >
-              <Menu className="w-5 h-5 text-white" />
-              <span className="font-extrabold">Menu ☰</span>
+              {activeTab !== "dashboard" ? (
+                <>
+                  <Home className="w-5 h-5 text-white" />
+                  <span className="hidden sm:inline font-extrabold">Dasbor</span>
+                </>
+              ) : (
+                <>
+                  <Menu className="w-5 h-5 text-white" />
+                  <span className="hidden sm:inline font-extrabold">Menu ☰</span>
+                </>
+              )}
             </button>
-
             <button
               onClick={onLogout}
               className="bg-slate-900/80 hover:bg-slate-950 text-slate-100 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-all cursor-pointer shadow-sm"
@@ -2603,139 +2676,100 @@ export function ManagerView({
         </div>
       </header>
 
-      {/* Drawer Overlay Navigasi (Garis Tiga Menu Pojok Kanan Atas) */}
+      {/* Menu Navigasi ala Aplikasi HP (Bottom Sheet / Grid Overlay) */}
       {isNavMenuOpen && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex justify-end animate-fade-in">
-          <div className="w-full max-w-sm bg-slate-900 border-l border-red-900/80 text-white h-full overflow-y-auto shadow-2xl flex flex-col justify-between">
-            <div className="p-4 space-y-4">
-              {/* Header Drawer */}
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="bg-red-600 text-white font-black p-1.5 rounded-lg text-sm">Y</span>
-                  <div>
-                    <h3 className="text-xs font-black uppercase text-white tracking-wider">
-                      {(motivasiConfig?.tkuName || "DP JEMBER 1").toUpperCase()}
-                    </h3>
-                    <p className="text-[10px] text-red-300 font-bold">Navigasi Utama Aplikasi</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setIsNavMenuOpen(false)}
-                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl transition-all cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* List Menu Items */}
-              <div className="space-y-1.5">
-                <span className="text-[9.5px] font-black text-slate-400 uppercase tracking-widest block px-2">
-                  Daftar Menu Tersedia
-                </span>
-
-                <button
-                  onClick={() => { setActiveTab("dashboard"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "dashboard" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <TrendingUp className="w-4 h-4 text-red-400" />
-                  <span>📈 Dasbor Utama</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("rata2_bulanan"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "rata2_bulanan" ? "bg-emerald-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-emerald-300"
-                  }`}
-                >
-                  <Calendar className="w-4 h-4 text-emerald-400" />
-                  <span>📊 Data Rata-Rata Bulanan (Baru)</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("lhpp_realisasi"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "lhpp_realisasi" || activeTab === "input_realisasi" ? "bg-emerald-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                  <span>📝 Input Penjualan & PJL (LHPP)</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("breakdown"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "breakdown" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <Grid3X3 className="w-4 h-4 text-amber-400" />
-                  <span>🧩 BD & Realisasi Harian</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("target_kompensasi"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "target_kompensasi" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <Target className="w-4 h-4 text-sky-400" />
-                  <span>🎯 Target & Kompensasi</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("evaluasi"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "evaluasi" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <Award className="w-4 h-4 text-yellow-400" />
-                  <span>🏆 Evaluasi Kinerja</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("plg_pjl"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "plg_pjl" ? "bg-cyan-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <PieChart className="w-4 h-4 text-cyan-400" />
-                  <span>👥 Pelanggan & Penjualan</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("lady"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "lady" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <Users className="w-4 h-4 text-indigo-400" />
-                  <span>👩‍💼 Profil Yakult Lady</span>
-                </button>
-
-                <button
-                  onClick={() => { setActiveTab("setting"); setIsNavMenuOpen(false); }}
-                  className={`w-full p-3 rounded-xl font-bold text-xs flex items-center gap-3 transition-all cursor-pointer ${
-                    activeTab === "setting" ? "bg-red-600 text-white font-black shadow-lg" : "bg-slate-800/60 hover:bg-slate-800 text-slate-200"
-                  }`}
-                >
-                  <Settings className="w-4 h-4 text-slate-400" />
-                  <span>⚙️ Pengaturan & Cloud Supabase</span>
-                </button>
-              </div>
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex flex-col justify-end sm:justify-center sm:items-center animate-fade-in" onClick={() => setIsNavMenuOpen(false)}>
+          <div 
+            className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-slide-up sm:animate-scale-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Grabber handle for mobile */}
+            <div className="w-full flex justify-center pt-3 pb-1 sm:hidden">
+              <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full"></div>
             </div>
-
-            <div className="p-4 border-t border-slate-800 bg-slate-950 text-center">
+            
+            <div className="px-5 pb-3 pt-2 sm:pt-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
+                  Menu Aplikasi
+                </h3>
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  {(motivasiConfig?.tkuName || "DP JEMBER 1").toUpperCase()}
+                </p>
+              </div>
               <button
                 onClick={() => setIsNavMenuOpen(false)}
-                className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full transition-all cursor-pointer"
               >
-                Tutup Menu ✕
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Grid Icon Menu */}
+            <div className="p-5 grid grid-cols-4 gap-y-6 gap-x-2 bg-slate-50/50 dark:bg-slate-900">
+              {[
+                { id: "dashboard", icon: TrendingUp, label: "Dasbor", color: "bg-red-500", text: "text-red-500", light: "bg-red-50" },
+                { id: "lhpp_realisasi", icon: FileSpreadsheet, label: "LHPP", color: "bg-emerald-500", text: "text-emerald-500", light: "bg-emerald-50" },
+                { id: "breakdown", icon: Grid3X3, label: "Breakdown dan Realisasi", color: "bg-amber-500", text: "text-amber-500", light: "bg-amber-50" },
+                { id: "target_kompensasi", icon: Target, label: "Target", color: "bg-sky-500", text: "text-sky-500", light: "bg-sky-50" },
+                { id: "evaluasi", icon: Award, label: "Evaluasi", color: "bg-yellow-500", text: "text-yellow-600", light: "bg-yellow-50" },
+                { id: "rata2_bulanan", icon: Calendar, label: "Rata-rata", color: "bg-teal-500", text: "text-teal-500", light: "bg-teal-50" },
+                { id: "plg_pjl", icon: PieChart, label: "Pelanggan", color: "bg-cyan-500", text: "text-cyan-500", light: "bg-cyan-50" },
+                { id: "lady", icon: Users, label: "Profil YL", color: "bg-indigo-500", text: "text-indigo-500", light: "bg-indigo-50" },
+                { id: "seragam", icon: Grid3X3, label: "Seragam", color: "bg-purple-500", text: "text-purple-500", light: "bg-purple-50" },
+                { id: "product_knowledge", icon: BookOpen, label: "Edukasi", color: "bg-rose-500", text: "text-rose-500", light: "bg-rose-50" },
+              ].map((item) => {
+                const isActive = activeTab === item.id || (item.id === "lhpp_realisasi" && activeTab === "input_realisasi");
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { setActiveTab(item.id as any); setIsNavMenuOpen(false); }}
+                    className="flex flex-col items-center gap-2 group cursor-pointer"
+                  >
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 shadow-sm ${
+                      isActive 
+                        ? `${item.color} text-white shadow-md scale-105` 
+                        : `bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ${item.text} group-hover:scale-105 group-hover:shadow-md`
+                    }`}>
+                      <Icon className={`w-6 h-6 ${isActive ? "text-white" : ""}`} strokeWidth={isActive ? 2.5 : 2} />
+                    </div>
+                    <span className={`text-[10px] font-bold text-center leading-tight ${
+                      isActive ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-slate-400"
+                    }`}>
+                      {item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bottom Actions */}
+            <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { setActiveTab("setting"); setIsNavMenuOpen(false); }}
+                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === "setting" 
+                    ? "bg-slate-800 text-white" 
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span>Pengaturan</span>
+              </button>
+              <button
+                onClick={onLogout}
+                className="flex items-center justify-center gap-2 py-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span className="text-base leading-none">🚪</span>
+                <span>Keluar</span>
               </button>
             </div>
           </div>
         </div>
       )}
+      
+
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto p-4">
@@ -2774,8 +2808,19 @@ export function ManagerView({
           </div>
         )}
 
-        {/* Tab Dashboard */}
+        {/* Tab Dashboard (Bento Grid) */}
         {activeTab === "dashboard" && (
+          <AdminBentoMenu
+            dashboardData={activeDashboardData}
+            targetTKU={activeTargetTKU}
+            currentMonthTotal={currentMonthTotal}
+            activeGridMap={activeGridMap}
+            setActiveTab={setActiveTab}
+          />
+        )}
+
+        {/* Tab Grafik (Old Dashboard) */}
+        {activeTab === "grafik" && (
           <ManagerDashboardTab
             dashboardData={activeDashboardData}
             targetTKU={activeTargetTKU}
@@ -3372,7 +3417,8 @@ export function ManagerView({
                           ? activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25
                           : 25
                       }
-                      onChange={(e) => handleGlobalPembagiChange(Number(e.target.value) || 1)}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => handleGlobalPembagiChange(e.target.value === '' ? '' : Number(e.target.value))}
                       className="w-14 p-1 text-xs font-extrabold text-center bg-white border border-slate-300 rounded-lg text-slate-900 outline-none focus:ring-2 focus:ring-red-500"
                     />
                     <span className="text-[10px] text-slate-500 font-medium">
@@ -3384,7 +3430,7 @@ export function ManagerView({
                 {/* Save & Toolbar buttons */}
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleSaveBreakdownPlan}
+                    onClick={() => handleSaveBreakdownPlan(true)}
                     disabled={isBreakdownSaving}
                     className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                   >
@@ -3616,7 +3662,9 @@ export function ManagerView({
                 try {
                   const text = await navigator.clipboard.readText();
                   if (text && gridSelection) handlePasteIntoGrid(text);
-                } catch (e) {}
+                } catch (e) {
+                  setBreakdownClipboardModal({ mode: "paste", text: "" });
+                }
               }}
               onClear={handleClearSelectedGridCells}
               onSelectAll={handleSelectAllGridCells}
@@ -3625,6 +3673,17 @@ export function ManagerView({
                 setGridSelection(null);
               }}
             />
+            {breakdownClipboardModal && (
+              <ClipboardFallbackModal
+                mode={breakdownClipboardModal.mode}
+                initialText={breakdownClipboardModal.text}
+                onConfirmPaste={(text) => {
+                  handlePasteIntoGrid(text);
+                  setBreakdownClipboardModal(null);
+                }}
+                onClose={() => setBreakdownClipboardModal(null)}
+              />
+            )}
           </div>
         )}
 
@@ -3695,6 +3754,16 @@ export function ManagerView({
                                 <NumberInput
                                   min={0}
                                   value={val}
+                                  onPaste={(e) => {
+                                    const text = e.clipboardData.getData("text/plain");
+                                    if (!text) return;
+                                    e.preventDefault();
+                                    const newSel = { startR: rowItem.r, startC: cIdx, endR: rowItem.r, endC: cIdx };
+                                    setTkuGridSelection(newSel);
+                                    setTimeout(() => {
+                                      handleTkuGridPaste(text, newSel);
+                                    }, 0);
+                                  }}
                                   onChange={(n) => {
                                     handleUpdateTargetTKU((prev: any) => {
                                       const updated = { ...prev, [`${rowItem.prefix}${sfx}`]: n };
@@ -3742,6 +3811,8 @@ export function ManagerView({
                         setTargetYLMap={isViewingHistoricalMonth ? handleUpdateTargetYLMap : setTargetYLMap}
                         getTargetCellProps={getTargetCellProps}
                         selectTargetRow={selectTargetRow}
+                        setTargetGridSelection={setTargetGridSelection}
+                        handleTargetGridPaste={handleTargetGridPaste}
                       />
                     ))}
                   </tbody>
@@ -3888,6 +3959,14 @@ export function ManagerView({
                 setTargetGridSelection(null);
               }}
             />
+            {targetClipboardModal && (
+              <ClipboardFallbackModal
+                mode={targetClipboardModal.mode}
+                initialText={targetClipboardModal.text}
+                onConfirmPaste={targetConfirmManualPaste}
+                onClose={closeTargetClipboardModal}
+              />
+            )}
 
             <GridSelectionToolbar
               selection={tkuGridSelection}
@@ -3902,6 +3981,14 @@ export function ManagerView({
                 setTkuGridSelection(null);
               }}
             />
+            {tkuClipboardModal && (
+              <ClipboardFallbackModal
+                mode={tkuClipboardModal.mode}
+                initialText={tkuClipboardModal.text}
+                onConfirmPaste={tkuConfirmManualPaste}
+                onClose={closeTkuClipboardModal}
+              />
+            )}
           </div>
         )}
 
@@ -4192,7 +4279,8 @@ export function ManagerView({
                       type="number"
                       min={5}
                       value={localMotivasiInterval}
-                      onChange={(e) => setLocalMotivasiInterval(Number(e.target.value) || 30)}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => setLocalMotivasiInterval(e.target.value === '' ? '' : Number(e.target.value))}
                       className="bg-slate-50 border border-slate-200 text-xs rounded-xl p-1.5 font-extrabold text-slate-800 w-16 text-center focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
                     <span className="text-xs font-bold text-slate-500">detik</span>
@@ -4429,6 +4517,7 @@ export function ManagerView({
         )}
 
         {/* Tab Data YL */}
+        {activeTab === "seragam" && <ErrorBoundary><ManagerSeragamView /></ErrorBoundary>}
         {activeTab === "lady" && (
           <ManagerLadyTab
             ylList={ylList}
@@ -4446,6 +4535,10 @@ export function ManagerView({
             setNewYlTanggalMasuk={setNewYlTanggalMasuk}
             newYlPin={newYlPin}
             setNewYlPin={setNewYlPin}
+            newYlNik={newYlNik}
+            setNewYlNik={setNewYlNik}
+            newYlTglLahir={newYlTglLahir}
+            setNewYlTglLahir={setNewYlTglLahir}
             ylSavedMsg={ylSavedMsg}
           />
         )}
@@ -4481,6 +4574,13 @@ export function ManagerView({
                 : null
             }
           />
+        )}
+
+        {/* Tab Product Knowledge */}
+        {activeTab === "product_knowledge" && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <ProductKnowledgeView theme={theme} />
+          </div>
         )}
       </main>
     </div>

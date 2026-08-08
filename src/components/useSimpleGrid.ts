@@ -30,6 +30,7 @@ export function useSimpleGrid({
   const [isDragging, setIsDragging] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [internalClipboard, setInternalClipboard] = useState<string[][] | null>(null);
+  const [clipboardModal, setClipboardModal] = useState<{ mode: "copy" | "paste"; text: string; overrideSelection: GridSelection | null } | null>(null);
   const [isMenuOpen, setIsMenuOpen] = useState<boolean>(false);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -73,11 +74,18 @@ export function useSimpleGrid({
       rowsArr.push(rowData);
     }
     const tsv = rowsArr.map(row => row.join("\t")).join("\n");
-    navigator.clipboard.writeText(tsv).catch(() => {});
     setInternalClipboard(rowsArr);
-    
-    const cellCount = (maxR - minR + 1) * (maxC - minC + 1);
-    showToast(`📋 ${cellCount} sel berhasil disalin`);
+
+    navigator.clipboard.writeText(tsv)
+      .then(() => {
+        const cellCount = (maxR - minR + 1) * (maxC - minC + 1);
+        showToast(`📋 ${cellCount} sel berhasil disalin`);
+      })
+      .catch(() => {
+        // Fallback: WebView Android biasanya blokir Clipboard API,
+        // buka modal supaya user bisa salin manual lewat textarea native.
+        setClipboardModal({ mode: "copy", text: tsv, overrideSelection: null });
+      });
   }, [selection, minR, maxR, minC, maxC, getCellValue, showToast]);
 
   const handleClear = useCallback(() => {
@@ -111,9 +119,15 @@ export function useSimpleGrid({
   }, [handleCopy, handleClear]);
 
   const handlePaste = useCallback(
-    (pastedText?: any) => {
+    (pastedText?: any, overrideSelection?: GridSelection | null) => {
       setIsMenuOpen(false);
-      if (!selection || (!setCellValue && !setBatchCellValues)) return;
+      const activeSelection = overrideSelection || selection;
+      if (!activeSelection || (!setCellValue && !setBatchCellValues)) return;
+
+      const minR = Math.min(activeSelection.startR, activeSelection.endR);
+      const maxR = Math.max(activeSelection.startR, activeSelection.endR);
+      const minC = Math.min(activeSelection.startC, activeSelection.endC);
+      const maxC = Math.max(activeSelection.startC, activeSelection.endC);
 
       const processPaste = (text: string) => {
         const rawLines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
@@ -122,19 +136,7 @@ export function useSimpleGrid({
         }
         if (rawLines.length === 0) return;
 
-        const isTabDelimited = rawLines.some(l => l.includes("\t"));
-
-        const srcMatrix = rawLines.map(line => {
-          if (isTabDelimited) {
-            return line.split("\t");
-          } else if (line.includes(";")) {
-            return line.split(";");
-          } else if (line.includes(",")) {
-            return line.split(",");
-          } else {
-            return line.trim() ? line.trim().split(/\s+/) : [""];
-          }
-        });
+        const srcMatrix = rawLines.map(line => line.split("\t"));
 
         const srcHeight = srcMatrix.length;
         const srcWidth = Math.max(...srcMatrix.map(r => r.length));
@@ -216,14 +218,35 @@ export function useSimpleGrid({
           .then(processPaste)
           .catch(() => {
             if (internalClipboard) {
+              // Masih ada data copy internal dari sesi grid yang sama, langsung pakai itu.
               const text = internalClipboard.map(r => r.join("\t")).join("\n");
               processPaste(text);
+            } else {
+              // Tidak ada data internal & Clipboard API gagal (khas WebView Android):
+              // buka modal supaya user bisa tempel manual dari luar app (Excel/WA/dll).
+              setClipboardModal({
+                mode: "paste",
+                text: "",
+                overrideSelection: activeSelection,
+              });
             }
           });
       }
     },
     [selection, minR, maxR, minC, maxC, totalRows, totalCols, isCellEditable, setCellValue, setBatchCellValues, internalClipboard, onRecordUndo, showToast]
   );
+
+  const confirmManualPaste = useCallback(
+    (text: string) => {
+      if (clipboardModal?.mode === "paste") {
+        handlePaste(text, clipboardModal.overrideSelection);
+      }
+      setClipboardModal(null);
+    },
+    [clipboardModal, handlePaste]
+  );
+
+  const closeClipboardModal = useCallback(() => setClipboardModal(null), []);
 
   const handleSelectAll = useCallback(() => {
     setSelection({
@@ -325,7 +348,10 @@ export function useSimpleGrid({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (activeTag === "input" || !selection) return;
+      // Allow copy/paste to work even if an input is focused IF we have a multi-cell selection.
+      // Actually, if an input is focused, we probably want native copy/paste.
+      // But we shouldn't block selection movement if the input is readonly or we are dragging.
+      if (activeTag === "input" || activeTag === "textarea" || !selection) return;
 
       const key = e.key.toLowerCase();
 
@@ -474,7 +500,7 @@ export function useSimpleGrid({
             setSelection(prev => (prev ? { ...prev, endR: r, endC: c } : { startR: r, startC: c, endR: r, endC: c }));
           } else if (!wasInsideSelection) {
             setIsMenuOpen(false);
-            setSelection({ startR: r, startC: c, endR: r, endC: c });
+            // Do not set selection immediately to allow scrolling without "ngeblok"
           }
         },
         onTouchMove: (e: React.TouchEvent) => {
@@ -511,9 +537,13 @@ export function useSimpleGrid({
         },
         onTouchEnd: () => {
           if (touchStartRef.current) {
-            if (!touchStartRef.current.isMoved && touchStartRef.current.isInsideSelection) {
-              setIsMenuOpen(true);
-              setMenuPos({ x: touchStartRef.current.x, y: touchStartRef.current.y });
+            if (!touchStartRef.current.isMoved) {
+              if (touchStartRef.current.isInsideSelection) {
+                setIsMenuOpen(true);
+                setMenuPos({ x: touchStartRef.current.x, y: touchStartRef.current.y });
+              } else {
+                setSelection({ startR: touchStartRef.current.r, startC: touchStartRef.current.c, endR: touchStartRef.current.r, endC: touchStartRef.current.c });
+              }
             }
             touchStartRef.current = null;
           }
@@ -548,6 +578,9 @@ export function useSimpleGrid({
     handlePaste,
     handleClear,
     handleSelectAll,
-    toolbarPos: menuPos 
+    toolbarPos: menuPos,
+    clipboardModal,
+    confirmManualPaste,
+    closeClipboardModal
   };
 }

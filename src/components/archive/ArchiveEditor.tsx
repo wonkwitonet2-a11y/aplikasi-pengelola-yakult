@@ -31,7 +31,29 @@ function createMockHandler(snapshotRef, setSnapshot) {
       } catch(e) { return { ok: false }; }
     }
     if (path === "/api/getLhppPdm") {
-      return { ok: true, lhppPdm: s.lhppPdm || {}, lhppPdmYlm: s.lhppPdmYlm || {}, prevPdmMap: {} };
+      const month = urlObj.searchParams.get("month") || new Date().toISOString().slice(0, 7);
+      const day = parseInt(urlObj.searchParams.get("day") || String(new Date().getDate()), 10);
+      const dayPadded = String(day).padStart(2, '0');
+      const dateKey = urlObj.searchParams.get("tanggal") || `${month}-${dayPadded}`;
+      
+      let prevPdmMap = {};
+      for (let d = day - 1; d >= 1; d--) {
+        const prevKey = `${month}-${String(d).padStart(2, "0")}`;
+        if (s.lhppPdm && s.lhppPdm[prevKey] && Object.keys(s.lhppPdm[prevKey]).length > 0) {
+          const dayData = s.lhppPdm[prevKey];
+          Object.keys(dayData).forEach((ylKey) => {
+            const hi = dayData[ylKey]?.pdmHariIni;
+            if (hi && (hi.yo > 0 || hi.om > 0 || hi.os > 0 || hi.yt > 0) && !prevPdmMap[ylKey]) {
+              prevPdmMap[ylKey] = hi;
+            }
+          });
+        }
+      }
+      
+      const currentPdm = (s.lhppPdm && s.lhppPdm[dateKey]) ? s.lhppPdm[dateKey] : null;
+      const currentPdmYlm = (s.lhppPdmYlm && s.lhppPdmYlm[dateKey]) ? s.lhppPdmYlm[dateKey] : { yo: 0, om: 0, os: 0, yt: 0 };
+      
+      return { ok: true, tanggal: dateKey, month, day, pdmYlm: currentPdmYlm, rowsData: currentPdm, prevPdmMap };
     }
     
     if (path === "/api/saveLhppPdm") {
@@ -82,7 +104,7 @@ function createMockHandler(snapshotRef, setSnapshot) {
                  next.lhppPdm[dateKey][ylKey] = { pdmSebelum, bb, pdmHariIni };
                  
                  // Patch transactions for bb and tot_*
-                 const txIdx = next.transactions.findIndex(t => t.area === areaKey && t.tanggal === dateKey);
+                 const txIdx = next.transactions.findIndex(t => t.tanggal === dateKey && (t.nama === r.nama || (t.nama && t.nama.includes(ylKey)) || (areaKey && t.area === areaKey)));
                  if (txIdx >= 0) {
                      next.transactions[txIdx] = {
                          ...next.transactions[txIdx],
@@ -146,6 +168,178 @@ function createMockHandler(snapshotRef, setSnapshot) {
   };
 }
 
+
+function computeArchiveDashboardData(s: any, ylList: any[]): any {
+  const txs = s.transactions || [];
+  const targetYL = s.targetTKU ? (s.targetYLMap || {}) : (s.targetYL || {});
+  const realisasiMonth = s.breakdownRealisasiMap || {};
+  const currentMonth = txs.length > 0 ? txs[txs.length - 1].tanggal.substring(0, 7) : new Date().toISOString().substring(0, 7);
+  const currentMonthTxs = txs.filter((t: any) => t.tanggal.startsWith(currentMonth));
+  
+  let sRmh = 0, sPsr = 0, sSkh = 0, sKtr = 0, sTk = 0, sIb = 0;
+  let totalBb = 0;
+
+  currentMonthTxs.forEach((t: any) => {
+    sRmh += (t.rmh_yo||0) + (t.rmh_om||0) + (t.rmh_os||0) + (t.rmh_yt||0);
+    sPsr += (t.psr_yo||0) + (t.psr_om||0) + (t.psr_os||0) + (t.psr_yt||0);
+    sSkh += (t.skh_yo||0) + (t.skh_om||0) + (t.skh_os||0) + (t.skh_yt||0);
+    sKtr += (t.ktr_yo||0) + (t.ktr_om||0) + (t.ktr_os||0) + (t.ktr_yt||0);
+    sTk += (t.tk_yo||0) + (t.tk_om||0) + (t.tk_os||0) + (t.tk_yt||0);
+    sIb += (t.ib_yo||0) + (t.ib_om||0) + (t.ib_os||0) + (t.ib_yt||0);
+    totalBb += (t.bb_yo||0) + (t.bb_om||0) + (t.bb_os||0) + (t.bb_yt||0);
+  });
+
+  let totalYo = 0, totalOm = 0, totalOs = 0, totalYt = 0;
+  const perArea: any = {};
+  
+  Object.keys(realisasiMonth).forEach(area => {
+    const areaData = realisasiMonth[area];
+    let ayo = 0, aom = 0, aos = 0, ayt = 0;
+    const days = areaData && areaData.days ? areaData.days : areaData;
+    const pembagiTanggal = (areaData && areaData.pembagiTanggal > 0) ? Number(areaData.pembagiTanggal) : 15;
+    
+    if (days && typeof days === "object") {
+      Object.values(days).forEach((d: any) => {
+        if (!d) return;
+        ayo += Number(d.yo) || 0;
+        aom += Number(d.om) || 0;
+        aos += Number(d.os) || 0;
+        ayt += Number(d.yt) || 0;
+      });
+    }
+    perArea[area] = { yo: ayo, om: aom, os: aos, yt: ayt, total: ayo + aom + aos + ayt, pembagiTanggal };
+    totalYo += ayo; totalOm += aom; totalOs += aos; totalYt += ayt;
+  });
+  
+  const totalPenjualan = totalYo + totalOm + totalOs + totalYt;
+  
+  const names = ylList.map((y: any) => y.nama);
+  const perYL: any = {};
+  let teamTotalRata2 = 0;
+  let teamTotalYoRata2 = 0;
+  let teamTotalOmRata2 = 0;
+  let teamTotalOsRata2 = 0;
+  let teamTotalYtRata2 = 0;
+  let teamTotalPembagi = 0;
+
+  names.forEach(name => {
+    let ylItem = ylList.find((y: any) => y.nama === name);
+    const area = ylItem ? ylItem.area : name.substring(0, 3);
+    const ylTxs = currentMonthTxs.filter((t: any) => t.nama === name || (t.nama && String(t.nama).startsWith(area)));
+    
+    let ylBb = 0;
+    ylTxs.forEach((t: any) => {
+      ylBb += (t.bb_yo||0) + (t.bb_om||0) + (t.bb_os||0) + (t.bb_yt||0);
+    });
+
+    const areaRealisasi = perArea[area];
+    const ylTotal = (areaRealisasi && areaRealisasi.total > 0) ? areaRealisasi.total : 0;
+    
+    const tgtObj = (targetYL && (targetYL[`${area}_${currentMonth}`] || targetYL[area])) || {
+      target: ylItem?.target ?? 0,
+      bln_lalu: ylItem?.bln_lalu ?? 0,
+      thn_lalu: ylItem?.thn_lalu ?? 0
+    };
+    
+    const divisor = areaRealisasi ? areaRealisasi.pembagiTanggal : 15;
+    const ylRata2 = divisor > 0 ? ylTotal / divisor : 0;
+    teamTotalRata2 += ylRata2;
+    teamTotalYoRata2 += divisor > 0 && areaRealisasi ? areaRealisasi.yo / divisor : 0;
+    teamTotalOmRata2 += divisor > 0 && areaRealisasi ? areaRealisasi.om / divisor : 0;
+    teamTotalOsRata2 += divisor > 0 && areaRealisasi ? areaRealisasi.os / divisor : 0;
+    teamTotalYtRata2 += divisor > 0 && areaRealisasi ? areaRealisasi.yt / divisor : 0;
+    teamTotalPembagi += divisor;
+
+    perYL[area] = {
+      nama: name,
+      akumulasi: ylTotal,
+      yo: areaRealisasi ? areaRealisasi.yo : 0,
+      om: areaRealisasi ? areaRealisasi.om : 0,
+      os: areaRealisasi ? areaRealisasi.os : 0,
+      yt: areaRealisasi ? areaRealisasi.yt : 0,
+      rata2: ylRata2,
+      hariAktif: divisor,
+      pembagi: divisor,
+      targetYL: Number(tgtObj.target ?? 0),
+      bulanLaluYL: Number(tgtObj.bln_lalu ?? 0),
+      tahunLaluYL: Number(tgtObj.thn_lalu ?? 0),
+      bbYL: ylBb
+    };
+  });
+
+  let targetTotalSum = 0, blnLaluTotalSum = 0, thnLaluTotalSum = 0;
+  Object.keys(perYL).forEach(area => {
+    targetTotalSum += perYL[area].targetYL;
+    blnLaluTotalSum += perYL[area].bulanLaluYL;
+    thnLaluTotalSum += perYL[area].tahunLaluYL;
+  });
+
+  if (s.targetTKU) {
+    if (s.targetTKU.target !== undefined && Number(s.targetTKU.target) >= 0 && (Number(s.targetTKU.target) > 0 || targetTotalSum === 0)) targetTotalSum = Number(s.targetTKU.target);
+    if (s.targetTKU.bln_lalu !== undefined && Number(s.targetTKU.bln_lalu) >= 0 && (Number(s.targetTKU.bln_lalu) > 0 || blnLaluTotalSum === 0)) blnLaluTotalSum = Number(s.targetTKU.bln_lalu);
+    if (s.targetTKU.thn_lalu !== undefined && Number(s.targetTKU.thn_lalu) >= 0 && (Number(s.targetTKU.thn_lalu) > 0 || thnLaluTotalSum === 0)) thnLaluTotalSum = Number(s.targetTKU.thn_lalu);
+  }
+
+  const rataHarian = teamTotalRata2;
+  const ylCount = names.length > 0 ? names.length : 10;
+
+  let graphDates = [];
+  let graphPenjualan = [];
+  let graphBalikBotol = [];
+
+  for (let d = 1; d <= 31; d++) {
+    let daySales = 0;
+    Object.keys(realisasiMonth).forEach(area => {
+      const rData = realisasiMonth[area];
+      const days = rData && rData.days ? rData.days : rData;
+      if (days && days[String(d)]) {
+        const dObj = days[String(d)];
+        daySales += (Number(dObj.yo) || 0) + (Number(dObj.om) || 0) + (Number(dObj.os) || 0) + (Number(dObj.yt) || 0);
+      }
+    });
+
+    const dayStrPadded = String(d).padStart(2, '0');
+    const matchDatePadded = `${currentMonth}-${dayStrPadded}`;
+    
+    // Hitung BB dari LHPP PDM
+    let bbVal = 0;
+    if (s.lhppPdm && s.lhppPdm[matchDatePadded]) {
+      const dayLhpp = s.lhppPdm[matchDatePadded];
+      Object.keys(dayLhpp).forEach(yl => {
+         const bb = dayLhpp[yl]?.bb;
+         if (bb) {
+            bbVal += (Number(bb.yo)||0) + (Number(bb.om)||0) + (Number(bb.os)||0) + (Number(bb.yt)||0);
+         }
+      });
+    }
+
+    if (daySales > 0 || bbVal > 0) {
+      graphDates.push(String(d));
+      graphPenjualan.push(daySales);
+      graphBalikBotol.push(bbVal);
+    }
+  }
+
+  return {
+    totalPenjualan,
+    rataHarian,
+    salesPerYl: teamTotalPembagi > 0 ? totalPenjualan / teamTotalPembagi : 0,
+    jwp: teamTotalPembagi,
+    rataItem: { YO: teamTotalYoRata2, OM: teamTotalOmRata2, OS: teamTotalOsRata2, YT: teamTotalYtRata2 },
+    vsTarget: targetTotalSum > 0 ? (rataHarian / targetTotalSum) * 100 : 100,
+    vsBulanLalu: blnLaluTotalSum > 0 ? (rataHarian / blnLaluTotalSum) * 100 : 100,
+    vsTahunLalu: thnLaluTotalSum > 0 ? (rataHarian / thnLaluTotalSum) * 100 : 100,
+    targetTim: { target: targetTotalSum, bulanLalu: blnLaluTotalSum, tahunLalu: thnLaluTotalSum, rata2: rataHarian },
+    bbTimRaw: totalBb,
+    hariAktif: teamTotalPembagi > 0 ? teamTotalPembagi / ylCount : 0,
+    perYL,
+    sektorTim: { rumah: sRmh, pasar: sPsr, sekolah: sSkh, kantor: sKtr, toko: sTk, ib: sIb },
+    grafikHarian: { tanggal: graphDates, penjualan: graphPenjualan, balikBotol: graphBalikBotol },
+    plgPjlManual: s.plgPjlManual || {},
+    potensiTembus: s.potensiTembus || {}
+  };
+}
+
 export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
   const [pin, setPin] = useState("");
   const [auth, setAuth] = useState(false);
@@ -156,6 +350,11 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [saveMsg, setSaveMsg] = useState("");
+
+  const computedDashboardData = useMemo(() => {
+    if (!snapshot || !ylList) return snapshot?.dashboardData || {} as any;
+    return computeArchiveDashboardData(snapshot, ylList);
+  }, [snapshot, ylList]);
 
   const snapshotRef = useRef(snapshot);
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
@@ -395,7 +594,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
            <div className="flex-1 min-w-0">
               {activeTab === "dashboard" && (
                 <ManagerDashboardTab 
-                  dashboardData={snapshot.dashboardData}
+                  dashboardData={computedDashboardData}
                   targetTKU={snapshot.targetTKU || { target: 0, bln_lalu: 0, thn_lalu: 0 }}
                   cleanYlName={cleanYlName}
                   currentMonthTotal={currentMonthTotal}
@@ -564,14 +763,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                             value={snapshot.targetTKU?.target || 0}
                             onChange={(e) => setSnapshot(prev => ({ 
                                 ...prev, 
-                                targetTKU: { ...(prev.targetTKU || {}), target: parseInt(e.target.value) || 0 },
-                                dashboardData: {
-                                   ...(prev.dashboardData || {}),
-                                   targetTim: {
-                                      ...(prev.dashboardData?.targetTim || {}),
-                                      target: parseInt(e.target.value) || 0
-                                   }
-                                }
+                                targetTKU: { ...(prev.targetTKU || {}), target: parseInt(e.target.value) || 0 }
                             }))}
                          />
                        </div>
@@ -581,14 +773,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                             value={snapshot.targetTKU?.bln_lalu || 0}
                             onChange={(e) => setSnapshot(prev => ({ 
                                 ...prev, 
-                                targetTKU: { ...(prev.targetTKU || {}), bln_lalu: parseInt(e.target.value) || 0 },
-                                dashboardData: {
-                                   ...(prev.dashboardData || {}),
-                                   targetTim: {
-                                      ...(prev.dashboardData?.targetTim || {}),
-                                      bulanLalu: parseInt(e.target.value) || 0
-                                   }
-                                }
+                                targetTKU: { ...(prev.targetTKU || {}), bln_lalu: parseInt(e.target.value) || 0 }
                             }))}
                          />
                        </div>
@@ -598,14 +783,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                             value={snapshot.targetTKU?.thn_lalu || 0}
                             onChange={(e) => setSnapshot(prev => ({ 
                                 ...prev, 
-                                targetTKU: { ...(prev.targetTKU || {}), thn_lalu: parseInt(e.target.value) || 0 },
-                                dashboardData: {
-                                   ...(prev.dashboardData || {}),
-                                   targetTim: {
-                                      ...(prev.dashboardData?.targetTim || {}),
-                                      tahunLalu: parseInt(e.target.value) || 0
-                                   }
-                                }
+                                targetTKU: { ...(prev.targetTKU || {}), thn_lalu: parseInt(e.target.value) || 0 }
                             }))}
                          />
                        </div>

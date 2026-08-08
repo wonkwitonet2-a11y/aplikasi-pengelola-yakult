@@ -192,7 +192,7 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
         };
         setMessages(prev => [...prev, assistantMessage]);
       } else {
-        throw new Error(data.error || "Gagal memperoleh balasan dari AI.");
+        throw new Error(data?.error || "Gagal memperoleh balasan dari AI.");
       }
     } catch (err: any) {
       console.error(err);

@@ -67,6 +67,8 @@ export interface YLLady {
   tanggalDaftar?: string;
   tanggalResign?: string;
   foto?: string;
+  nik?: string; // e.g. "350..."
+  tglLahir?: string; // e.g. "1980-01-01"
 }
 
 export interface CompensationTier {

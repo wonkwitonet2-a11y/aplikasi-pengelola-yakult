@@ -27,7 +27,7 @@ function NumberInputInner({
   useEffect(() => {
     const valTrunc = value !== undefined && value !== null ? Math.trunc(value) : 0;
     const parsedCurrent = parseInt(displayVal, 10) || 0;
-    if (parsedCurrent !== valTrunc || (valTrunc === 0 && displayVal !== "0")) {
+    if (parsedCurrent !== valTrunc || (valTrunc === 0 && displayVal !== "0" && displayVal !== "")) {
       setDisplayVal(String(valTrunc));
     }
   }, [value]);
@@ -44,7 +44,7 @@ function NumberInputInner({
     raw = allowDecimal ? raw.replace(/[^0-9.,-]/g, "") : raw.replace(/[^0-9-]/g, "");
 
     if (!raw || raw.trim() === "") {
-      setDisplayVal("0");
+      setDisplayVal("");
       let num = 0;
       if (min !== undefined && num < min) num = min;
       if (max !== undefined && num > max) num = max;
@@ -54,7 +54,7 @@ function NumberInputInner({
 
     // Remove leading zeroes before digits (e.g. "05" -> "5", "00" -> "0")
     let sanitized = raw.replace(/^-?0+(?=\d)/, raw.startsWith("-") ? "-" : "");
-    if (sanitized === "" || sanitized === "-") sanitized = "0";
+    if (sanitized === "" || sanitized === "-") sanitized = "";
 
     let num = parseInt(sanitized, 10);
     if (isNaN(num)) num = 0;

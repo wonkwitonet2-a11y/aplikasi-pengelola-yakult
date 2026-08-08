@@ -1,4 +1,7 @@
+import ProductKnowledgeView from "./ProductKnowledgeView";
+import { ClipboardFallbackModal } from "./ClipboardFallbackModal";
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useTabHistory } from "../hooks/useTabHistory";
 import {
   PieChart as Sparkles,
   AlertCircle,
@@ -12,6 +15,7 @@ import { NumberInput } from "./NumberInput";
 import { useSimpleGrid } from "./useSimpleGrid";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
 import { YlRealisasiPotensiTab } from "./YlRealisasiPotensiTab";
+import YLSeragamView from "./YLSeragamView";
 
 
 const formatRp = (val: number) => {
@@ -20,6 +24,7 @@ const formatRp = (val: number) => {
 
 interface YLViewProps {
   ylName: string;
+  ylList?: any[];
   onLogout: () => void;
   onRefresh?: () => Promise<void>;
   isRefreshing?: boolean;
@@ -34,8 +39,40 @@ interface YLViewProps {
   onToggleTheme: () => void;
 }
 
+export function calculateMasaKerja(tanggalMasuk: string | undefined) {
+  if (!tanggalMasuk) return { text: "-", years: 0, months: 0, title: "Yakult Lady" };
+
+  const start = new Date(tanggalMasuk);
+  const now = new Date();
+
+  let years = now.getFullYear() - start.getFullYear();
+  let months = now.getMonth() - start.getMonth();
+
+  if (months < 0) {
+    years--;
+    months += 12;
+  }
+
+  let text = "";
+  if (years > 0) text += `${years} Tahun `;
+  if (months > 0) text += `${months} Bulan`;
+  if (years === 0 && months === 0) text = "Baru Bergabung";
+
+  let title = "🌱 Kuncup";
+  if (years >= 1 && years < 3) title = "🌿 Tuwuh";
+  else if (years >= 3 && years < 5) title = "🌸 Mekar";
+  else if (years >= 5 && years < 10) title = "🌳 Mantep";
+  else if (years >= 10 && years < 15) title = "🐓 Wes Jago";
+  else if (years >= 15 && years < 20) title = "🏅 Panutan";
+  else if (years >= 20 && years < 25) title = "👑 Sesepuh";
+  else if (years >= 25) title = "⚔️ Pusaka";
+
+  return { text: text.trim(), years, months, title };
+}
+
 export function YLView({
   ylName,
+  ylList = [],
   onLogout,
   onRefresh,
   isRefreshing,
@@ -46,7 +83,39 @@ export function YLView({
   motivasiConfig,
   onToggleTheme
 }: YLViewProps) {
-  const [activeTab, setActiveTab] = useState<"input" | "ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus">("input");
+  const [activeTab, setActiveTab] = useState<"beranda" | "input" | "ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus" | "seragam" | "product_knowledge">("beranda");
+  useTabHistory(activeTab, setActiveTab, "beranda");
+
+  const currentYlInfo = useMemo(() => {
+    const areaPrefix = ylName.substring(0, 3).trim();
+    return ylList.find(y => 
+      (y.area && (y.area === areaPrefix || y.area === ylName || ylName.startsWith(y.area))) || 
+      (y.nama && (String(y.nama).toLowerCase() === String(ylName).toLowerCase() || String(y.nama).toLowerCase().includes(String(ylName).toLowerCase()) || String(ylName).toLowerCase().includes(String(y.nama).toLowerCase())))
+    ) || {};
+  }, [ylName, ylList]);
+
+  const isBirthday = useMemo(() => {
+    let day, month;
+    if (currentYlInfo.tglLahir) {
+      const parts = currentYlInfo.tglLahir.split("-"); // YYYY-MM-DD
+      if (parts.length === 3) {
+        month = parseInt(parts[1], 10);
+        day = parseInt(parts[2], 10);
+      }
+    } else if (currentYlInfo.nik && currentYlInfo.nik.length >= 16) {
+      const dobDayStr = currentYlInfo.nik.substring(6, 8);
+      const dobMonthStr = currentYlInfo.nik.substring(8, 10);
+      day = parseInt(dobDayStr, 10);
+      month = parseInt(dobMonthStr, 10);
+      if (day > 40) day -= 40;
+    }
+    
+    if (day && month) {
+      const today = new Date();
+      return today.getDate() === day && (today.getMonth() + 1) === month;
+    }
+    return false;
+  }, [currentYlInfo.nik, currentYlInfo.tglLahir]);
   const [isSavingInputHarian, setIsSavingInputHarian] = useState(false);
   const [inputHarianMsg, setInputHarianMsg] = useState("");
   const getTodayLocalString = () => {
@@ -201,10 +270,14 @@ export function YLView({
     handleCopy: handleRealisasiGridCopy,
     handleCut: handleRealisasiGridCut,
     handlePaste: handleRealisasiGridPaste,
-    handleClear: handleRealisasiGridClear
+    handleClear: handleRealisasiGridClear,
+    clipboardModal,
+    confirmManualPaste,
+    closeClipboardModal,
   } = useSimpleGrid({
     totalRows: 31,
     totalCols: 36,
+    isCellEditable: (_r, c) => c < 24 || c > 27,
     getCellValue: getRealisasiCellValue,
     setBatchCellValues: setRealisasiBatchCellValues
   });
@@ -219,6 +292,7 @@ export function YLView({
   // Papan Attention Manager state
   const [attentionNote, setAttentionNote] = useState<string>("");
   const [isLoadingAttention, setIsLoadingAttention] = useState<boolean>(false);
+  const motYlLines = useMemo(() => attentionNote ? attentionNote.split('\n').filter(Boolean) : [], [attentionNote]);
 
   // Global Keyboard Shortcuts (Ctrl+Z, Ctrl+Y / Ctrl+Shift+Z, Copy/Paste/Delete)
   useEffect(() => {
@@ -235,23 +309,24 @@ export function YLView({
            handleRealisasiGridCopy();
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        if (targetTag !== "input" && targetTag !== "textarea") {
+        if (activeTab === "realisasi_potensi" && isEditRealisasi) {
           navigator.clipboard.readText().then(text => {
-            if (activeTab === "realisasi_potensi" && isEditRealisasi && realisasiGridSelection) handleRealisasiGridPaste(text);
-          }).catch(err => console.error("Clipboard read error:", err));
+            handleRealisasiGridPaste(text);
+          }).catch(() => {
+            handleRealisasiGridPaste();
+          });
         }
       }
     };
 
     const handleWindowPaste = (e: ClipboardEvent) => {
-      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (targetTag === "textarea") return;
-      const text = e.clipboardData?.getData("text/plain");
-      if (text) {
-        const clean = text.trim();
-        if (targetTag !== "input" || /[\t\n\r,;/|\s]/.test(clean)) {
+      if (activeTab === "realisasi_potensi" && isEditRealisasi) {
+        const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+        if (targetTag === "textarea") return;
+        const text = e.clipboardData?.getData("text/plain");
+        if (text !== undefined && text !== null) {
           e.preventDefault();
-          if (activeTab === "realisasi_potensi" && isEditRealisasi && realisasiGridSelection) handleRealisasiGridPaste(text);
+          handleRealisasiGridPaste(text);
         }
       }
     };
@@ -289,7 +364,7 @@ export function YLView({
   
   // Fetch Breakdown Plan & Realisasi for YL from Admin
   useEffect(() => {
-    const area = ylName.substring(0, 3).trim();
+    const area = currentYlInfo.area || ylName.substring(0, 3).trim();
     const month = selectedDate ? selectedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
     setIsBreakdownLoading(true);
     safeFetchJson(`/api/getBreakdownPlan?month=${month}`)
@@ -304,16 +379,17 @@ export function YLView({
 
         const findData = (objMap: any) => {
           if (!objMap || typeof objMap !== "object") return null;
-          if (objMap[area]) return objMap[area];
-          if (objMap[ylName]) return objMap[ylName];
           const keys = Object.keys(objMap);
-          const matchKey = keys.find(k =>
-            k === area ||
-            k.startsWith(area) ||
-            area.startsWith(k) ||
-            k.toLowerCase().includes(ylName.toLowerCase()) ||
-            ylName.toLowerCase().includes(k.toLowerCase())
-          );
+          let matchKey = keys.find(k => k === area || k === ylName);
+          if (!matchKey) {
+            matchKey = keys.find(k =>
+              k === area ||
+              k.startsWith(area) ||
+              area.startsWith(k) ||
+              k.toLowerCase().includes(ylName.toLowerCase()) ||
+              ylName.toLowerCase().includes(k.toLowerCase())
+            );
+          }
           return matchKey ? objMap[matchKey] : null;
         };
 
@@ -325,11 +401,11 @@ export function YLView({
       })
       .catch(err => console.error("Error loading YL breakdown plan & realisasi:", err))
       .finally(() => setIsBreakdownLoading(false));
-  }, [activeTab, ylName, selectedDate]);
+  }, [activeTab, ylName, selectedDate, currentYlInfo.area]);
 
   // Fetch Attention Note for current YL area
   useEffect(() => {
-    const area = ylName.substring(0, 3);
+    const area = currentYlInfo.area || ylName.substring(0, 3).trim();
     setIsLoadingAttention(true);
     safeFetchJson("/api/getAttention")
       .then(res => {
@@ -341,7 +417,7 @@ export function YLView({
       })
       .catch(err => console.error("Error loading attention note:", err))
       .finally(() => setIsLoadingAttention(false));
-  }, [ylName, activeTab]);
+  }, [ylName, activeTab, currentYlInfo.area]);
 
   // YL Profile photo state
   const [ylFoto, setYlFoto] = useState<string>(() => {
@@ -468,7 +544,7 @@ export function YLView({
     }
 
     // Load matching target configuration
-    const area = ylName.substring(0, 3);
+    const area = currentYlInfo.area || ylName.substring(0, 3).trim();
     safeFetchJson("/api/getSettingTargets").then(res => {
       if (res && res.targetYL && res.targetYL[area]) {
         setTargetVal(res.targetYL[area].target ?? 0);
@@ -480,7 +556,7 @@ export function YLView({
         setThnLaluVal(0);
       }
     });
-  }, [selectedDate, transactions, targetYL, ylName]);
+  }, [selectedDate, transactions, targetYL, ylName, currentYlInfo.area]);
 
 
   // Sector calculations
@@ -584,7 +660,7 @@ export function YLView({
       }));
       
       await Promise.all(updates.map(upd => 
-        fetch('/api/saveRealisasiPotensiYL', {
+        safeFetchJson('/api/saveRealisasiPotensiYL', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(upd)
@@ -826,37 +902,35 @@ export function YLView({
       <header className="bg-gradient-to-r from-red-950 to-red-800 border-b-4 border-red-600 text-white p-4 sticky top-0 z-50 shadow-md">
         <div className="max-w-xl mx-auto flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            {/* Profile Picture Avatar with Photo Upload */}
-            <div className="relative group shrink-0">
-              {ylFoto ? (
-                <img
-                  src={ylFoto}
-                  alt={cleanYlName(ylName)}
-                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl object-cover border-2 border-red-400 shadow-md transition-transform group-hover:scale-105"
-                />
-              ) : (
-                <div className="w-11 h-11 sm:w-12 sm:h-12 bg-red-600 text-white font-black text-xl rounded-xl shadow-md flex items-center justify-center border-2 border-red-400 group-hover:bg-red-500 transition-all">
-                  {cleanYlName(ylName).charAt(0).toUpperCase() || "Y"}
-                </div>
-              )}
-              <label
-                className="absolute -bottom-1 -right-1 bg-slate-900 text-white p-1 rounded-full cursor-pointer hover:bg-slate-800 shadow border border-red-400 transition-transform active:scale-90"
-                title="Ganti Foto Profil YL"
-              >
-                <Camera className="w-3 h-3 text-red-300" />
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleUploadFoto}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            <div>
-              <h1 className="text-base sm:text-xl font-black tracking-tight leading-none uppercase">{cleanYlName(ylName)}</h1>
-              <p className="text-xs font-semibold text-red-200 mt-1">Yakult Lady • Area {ylName.substring(0, 3)} Jember 1</p>
-            </div>
+            {activeTab === "beranda" ? (
+               <div className="flex flex-col">
+                 <h1 className="text-base sm:text-xl font-black tracking-tight leading-none uppercase">Beranda YL</h1>
+                 <p className="text-xs font-semibold text-red-200 mt-1">Sistem Yakult Lady</p>
+               </div>
+            ) : (
+               <>
+                 <button 
+                   onClick={() => setActiveTab("beranda")}
+                   className="p-2 mr-1 bg-black/20 hover:bg-black/40 text-white rounded-xl border border-red-500/40 transition-all"
+                 >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-left"><path d="m15 18-6-6 6-6"/></svg>
+                 </button>
+                 {/* Small Profile Logo */}
+                 <div className="relative group shrink-0 hidden sm:block">
+                   {ylFoto ? (
+                     <img src={ylFoto} alt={cleanYlName(ylName)} className="w-10 h-10 rounded-xl object-cover border-2 border-red-400 shadow-md" />
+                   ) : (
+                     <div className="w-10 h-10 bg-red-600 text-white font-black text-xl rounded-xl shadow-md flex items-center justify-center border-2 border-red-400">
+                       {cleanYlName(ylName).charAt(0).toUpperCase() || "Y"}
+                     </div>
+                   )}
+                 </div>
+                 <div>
+                   <h1 className="text-sm sm:text-lg font-black tracking-tight leading-none uppercase">{cleanYlName(ylName)}</h1>
+                   <p className="text-[10px] sm:text-xs font-semibold text-red-200 mt-1">Area {ylName.substring(0, 3)}</p>
+                 </div>
+               </>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -880,9 +954,9 @@ export function YLView({
       {motivasiConfig.enabled && (
         <div className="sticky top-16 z-30 mx-3 my-3 bg-slate-900 border-2 border-red-500 shadow-xl rounded-2xl p-3 max-w-xl sm:mx-auto overflow-hidden">
           <div className="flex items-center gap-2.5">
-            <div className="overflow-hidden whitespace-nowrap flex-1 relative">
-              <div className="inline-block whitespace-nowrap animate-marquee font-black text-sm sm:text-base text-yellow-300 tracking-wide">
-                {activeMotivasi} &nbsp;&nbsp;&nbsp; • &nbsp;&nbsp;&nbsp; {activeMotivasi}
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center font-black text-sm sm:text-base text-yellow-300 tracking-wide line-clamp-2">
+                {activeMotivasi}
               </div>
             </div>
           </div>
@@ -891,39 +965,226 @@ export function YLView({
 
       {/* Main Content Area */}
       <main className="p-3 sm:p-5 space-y-5 max-w-xl sm:max-w-2xl mx-auto">
-        <div className="bg-white border-2 border-slate-200 p-1.5 rounded-2xl shadow-sm grid grid-cols-3 gap-1.5 text-center">
-          <button
-            onClick={() => setActiveTab("input")}
-            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "input" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
-          >
-            INPUT
-          </button>
-          <button
-            onClick={() => setActiveTab("ringkasan")}
-            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "ringkasan" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
-          >
-            RINGKASAN
-          </button>
-          <button
-            onClick={() => setActiveTab("breakdown")}
-            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "breakdown" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
-          >
-            BD & REALISASI
-          </button>
-          <button
-            onClick={() => setActiveTab("realisasi_potensi")}
-            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "realisasi_potensi" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
-          >
-            POTENSI
-          </button>
-          <button
-            onClick={() => setActiveTab("potensi_tembus")}
-            className={`py-3 text-xs font-black rounded-xl transition-all leading-tight ${activeTab === "potensi_tembus" ? "bg-red-600 text-white shadow-md" : "text-slate-700 hover:text-slate-900 hover:bg-slate-100"}`}
-          >
-            TEMBUS
-          </button>
-        </div>
+        {activeTab === "beranda" && (
+          <div className="space-y-3 animate-in fade-in zoom-in-95 duration-300">
+            
+            {/* Hero Section: Profile Card (Left) + Bio Data (Right) */}
+            <div className="flex flex-row items-stretch gap-3 mt-2">
+              
+              {/* Profile Photo Card (iPhone Clock Sizeish) */}
+              <div className="flex flex-col items-center justify-center bg-white dark:bg-slate-900 p-3 rounded-[24px] sm:rounded-[32px] border border-slate-200 dark:border-slate-800 shadow-sm shrink-0 w-28 sm:w-36">
+                <div className="relative group w-full aspect-square mb-2">
+                  {ylFoto ? (
+                    <img
+                      src={ylFoto}
+                      alt={cleanYlName(ylName)}
+                      className="w-full h-full rounded-[20px] sm:rounded-[24px] object-cover shadow-md transition-transform group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-red-600 to-red-800 text-white font-black text-4xl sm:text-5xl rounded-[20px] sm:rounded-[24px] shadow-md flex items-center justify-center group-hover:from-red-500 group-hover:to-red-700 transition-all">
+                      {cleanYlName(ylName).charAt(0).toUpperCase() || "Y"}
+                    </div>
+                  )}
+                  <label
+                    className="absolute -bottom-2 -right-2 bg-slate-900 text-white p-2 rounded-full cursor-pointer hover:bg-slate-800 shadow-lg border-2 border-slate-50 dark:border-slate-800 transition-transform active:scale-90"
+                    title="Ganti Foto Profil YL"
+                  >
+                    <Camera className="w-4 h-4 text-red-300" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadFoto}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
 
+              {/* Bio Data Board */}
+              <div className="flex-1 bg-white dark:bg-slate-900 rounded-[32px] p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-center relative overflow-hidden">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h2 className="text-sm sm:text-lg font-black text-slate-900 dark:text-white leading-tight">{cleanYlName(ylName)}</h2>
+                      <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider block mt-0.5">{currentYlInfo.area || ylName.substring(0, 3)} • {currentYlInfo.kodeYl || "-"}</span>
+                    </div>
+                    <div className="bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400 text-[9px] sm:text-[10px] font-bold px-2 py-1 rounded-xl text-center">
+                      Masa Kerja<br/>
+                      <span className="text-xs">{(() => { const mk = calculateMasaKerja(currentYlInfo.tanggalMasuk); return mk.text; })()}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Tanggal Masuk</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{currentYlInfo.tanggalMasuk || "-"}</span>
+                    </div>
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl">
+                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">NIK</span>
+                      <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{currentYlInfo.nik || "-"}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Title Board / Birthday Message */}
+            <div className="flex flex-col gap-2">
+              <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-center text-center">
+                <p className="text-slate-700 dark:text-slate-300 font-bold text-[11px] sm:text-sm flex items-center gap-2 uppercase tracking-wider">
+                  🌟 Gelar: <span className="text-rose-600 dark:text-rose-400 font-black">{(() => { const mk = calculateMasaKerja(currentYlInfo.tanggalMasuk); return mk.title; })()}</span>
+                </p>
+              </div>
+
+              {isBirthday && (
+                <div className="bg-gradient-to-r from-rose-400 via-pink-500 to-rose-500 p-4 rounded-2xl shadow-md flex items-center justify-center text-center animate-pulse border-2 border-rose-300 mt-1">
+                  <p className="text-white font-black text-sm sm:text-base leading-snug">
+                    🎉 Selamat Ulang Tahun Ibu {cleanYlName(ylName)}! 🎂<br/>
+                    <span className="text-[10px] sm:text-xs font-semibold opacity-90 block mt-1 leading-tight">Kami keluarga besar Yakult mengucapkan selamat ulang tahun. Semoga selalu diberikan kesehatan, kebahagiaan, dan makin sukses bersama Yakult. Amin.</span>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Main Action Grid - Made Smaller */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setActiveTab("input")}
+                className="bg-rose-50 dark:bg-rose-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-rose-200 dark:border-rose-800 hover:border-rose-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="w-8 h-8 rounded-xl bg-red-100 text-red-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <span className="text-lg">📝</span>
+                  </div>
+                  
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Entry Penjualan</h3>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("ringkasan")}
+                className="bg-emerald-50 dark:bg-emerald-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-emerald-200 dark:border-emerald-800 hover:border-emerald-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Ringkasan Hari Ini</h3>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("breakdown")}
+                className="bg-amber-50 dark:bg-amber-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-amber-200 dark:border-amber-800 hover:border-amber-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <span className="text-lg">📊</span>
+                  </div>
+                  
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Breakdown Plan</h3>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("realisasi_potensi")}
+                className="bg-sky-50 dark:bg-sky-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-sky-200 dark:border-sky-800 hover:border-sky-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <span className="text-lg">🎯</span>
+                  </div>
+                  
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Realisasi & Potensi</h3>
+                </div>
+              </button>
+            </div>
+
+            {/* Bottom Row: Potensi Tembus (Left) & Papan Attention (Right) */}
+            <div className="grid grid-cols-2 gap-2 mt-2">
+
+              <button
+                onClick={() => setActiveTab("seragam")}
+                className="bg-purple-50 dark:bg-purple-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-purple-200 dark:border-purple-800 hover:border-purple-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <span className="text-lg">👗</span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Seragam</h3>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("potensi_tembus")}
+                className="bg-indigo-50 dark:bg-indigo-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <span className="text-lg">🚀</span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Potensi Tembus</h3>
+                  
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("product_knowledge")}
+                className="col-span-2 bg-rose-50 dark:bg-rose-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-rose-200 dark:border-rose-800 hover:border-rose-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <span className="text-lg">📚</span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Product Knowledge</h3>
+                </div>
+              </button>
+
+
+              <div className="col-span-2 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/40 dark:to-orange-900/40 rounded-[24px] p-3 sm:p-4 border border-amber-300 dark:border-amber-700/50 shadow-sm flex flex-col justify-between h-auto">
+                <div className="flex items-center gap-1.5 border-b border-amber-200 dark:border-amber-800/60 pb-1.5 mb-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 animate-bounce shrink-0" />
+                  <h2 className="text-[10px] sm:text-xs font-black text-amber-950 dark:text-amber-100 uppercase tracking-wider">
+                    Perhatian
+                  </h2>
+                </div>
+                <div className="overflow-y-auto pr-1 flex-1 max-h-24">
+                  {motYlLines.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {motYlLines.map((line, idx) => (
+                        <li key={idx} className="text-[10px] sm:text-xs font-bold text-amber-900 dark:text-amber-200 leading-snug flex items-start gap-1">
+                          <span className="text-amber-500 dark:text-amber-400 mt-0.5">•</span>
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-[10px] sm:text-xs font-semibold text-amber-700/60 dark:text-amber-400/60 italic text-center py-2">
+                      Belum ada catatan khusus.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+        
 
         {/* TAB INPUT — Form harian YL, tampilan disederhanakan (khusus menu YL) */}
         {activeTab === "input" && (
@@ -1363,7 +1624,7 @@ export function YLView({
             </div>
 
             {/* AI Analysis Block */}
-            <div className="bg-gradient-to-br from-rose-50 via-pink-50 to-amber-50 rounded-2xl p-5 border-2 border-rose-200 shadow-md space-y-4">
+            <div className="col-span-2 bg-gradient-to-br from-rose-50 via-pink-50 to-amber-50 rounded-2xl p-5 border-2 border-rose-200 shadow-md space-y-4">
               <div className="flex items-center justify-between border-b border-rose-200/80 pb-2">
                 <div className="flex items-center gap-2.5 text-rose-700">
                   <Sparkles className="w-6 h-6 animate-pulse text-rose-600" />
@@ -1415,93 +1676,6 @@ export function YLView({
                   </button>
                 </div>
               )}
-            </div>
-
-            {/* Papan Attention Manager Per YL */}
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-4 border-2 border-amber-300 shadow-sm space-y-3">
-              <div className="flex items-center gap-2 border-b border-amber-200/80 pb-2">
-                <AlertCircle className="w-5 h-5 text-amber-600 animate-bounce shrink-0" />
-                <div>
-                  <h2 className="text-sm sm:text-base font-black text-amber-950 uppercase tracking-wider">
-                    Papan Attention (Catatan Manager)
-                  </h2>
-                  <p className="text-xs font-bold text-amber-700 uppercase">
-                    Arahan & Pesan Khusus Harian Area {ylName.substring(0, 3)}
-                  </p>
-                </div>
-              </div>
-
-
-              <div>
-                {isLoadingAttention ? (
-                  <p className="text-sm text-amber-700 animate-pulse font-bold">Memuat catatan perhatian manager...</p>
-                ) : attentionNote ? (
-                  <div className="p-4 bg-white/95 rounded-xl border border-amber-300 text-slate-900 text-sm sm:text-base font-bold leading-relaxed shadow-inner">
-                    📌 "{attentionNote}"
-                  </div>
-                ) : (
-                  <p className="text-xs sm:text-sm text-slate-500 italic font-semibold p-3 bg-white/70 rounded-xl border border-amber-200/60">
-                    Belum ada catatan perhatian khusus dari Manager untuk area {ylName.substring(0, 3)} hari ini.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* System Maintenance Card */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
-              <h2 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wider border-l-4 border-slate-400 pl-3">
-                Alat Pemeliharaan Sistem
-              </h2>
-              <p className="text-xs text-slate-500 font-semibold">
-                Gunakan tombol berikut jika Ibu menemui kendala tampilan atau ingin mereset seluruh data kembali ke semula.
-              </p>
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <button
-                  onClick={async () => {
-                    const savedSbUrl = localStorage.getItem("supabase_url") || "";
-                    const savedSbKey = localStorage.getItem("supabase_key") || "";
-                    const savedSession = localStorage.getItem("yakult_session") || "";
-
-                    localStorage.clear();
-
-                    if (savedSbUrl) localStorage.setItem("supabase_url", savedSbUrl);
-                    if (savedSbKey) localStorage.setItem("supabase_key", savedSbKey);
-                    if (savedSession) localStorage.setItem("yakult_session", savedSession);
-
-                    if (onRefresh) {
-                      await onRefresh();
-                    }
-                    alert("Cache browser berhasil dibersihkan dan data dimuat ulang!");
-                  }}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-black text-xs sm:text-sm py-3 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
-                >
-                  🧹 Bersihkan Cache
-                </button>
-                <button
-                  onClick={async () => {
-                    if (confirm("Apakah Anda yakin ingin mengembalikan seluruh data ke semula? Semua input laporan baru akan dihapus.")) {
-                      try {
-                        const res = await fetch("/api/resetData", { method: "POST" });
-                        const resData = await parseJsonResponse(res);
-                        if (resData && resData.ok) {
-                          if (onRefresh) {
-                            await onRefresh();
-                          }
-                          alert("Data berhasil dikembalikan ke semula!");
-                        } else {
-                          alert("Gagal mengembalikan data.");
-                        }
-                      } catch (e) {
-                        console.error(e);
-                        alert("Terjadi kesalahan saat mereset data.");
-                      }
-                    }
-                  }}
-                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-black text-xs sm:text-sm py-3 rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 border border-rose-200"
-                >
-                  ↩️ Kembali ke Semula
-                </button>
-              </div>
             </div>
 
           </div>
@@ -1644,31 +1818,46 @@ export function YLView({
 
         {/* TAB REALISASI POTENSI (PERTANGGAL) */}
         {activeTab === "realisasi_potensi" && (
-          <YlRealisasiPotensiTab
-            currentMonth={currentMonth}
-            isEditRealisasi={isEditRealisasi}
-            realisasiGridSelection={realisasiGridSelection}
-            realisasiIsMenuOpen={realisasiIsMenuOpen}
-            setRealisasiIsMenuOpen={setRealisasiIsMenuOpen}
-            realisasiMenuPos={realisasiMenuPos}
-            handleRealisasiGridCopy={handleRealisasiGridCopy}
-            handleRealisasiGridCut={handleRealisasiGridCut}
-            handleRealisasiGridPaste={handleRealisasiGridPaste}
-            handleRealisasiGridClear={handleRealisasiGridClear}
-            setRealisasiGridSelection={setRealisasiGridSelection}
-            handleToggleEditRealisasi={handleToggleEditRealisasi}
-            handleSaveEditRealisasi={handleSaveEditRealisasi}
-            isSavingRealisasi={isSavingRealisasi}
-            transactions={currentMonthTxs}
-            editDataRealisasi={editDataRealisasi}
-            setEditDataRealisasi={setEditDataRealisasi}
-            ylBreakdownRealisasi={ylBreakdownRealisasi}
-            getRealisasiCellProps={getRealisasiCellProps}
-            selectRealisasiRow={selectRealisasiRow}
-          />
+          <>
+            <YlRealisasiPotensiTab
+              currentMonth={currentMonth}
+              isEditRealisasi={isEditRealisasi}
+              realisasiGridSelection={realisasiGridSelection}
+              realisasiIsMenuOpen={realisasiIsMenuOpen}
+              setRealisasiIsMenuOpen={setRealisasiIsMenuOpen}
+              realisasiMenuPos={realisasiMenuPos}
+              handleRealisasiGridCopy={handleRealisasiGridCopy}
+              handleRealisasiGridCut={handleRealisasiGridCut}
+              handleRealisasiGridPaste={handleRealisasiGridPaste}
+              handleRealisasiGridClear={handleRealisasiGridClear}
+              setRealisasiGridSelection={setRealisasiGridSelection}
+              handleToggleEditRealisasi={handleToggleEditRealisasi}
+              handleSaveEditRealisasi={handleSaveEditRealisasi}
+              isSavingRealisasi={isSavingRealisasi}
+              transactions={currentMonthTxs}
+              editDataRealisasi={editDataRealisasi}
+              setEditDataRealisasi={setEditDataRealisasi}
+              ylBreakdownRealisasi={ylBreakdownRealisasi}
+              getRealisasiCellProps={getRealisasiCellProps}
+              selectRealisasiRow={selectRealisasiRow}
+            />
+            {clipboardModal && (
+              <ClipboardFallbackModal
+                mode={clipboardModal.mode}
+                initialText={clipboardModal.text}
+                onConfirmPaste={confirmManualPaste}
+                onClose={closeClipboardModal}
+              />
+            )}
+          </>
         )}
       
         {/* TAB POTENSI VS TEMBUS */}
+        {activeTab === "seragam" && <YLSeragamView onBack={() => setActiveTab("beranda")} />}
+
+        {/* PRODUCT KNOWLEDGE TAB */}
+        {activeTab === "product_knowledge" && <ProductKnowledgeView onBack={() => setActiveTab("beranda")} />}
+
         {activeTab === "potensi_tembus" && (
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">

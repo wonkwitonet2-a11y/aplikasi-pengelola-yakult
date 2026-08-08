@@ -417,6 +417,7 @@ function PlgPjlViewInner({
         let pt = { skhTotal: 0, skhTembus: 0, kntrTotal: 0, kntrTembus: 0, tkoTotal: 0, tkoTembus: 0 };
         try {
           const res = await fetch(`/api/getPotensiTembus?bulan=${currentMonth}&nama=${encodeURIComponent(yl.nama)}`);
+          if (!res.ok) throw new Error("error");
           const data = await res.json();
           if (data && data.data) {
              pt = data.data;

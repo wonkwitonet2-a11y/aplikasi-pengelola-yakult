@@ -11,6 +11,8 @@ interface TargetManagerRowProps {
   >;
   getTargetCellProps: (r: number, c: number) => { className?: string; [key: string]: any };
   selectTargetRow: (idx: number) => void;
+  setTargetGridSelection: any;
+  handleTargetGridPaste: any;
 }
 
 // One row of the "Target Manager" table (Target / Bulan Lalu / Tahun Lalu per
@@ -24,6 +26,8 @@ function TargetManagerRowInner({
   setTargetYLMap,
   getTargetCellProps,
   selectTargetRow,
+  setTargetGridSelection,
+  handleTargetGridPaste
 }: TargetManagerRowProps) {
   const ylTgt = targetYLMap[yl.area] ?? { target: 0, bln_lalu: 0, thn_lalu: 0 };
 
@@ -41,11 +45,21 @@ function TargetManagerRowInner({
         <NumberInput
           min={0}
           value={ylTgt.target}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData("text/plain");
+            if (!text) return;
+            e.preventDefault();
+            const newSel = { startR: idx, startC: 0, endR: idx, endC: 0 };
+            setTargetGridSelection(newSel);
+            setTimeout(() => {
+              handleTargetGridPaste(text, newSel);
+            }, 0);
+          }}
           onChange={(val) => {
-            setTargetYLMap({
-              ...targetYLMap,
-              [yl.area]: { ...ylTgt, target: val }
-            });
+            setTargetYLMap((prev: any) => ({
+              ...prev,
+              [yl.area]: { ...prev[yl.area], target: val }
+            }));
           }}
           className="w-full h-full p-1.5 text-xs sm:text-sm bg-transparent outline-none border-none text-center font-black text-slate-900"
         />
@@ -54,11 +68,21 @@ function TargetManagerRowInner({
         <NumberInput
           min={0}
           value={ylTgt.bln_lalu}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData("text/plain");
+            if (!text) return;
+            e.preventDefault();
+            const newSel = { startR: idx, startC: 1, endR: idx, endC: 1 };
+            setTargetGridSelection(newSel);
+            setTimeout(() => {
+              handleTargetGridPaste(text, newSel);
+            }, 0);
+          }}
           onChange={(val) => {
-            setTargetYLMap({
-              ...targetYLMap,
-              [yl.area]: { ...ylTgt, bln_lalu: val }
-            });
+            setTargetYLMap((prev: any) => ({
+              ...prev,
+              [yl.area]: { ...prev[yl.area], bln_lalu: val }
+            }));
           }}
           className="w-full h-full p-1.5 text-xs sm:text-sm bg-transparent outline-none border-none text-center font-black text-slate-900"
         />
@@ -67,11 +91,21 @@ function TargetManagerRowInner({
         <NumberInput
           min={0}
           value={ylTgt.thn_lalu}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData("text/plain");
+            if (!text) return;
+            e.preventDefault();
+            const newSel = { startR: idx, startC: 2, endR: idx, endC: 2 };
+            setTargetGridSelection(newSel);
+            setTimeout(() => {
+              handleTargetGridPaste(text, newSel);
+            }, 0);
+          }}
           onChange={(val) => {
-            setTargetYLMap({
-              ...targetYLMap,
-              [yl.area]: { ...ylTgt, thn_lalu: val }
-            });
+            setTargetYLMap((prev: any) => ({
+              ...prev,
+              [yl.area]: { ...prev[yl.area], thn_lalu: val }
+            }));
           }}
           className="w-full h-full p-1.5 text-xs sm:text-sm bg-transparent outline-none border-none text-center font-black text-slate-900"
         />
