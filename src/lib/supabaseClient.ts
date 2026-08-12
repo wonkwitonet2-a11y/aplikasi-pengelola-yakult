@@ -92,14 +92,16 @@ export async function testSupabaseConnection(): Promise<{ success: boolean; mess
       .upsert({ key: '_connection_test', data: { ping: "ok", time: new Date().toISOString() }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
 
     if (error) {
-      console.error("[Supabase] Error saving _connection_test:", error);
+      console.error("[Supabase] Error saving _connection_test:", JSON.stringify(error, null, 2), error);
       if (error.code === '42P01' || error.message?.includes('relation "public.app_store" does not exist') || error.message?.includes('does not exist')) {
         return { success: false, message: "⚠️ Tabel 'app_store' BELUM DIBUAT di Supabase SQL Editor! Jalankan kueri SQL di bawah ini dulu." };
       }
       if (error.code === 'PGRST301' || error.message?.includes('JWT') || error.message?.includes('API key')) {
         return { success: false, message: "❌ API Key Supabase tidak valid atau salah format." };
       }
-      return { success: false, message: `❌ Supabase Error: ${error.message} (Code: ${error.code || 'UNKNOWN'})` };
+      
+      const errMsg = error.message || (error as any).error_description || "Network/CORS error or blocked by client";
+      return { success: false, message: `❌ Supabase Error: ${errMsg} (Code: ${error.code || '0'}) - Cek koneksi internet/CORS.` };
     }
     return { success: true, message: "✅ KONEKSI SUPABASE BERHASIL! Database cloud aktif dan tabel 'app_store' terdeteksi." };
   } catch (e: any) {

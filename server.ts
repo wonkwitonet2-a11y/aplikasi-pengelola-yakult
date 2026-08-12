@@ -134,6 +134,25 @@ const cleanYlName = (fullName: string): string => {
   return s || fullName;
 };
 
+const cleanEmptyTransactions = (db: any) => {
+  if (!db.transactions || !Array.isArray(db.transactions)) return;
+  db.transactions = db.transactions.filter((tx: any) => {
+    const fieldsToCheck = [
+      'tot_yo', 'tot_om', 'tot_os', 'tot_yt',
+      'rmh_yo', 'rmh_om', 'rmh_os', 'rmh_yt',
+      'psr_yo', 'psr_om', 'psr_os', 'psr_yt',
+      'skh_yo', 'skh_om', 'skh_os', 'skh_yt',
+      'ktr_yo', 'ktr_om', 'ktr_os', 'ktr_yt',
+      'tk_yo', 'tk_om', 'tk_os', 'tk_yt',
+      'ib_yo', 'ib_om', 'ib_os', 'ib_yt',
+      'bb_yo', 'bb_om', 'bb_os', 'bb_yt',
+      'pb_p', 'pb_s', 'f_plg', 'f_rk', 'f_ra', 'f_rb',
+      'apk_plg', 'apk_botol',
+      'plan_yo', 'plan_om', 'plan_os', 'plan_yt'
+    ];
+    return fieldsToCheck.some(field => (Number(tx[field]) || 0) !== 0);
+  });
+};
 
 // INITIAL SEED DATA FOR SIMULATOR
 const INITIAL_DATA = {
@@ -284,6 +303,9 @@ function normalizeDb(db: any) {
   }
   if (!db.kontes || db.kontes.enabled !== false) {
     db.kontes = { enabled: false, rows: [] };
+  }
+  if (!db.targetYL || typeof db.targetYL !== "object") {
+    db.targetYL = {};
   }
   if (!db.breakdownPlan || typeof db.breakdownPlan !== "object") {
     db.breakdownPlan = {};
@@ -709,9 +731,50 @@ function calculateDashboardDP1(db: any) {
     }
   }
 
+  let frekuensiAbsen = 0;
+  let ylAbsenSet = new Set();
+  const activeNames = ylList.filter((y: any) => y.status !== "nonaktif").map((y: any) => ({ name: y.nama, area: y.area || (y.nama.match(/^(\d{3})/) ? y.nama.match(/^(\d{3})/)[1] : "") }));
+
+  let hariKunjunganTim = [];
+  for (let d = 1; d <= 31; d++) {
+    let daySales = 0;
+    Object.keys(realisasiMonth).forEach(area => {
+      const rData = realisasiMonth[area];
+      const days = rData && rData.days ? rData.days : rData;
+      if (days && days[String(d)]) {
+        const dObj = days[String(d)];
+        daySales += (Number(dObj.yo) || 0) + (Number(dObj.om) || 0) + (Number(dObj.os) || 0) + (Number(dObj.yt) || 0);
+      }
+    });
+    if (daySales > 0) {
+      hariKunjunganTim.push(String(d));
+    }
+  }
+
+  hariKunjunganTim.forEach(dayStr => {
+    activeNames.forEach((yl: any) => {
+      const area = yl.area;
+      const rData = realisasiMonth[area];
+      const days = rData && rData.days ? rData.days : rData;
+      let ylDaySales = 0;
+      if (days && days[dayStr]) {
+        const dObj = days[dayStr];
+        ylDaySales = (Number(dObj.yo) || 0) + (Number(dObj.om) || 0) + (Number(dObj.os) || 0) + (Number(dObj.yt) || 0);
+      }
+      if (ylDaySales === 0) {
+        frekuensiAbsen++;
+        ylAbsenSet.add(area);
+      }
+    });
+  });
+
+  const ylAbsen = ylAbsenSet.size;
+
   // (Simulator fallback logic removed to prevent mock data)
 
   return {
+    ylAbsen,
+    frekuensiAbsen,
     totalPenjualan,
     rataHarian,
     salesPerYl: teamTotalPembagi > 0 ? totalPenjualan / teamTotalPembagi : 0,
@@ -928,22 +991,51 @@ app.post("/api/ai/chat", async (req, res) => {
     const db = loadData();
     const systemInstruction = `
 Anda adalah "AI Jember 1 Pro Assistant", asisten pintar untuk sistem penjualan Yakult Unit DP Jember 1. 
-Tugas Anda adalah membantu pengguna (baik sebagai ${role === "manager" ? "Manager Ahmad" : "Yakult Lady (Ibu " + user_name + ")"}) menganalisis data, memberikan rekomendasi, dan menjawab pertanyaan apa saja, termasuk di luar pekerjaan seperti Gemini AI umum.
+Tugas Anda adalah membantu pengguna (baik sebagai ${role === "manager" ? "Manager Wito" : "Yakult Lady (Ibu " + user_name + ")"}) menganalisis data, memberikan rekomendasi, dan menjadi teman ngobrol virtual yang asyik.
 
-Gunakan bahasa Indonesia yang ramah, sopan, natural, penuh semangat, dan profesional.
+KEPRIBADIAN (SANGAT PENTING):
+- Ramah, hangat, dan suportif seperti sahabat dekat & sahabat pena — tempat cerita apa saja, kapan saja.
+- Selalu beri semangat/motivasi secara natural, tidak menggurui atau berlebihan.
+- Gunakan bahasa Indonesia sehari-hari yang mudah dipahami ibu-ibu, hindari istilah teknis/asing yang rumit.
+- Boleh sesekali pakai emoji secukupnya biar terasa hangat, jangan berlebihan.
 
-Berikut adalah Ringkasan Data Terkini di database aplikasi (tersimpan lokal di server):
+INGAT HAL PENTING & FOLLOW UP:
+- Perhatikan hal-hal penting yang diceritakan YL (misalnya: sedang sakit, ada masalah keluarga, capek kerja, lagi senang karena sesuatu, rencana penting, dll) — tidak terbatas pada kesehatan saja.
+- Kalau ada hal penting yang diceritakan di chat sebelumnya, ingat dan tanyakan kabarnya lagi secara natural di percakapan berikutnya (misal: "Kemarin katanya lagi kurang enak badan, sekarang gimana, sudah baikan?").
+- Follow up dilakukan secara natural, jangan kaku atau seperti checklist. Sisipkan di awal obrolan atau saat momennya pas.
+- Kalau sudah lama tidak dibahas (lebih dari seminggu/beberapa chat lalu), tidak perlu diungkit lagi kecuali YL sendiri yang membahasnya.
+
+FLEKSIBEL & PINTAR:
+- Kamu bisa "berperan" jadi apapun yang dibutuhkan ibu-ibu (teman diskusi kesehatan, parenting, keuangan, masak, dll) dengan jawaban luas dan akurat.
+- Jelaskan hal rumit dengan bahasa sederhana dan contoh sehari-hari.
+- Kalau ditanya hal serius di luar kemampuan (medis, hukum), beri gambaran umum lalu sarankan ke ahlinya.
+
+GAYA JAWABAN:
+- Jawaban singkat dan padat, seperti chat WhatsApp — BUKAN paragraf panjang.
+- Langsung ke inti, tidak bertele-tele atau banyak basa-basi di awal.
+- Kalau butuh penjelasan panjang, pecah jadi beberapa pesan pendek/poin-poin (tapi dalam satu respons tidak masalah, asal rapi dan ringkas).
+
+TOPIK PEKERJAAN (Data Yakult, Target, dll):
+- Berikan jawaban praktis dan jelas (gunakan poin-poin agar rapi), dengan nada mendukung dan memotivasi.
+- Kalau YL cerita capek/kurang semangat soal kerjaan, validasi perasaannya dulu, baru kasih semangat/solusi ringan.
+
+TOPIK DI LUAR PEKERJAAN (Curhat, keluarga, keseharian):
+- Jadi pendengar yang baik dan sahabat pena — tempat cerita tanpa dihakimi.
+- Jangan buru-buru kasih solusi/nasihat kalau mereka cuma butuh didengar — tanya dulu perasaannya.
+- Tetap hangat dan personal, bukan formal atau kaku.
+
+BATASAN:
+- Untuk hal serius (medis, hukum, finansial besar), tetap kasih penjelasan umum yang membantu, tapi ingatkan untuk cek ke ahli.
+- Jangan menggurui atau terkesan sok tahu. Tetap positif tapi jujur (jangan asal "iya-iya").
+
+Ingat: kamu adalah teman ngobrol serba bisa yang bikin mereka merasa didengar, terbantu, dan semangat lagi — bukan robot FAQ.
+
+Data Terkini:
 - Daftar PIN YL: ${JSON.stringify(db.ylPins || {})}
 - Target & Patokan Bulanan YL: ${JSON.stringify(db.targetYL || {})}
 - Total Data Laporan Tersimpan: ${db.transactions ? db.transactions.length : 0} baris
 - Sampel Transaksi Terkini (max 20): ${JSON.stringify((db.transactions || []).slice(-20))}
 - Status Menu Kontes: ${db.kontes?.enabled ? "Aktif" : "Nonaktif"}
-- Baris Data Kontes: ${JSON.stringify((db.kontes?.rows || []))}
-
-Aturan:
-1. Jika ditanya tentang penjualan, capaian, perbandingan rute, sisa botol, atau performa, analisa data di atas secara mendalam dan berikan rincian matematis yang akurat.
-2. Jika ditanya pertanyaan umum di luar Yakult (seperti sains, sejarah, tips kehidupan, memasak, resep, hobi, teknologi, dll.), jawablah layaknya Gemini AI biasa dengan cerdas, informatif, dan mendalam.
-3. Selalu beri motivasi positif khas budaya Yakult.
 `;
 
     const chatHistory = (history || []).map((h: any) => ({
@@ -1181,8 +1273,16 @@ app.get("/api/getMine", async (req, res) => {
 app.get("/api/getBreakdownPlan", (req, res) => {
   const month = (req.query.month as string) || new Date().toISOString().substring(0, 7);
   const db = loadData();
-  const planData = (db.breakdownPlan && db.breakdownPlan[month]) ? db.breakdownPlan[month] : {};
+  let planData = (db.breakdownPlan && db.breakdownPlan[month]) ? db.breakdownPlan[month] : {};
   const realisasiData = (db.breakdownRealisasi && db.breakdownRealisasi[month]) ? db.breakdownRealisasi[month] : {};
+  
+  if (Object.keys(planData).length === 0 && Object.keys(realisasiData).length > 0) {
+    planData = realisasiData;
+    if (!db.breakdownPlan) db.breakdownPlan = {};
+    db.breakdownPlan[month] = planData;
+    saveData(db);
+  }
+
   res.json({ ok: true, month, breakdownPlan: planData, breakdownRealisasi: realisasiData });
 });
 
@@ -1195,12 +1295,17 @@ app.post("/api/saveBreakdownPlan", async (req, res) => {
     const db = loadData();
     if (breakdownPlan && typeof breakdownPlan === "object") {
       if (!db.breakdownPlan) db.breakdownPlan = {};
-      db.breakdownPlan[month] = breakdownPlan;
+      // ONLY overwrite if the incoming plan has keys, or if the current plan is already empty
+      if (Object.keys(breakdownPlan).length > 0 || !db.breakdownPlan[month] || Object.keys(db.breakdownPlan[month]).length === 0) {
+        db.breakdownPlan[month] = breakdownPlan;
+      }
     }
     if (breakdownRealisasi && typeof breakdownRealisasi === "object") {
       if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
       db.breakdownRealisasi[month] = breakdownRealisasi;
     }
+
+    cleanEmptyTransactions(db);
 
     await saveData(db);
     res.json({ ok: true, message: "Data Breakdown Rencana & Realisasi berhasil disimpan." });
@@ -1344,7 +1449,11 @@ app.post("/api/saveAttention", async (req, res) => {
 // YL List & PIN Management (20 YL)
 app.get("/api/getYlList", (req, res) => {
   const db = loadData();
-  res.json({ ylList: db.ylList || INITIAL_YL_LIST, managerPin: db.managerPin || "1111" });
+  const listWithoutFotos = (db.ylList || INITIAL_YL_LIST).map((y: any) => {
+    const { foto, ...rest } = y;
+    return rest;
+  });
+  res.json({ ylList: listWithoutFotos, managerPin: db.managerPin || "1111" });
 });
 
 app.post("/api/saveYlList", async (req, res) => {
@@ -1449,7 +1558,11 @@ app.post("/api/saveYlList", async (req, res) => {
 
   if (managerPin) db.managerPin = managerPin;
   await saveData(db);
-  res.json({ ok: true, ylList: db.ylList, managerPin: db.managerPin, ylPins: db.ylPins });
+  const listWithoutFotos = (db.ylList || []).map((y: any) => {
+    const { foto, ...rest } = y;
+    return rest;
+  });
+  res.json({ ok: true, ylList: listWithoutFotos, managerPin: db.managerPin, ylPins: db.ylPins });
 });
 
 // Setting Targets
@@ -1792,6 +1905,8 @@ app.post("/api/saveLhppPdm", async (req, res) => {
       });
     }
 
+    cleanEmptyTransactions(db);
+
     await saveData(db);
 
     res.json({ ok: true, message: "✅ Data LHPP tersimpan & tersambung ke Realisasi" });
@@ -1847,13 +1962,7 @@ app.get("/api/getEvaluasi", async (req, res) => {
     
     // Hari ini is date = pembagi
     const hariIniDateStr = currentMonth + "-" + String(pembagi).padStart(2, '0');
-    let latestTx = ylTxs.find((t: any) => t.tanggal === hariIniDateStr);
-    if (!latestTx || !latestTx.tanggal) {
-      // Fallback to the latest valid transaction that has some data (to avoid empty future seeded rows)
-      const validTxs = ylTxs.filter((t: any) => ((t.tot_yo||0) + (t.tot_om||0) + (t.tot_os||0) + (t.tot_yt||0) > 0) || (t.f_plg||0) > 0 || (t.apk_botol||0) > 0 || (t.bb_yo||0) > 0 || (t.rmh_yo||0) > 0);
-      validTxs.sort((a: any, b: any) => (a.tanggal || "").localeCompare(b.tanggal || ""));
-      latestTx = validTxs.length > 0 ? validTxs[validTxs.length - 1] : (ylTxs[ylTxs.length - 1] || {});
-    }
+    let latestTx = ylTxs.find((t: any) => t.tanggal === hariIniDateStr) || {};
     
     // Rata2 Minggu Ini (7 days ending at pembagi)
     let sumMingguIni = 0;
@@ -1897,12 +2006,9 @@ app.get("/api/getEvaluasi", async (req, res) => {
       ((t.ib_yo||0)  + (t.ib_om||0)  + (t.ib_os||0)  + (t.ib_yt||0)), 0);
     const persenRumah = allAkmSektor > 0 ? Math.trunc((rumahAkm / allAkmSektor) * 100) : 0;
     
-    // Plg pjl manual logic for rb vs plg (plg dari 3 transaksi/hari harian terakhir yang ada isinya)
-    const validTxsForPlg = ylTxs.filter((t: any) => t.tanggal <= new Date().toISOString().split("T")[0] && ((Number(t.f_plg) > 0) || ((t.tot_yo||0) + (t.tot_om||0) > 0) || ((t.rmh_yo||0) > 0)));
-    const ylTxsSorted = [...validTxsForPlg].sort((a: any, b: any) => (a.tanggal || "").localeCompare(b.tanggal || ""));
-    const last3Txs = ylTxsSorted.slice(-3);
-    const plg = last3Txs.reduce((sum: number, t: any) => sum + (Number(t.f_plg) || 0), 0);
-    const rb = ylTxs.reduce((sum: number, t: any) => sum + (t.f_rb||0), 0);
+    // Plg pjl manual logic for rb vs plg HARI INI
+    const plg = Number(latestTx.f_plg) || 0;
+    const rb = Number(latestTx.f_rb) || 0;
     const persenRbPlg = plg > 0 ? Math.trunc((rb / plg) * 100) : 0;
     
     const pbPagi = latestTx.pb_p || 0;
@@ -2218,37 +2324,7 @@ app.post("/api/savePotensiTembus", async (req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/getBreakdownPlan", async (req, res) => {
-  const db = loadData();
-  const reqMonth = (req.query.month as string) || new Date().toISOString().substring(0, 7);
-  
-  if (!db.breakdownPlan) db.breakdownPlan = {};
-  if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
 
-  let plan = db.breakdownPlan[reqMonth];
-  let realisasi = db.breakdownRealisasi[reqMonth];
-
-  // If requested month has no data, fallback to latest available month with data or sample month "2026-07"
-  if ((!plan || Object.keys(plan).length === 0) && (!realisasi || Object.keys(realisasi).length === 0)) {
-    const availableMonths = Array.from(new Set([
-      ...Object.keys(db.breakdownPlan),
-      ...Object.keys(db.breakdownRealisasi)
-    ])).sort().reverse();
-
-    if (availableMonths.length > 0) {
-      const fallbackMonth = availableMonths[0];
-      plan = db.breakdownPlan[fallbackMonth] || {};
-      realisasi = db.breakdownRealisasi[fallbackMonth] || {};
-    }
-  }
-
-  res.json({
-    ok: true,
-    month: reqMonth,
-    breakdownPlan: plan || {},
-    breakdownRealisasi: realisasi || {}
-  });
-});
 
 
 

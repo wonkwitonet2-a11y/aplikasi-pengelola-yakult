@@ -92,7 +92,11 @@ export function saveStoredYlData(newList: YlItem[], managerPin?: string): { ylLi
   const pinMgr = managerPin || getStoredManagerPin();
 
   try {
-    localStorage.setItem("yakult_yl_list", JSON.stringify(newList));
+    const listToStore = newList.map(y => {
+      const { foto, ...rest } = y as any;
+      return rest;
+    });
+    localStorage.setItem("yakult_yl_list", JSON.stringify(listToStore));
     localStorage.setItem("yakult_yl_pins", JSON.stringify(ylPins));
     localStorage.setItem("yakult_manager_pin", pinMgr);
   } catch (e) {

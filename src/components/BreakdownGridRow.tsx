@@ -77,13 +77,13 @@ function BreakdownGridRowInner({
 
   // Target calculation: Target manager per day * activePembagi
   const tgtObj = targetYLMap[area] || { target: 0, bln_lalu: 0, thn_lalu: 0 };
-  const targetTotal = (tgtObj.target ?? 0) * activePembagi;
+  const targetTotal = Math.round(tgtObj.target ?? 0) * activePembagi;
   const diffTarget = grandTotal - targetTotal;
 
-  const blnLaluTotal = (tgtObj.bln_lalu ?? 0) * activePembagi;
+  const blnLaluTotal = Math.round(tgtObj.bln_lalu ?? 0) * activePembagi;
   const diffLM = grandTotal - blnLaluTotal;
 
-  const thnLaluTotal = (tgtObj.thn_lalu ?? 0) * activePembagi;
+  const thnLaluTotal = Math.round(tgtObj.thn_lalu ?? 0) * activePembagi;
   const diffLY = grandTotal - thnLaluTotal;
 
   const daysList = (

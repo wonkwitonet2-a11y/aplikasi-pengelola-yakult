@@ -221,6 +221,27 @@ function ManagerDashboardTabInner({
                 </div>
               </div>
             </div>
+
+            {/* Data Absensi */}
+            <div>
+              <span className="text-[9px] sm:text-xs font-extrabold text-slate-400 uppercase tracking-wider block mb-0.5 mt-2">
+                Data Absensi (0 Sales)
+              </span>
+              <div className="grid grid-cols-2 gap-1 sm:gap-2">
+                <div className={`bg-rose-50 rounded-xl text-center border border-rose-100 ${isFullscreen ? "p-1 sm:p-1.5" : "p-1.5 sm:p-3"}`}>
+                  <span className="text-[8px] sm:text-[9.5px] font-black text-rose-400 uppercase block">Total YL Absen</span>
+                  <span className={`${isFullscreen ? "text-xs sm:text-sm" : "text-sm sm:text-base"} font-black text-rose-800 mt-0.5 block`}>
+                    {dashboardData?.ylAbsen || 0} YL
+                  </span>
+                </div>
+                <div className={`bg-rose-50 rounded-xl text-center border border-rose-100 ${isFullscreen ? "p-1 sm:p-1.5" : "p-1.5 sm:p-3"}`}>
+                  <span className="text-[8px] sm:text-[9.5px] font-black text-rose-400 uppercase block">Frekuensi</span>
+                  <span className={`${isFullscreen ? "text-xs sm:text-sm" : "text-sm sm:text-base"} font-black text-rose-800 mt-0.5 block`}>
+                    {dashboardData?.frekuensiAbsen || 0} Kali
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
         );
 
@@ -340,9 +361,9 @@ function ManagerDashboardTabInner({
                     tanggal: t,
                     penjualan: dashboardData?.grafikHarian?.penjualan?.[idx] || 0,
                     balikBotol: dashboardData?.grafikHarian?.balikBotol?.[idx] || 0,
-                    target: Math.round(baseTarget * gap),
-                    bulanLalu: Math.round(baseBulanLalu * gap),
-                    tahunLalu: Math.round(baseTahunLalu * gap)
+                    target: Math.round(baseTarget) * gap,
+                    bulanLalu: Math.round(baseBulanLalu) * gap,
+                    tahunLalu: Math.round(baseTahunLalu) * gap
                   };
                 })}
               />

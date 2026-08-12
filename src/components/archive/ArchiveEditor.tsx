@@ -235,7 +235,7 @@ function computeArchiveDashboardData(s: any, ylList: any[]): any {
     const areaRealisasi = perArea[area];
     const ylTotal = (areaRealisasi && areaRealisasi.total > 0) ? areaRealisasi.total : 0;
     
-    const tgtObj = (targetYL && (targetYL[`${area}_${currentMonth}`] || targetYL[area])) || {
+    const tgtObj = (targetYL && typeof targetYL === 'object' && (targetYL[`${area}_${currentMonth}`] || targetYL[area])) || {
       target: ylItem?.target ?? 0,
       bln_lalu: ylItem?.bln_lalu ?? 0,
       thn_lalu: ylItem?.thn_lalu ?? 0

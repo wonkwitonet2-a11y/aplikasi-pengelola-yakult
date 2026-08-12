@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   ClipboardCheck, Calculator, Store, CircleDollarSign, Shirt, PieChart,
-  BookOpen, Link2, Trophy, Droplet, TrendingUp, Wallet, BarChart3, Users, Target
+  BookOpen, Link2, Trophy, Droplet, TrendingUp, Wallet, BarChart3, Users, Target, Activity
 } from 'lucide-react';
 import type { DashboardData } from '../types';
 
@@ -94,6 +94,26 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
                  <span className="text-slate-500">vs T.LALU:</span>
                  <span className="text-white font-bold">{vsThn}%</span>
                </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Data Absensi Divider */}
+        <div className="mt-4 pt-4 border-t border-slate-700/50 relative z-10">
+          <div className="grid grid-cols-2 gap-2 sm:gap-4 divide-x divide-slate-700/50">
+            <div className="px-1 sm:px-2 flex flex-col">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Users className="w-3.5 h-3.5 text-rose-400" />
+                <span className="text-[9px] sm:text-[10px] text-slate-400 font-bold tracking-widest uppercase">YL Absen</span>
+              </div>
+              <p className="text-base sm:text-lg font-black text-white">{dashboardData?.ylAbsen || 0}</p>
+            </div>
+            <div className="px-3 sm:px-4 flex flex-col">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Activity className="w-3.5 h-3.5 text-rose-400" />
+                <span className="text-[9px] sm:text-[10px] text-slate-400 font-bold tracking-widest uppercase">Frekuensi</span>
+              </div>
+              <p className="text-base sm:text-lg font-black text-white">{dashboardData?.frekuensiAbsen || 0} Kali</p>
             </div>
           </div>
         </div>

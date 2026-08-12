@@ -597,7 +597,7 @@ function PlgPjlViewInner({
                           )}
 
                           {/* 4. RATA RATA Row */}
-                          <td className="p-2 text-right border-r border-slate-400 font-bold text-slate-900">
+                          <td className="p-2 text-right border-r border-slate-400 font-black text-slate-900">
                             {fmtDec(valRata)}
                           </td>
 
@@ -612,7 +612,7 @@ function PlgPjlViewInner({
                           )}
 
                           {/* 6. PERSEN Row */}
-                          <td className="p-2 text-right border-r border-slate-400 font-bold text-slate-900">
+                          <td className="p-2 text-right border-r border-slate-400 font-black text-slate-900">
                             {fmtPct(valPct)}
                           </td>
 
@@ -634,37 +634,37 @@ function PlgPjlViewInner({
 
               {/* GRAND TOTAL ROW matching Cyan Excel Footer */}
               <tr className="bg-cyan-400 text-slate-950 font-black text-xs sm:text-sm border-t-2 border-b-2 border-slate-950">
-                <td className="p-2.5 border-r-2 border-slate-950 uppercase">TOTAL YO</td>
-                <td className="p-2.5 text-right border-r border-slate-950 font-mono">{fmtInt(totalYo)}</td>
-                <td rowSpan={4} className="p-2.5 text-right border-r-2 border-slate-950 bg-cyan-300 font-black text-base sm:text-lg align-middle">
+                <td className="p-2 border-r-2 border-slate-950 uppercase">TOTAL YO</td>
+                <td className="p-2 text-right border-r border-slate-950">{fmtInt(totalYo)}</td>
+                <td rowSpan={4} className="p-2 text-right border-r-2 border-slate-950 bg-cyan-300 font-black text-base sm:text-lg align-middle">
                   {fmtInt(grandTotal)}
                 </td>
-                <td className="p-2.5 text-right border-r border-slate-950 font-mono">{fmtDec(pembagi > 0 ? totalYo / pembagi : 0)}</td>
-                <td rowSpan={4} className="p-2.5 text-right border-r-2 border-slate-950 bg-cyan-300 font-black text-base sm:text-lg align-middle">
+                <td className="p-2 text-right border-r border-slate-950">{fmtDec(pembagi > 0 ? totalYo / pembagi : 0)}</td>
+                <td rowSpan={4} className="p-2 text-right border-r-2 border-slate-950 bg-cyan-300 font-black text-base sm:text-lg align-middle">
                   {fmtDec(pembagi > 0 ? grandTotal / pembagi : 0)}
                 </td>
-                <td className="p-2.5 text-right border-r border-slate-950 font-mono">100,00%</td>
-                <td rowSpan={4} className="p-2.5 text-right bg-cyan-300 font-black text-base sm:text-lg align-middle">
+                <td className="p-2 text-right border-r border-slate-950">100,00%</td>
+                <td rowSpan={4} className="p-2 text-right bg-cyan-300 font-black text-base sm:text-lg align-middle">
                   100,00%
                 </td>
               </tr>
 
-              <tr className="bg-cyan-400 text-slate-950 font-black text-xs border-b border-slate-950">
-                <td className="p-2 border-r border-slate-950 uppercase">TOTAL OM</td>
+              <tr className="bg-cyan-400 text-slate-950 font-black text-xs sm:text-sm border-b border-slate-950">
+                <td className="p-2 border-r-2 border-slate-950 uppercase">TOTAL OM</td>
                 <td className="p-2 text-right border-r border-slate-950">{fmtInt(totalOm)}</td>
                 <td className="p-2 text-right border-r border-slate-950">{fmtDec(pembagi > 0 ? totalOm / pembagi : 0)}</td>
                 <td className="p-2 text-right border-r border-slate-950">100,00%</td>
               </tr>
 
-              <tr className="bg-cyan-400 text-slate-950 font-black text-xs border-b border-slate-950">
-                <td className="p-2 border-r border-slate-950 uppercase">TOTAL OS</td>
+              <tr className="bg-cyan-400 text-slate-950 font-black text-xs sm:text-sm border-b border-slate-950">
+                <td className="p-2 border-r-2 border-slate-950 uppercase">TOTAL OS</td>
                 <td className="p-2 text-right border-r border-slate-950">{fmtInt(totalOs)}</td>
                 <td className="p-2 text-right border-r border-slate-950">{fmtDec(pembagi > 0 ? totalOs / pembagi : 0)}</td>
                 <td className="p-2 text-right border-r border-slate-950">100,00%</td>
               </tr>
 
-              <tr className="bg-cyan-400 text-slate-950 font-black text-xs border-b-2 border-slate-950">
-                <td className="p-2 border-r border-slate-950 uppercase">TOTAL YT</td>
+              <tr className="bg-cyan-400 text-slate-950 font-black text-xs sm:text-sm border-b-2 border-slate-950">
+                <td className="p-2 border-r-2 border-slate-950 uppercase">TOTAL YT</td>
                 <td className="p-2 text-right border-r border-slate-950">{fmtInt(totalYt)}</td>
                 <td className="p-2 text-right border-r border-slate-950">{fmtDec(pembagi > 0 ? totalYt / pembagi : 0)}</td>
                 <td className="p-2 text-right border-r border-slate-950">100,00%</td>

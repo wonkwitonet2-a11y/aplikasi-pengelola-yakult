@@ -113,6 +113,8 @@ export interface KontesRow {
 }
 
 export interface DashboardData {
+  ylAbsen?: number;
+  frekuensiAbsen?: number;
   totalPenjualan: number;
   rataHarian: number;
   salesPerYl: number;

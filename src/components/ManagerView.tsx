@@ -1642,10 +1642,39 @@ export function ManagerView({
   // terhapus saat reset. Sekarang cukup satu jalur: server API.
   const fetchBreakdownPlan = async (month: string = selectedBreakdownMonth) => {
     try {
+      // Tampilkan data dari localStorage dulu sebagai fallback (mengembalikan data user yg sempat "hilang")
+      const localPlan = localStorage.getItem(`bd_plan_${month}`);
+      const localReal = localStorage.getItem(`bd_realisasi_${month}`);
+      
+      let initialPlan = {};
+      let initialReal = {};
+      
+      if (localPlan) {
+        try { initialPlan = JSON.parse(localPlan); } catch(e){}
+      }
+      if (localReal) {
+        try { initialReal = JSON.parse(localReal); } catch(e){}
+      }
+
       const res = await safeFetchJson(`/api/getBreakdownPlan?month=${month}`);
       if (res && res.ok) {
-        setBreakdownPlanMap(res.breakdownPlan || {});
-        setBreakdownRealisasiMap(res.breakdownRealisasi || {});
+        // Gabungkan data dari localStorage dan server. Jika server kosong tapi localStorage ada, pakai localStorage.
+        const serverPlan = res.breakdownPlan || {};
+        const serverReal = res.breakdownRealisasi || {};
+        
+        const mergedPlan = Object.keys(serverPlan).length > 0 ? serverPlan : initialPlan;
+        const mergedReal = Object.keys(serverReal).length > 0 ? serverReal : initialReal;
+
+        setBreakdownPlanMap(mergedPlan);
+        setBreakdownRealisasiMap(mergedReal);
+        
+        // Save back to localStorage to keep it updated
+        localStorage.setItem(`bd_plan_${month}`, JSON.stringify(mergedPlan));
+        localStorage.setItem(`bd_realisasi_${month}`, JSON.stringify(mergedReal));
+      } else {
+        // Fallback to local storage only
+        setBreakdownPlanMap(initialPlan);
+        setBreakdownRealisasiMap(initialReal);
       }
     } catch (e) {
       console.error("Error fetching breakdown plan:", e);
@@ -2331,11 +2360,11 @@ export function ManagerView({
     const EVAL_CATEGORIES = [
       { key: 'jualHariIni', label: 'Tabel Penjualan Hari Ini', type: 'max', requirePositive: true },
       { key: 'rata2BulanBerjalan', label: 'Rata Bulan Ini', type: 'max', requirePositive: true },
-      { key: 'vsMingguLaluPct', label: 'vs Minggu Lalu', type: 'max', requirePositive: false },
+      { key: 'vsMingguLaluPct', label: 'vs Minggu Lalu', type: 'max', requirePositive: true },
       { key: 'persenRumah', label: 'Persen Rumah', type: 'max', requirePositive: true },
       { key: 'persenRbVsPlg', label: 'Persen RB vs PLG', type: 'max', requirePositive: true },
       { key: 'propagandaHariIni', label: 'PB Hari Ini', type: 'max', requirePositive: true },
-      { key: 'sampahBotol', label: 'Akm Sampah', type: 'target', target: 900, requirePositive: false },
+      { key: 'sampahBotol', label: 'Akm Sampah', type: 'target', target: 900, requirePositive: true },
       { key: 'akmBb', label: 'Akm BB', type: 'min', requirePositive: false }
     ];
 
@@ -2353,24 +2382,31 @@ export function ManagerView({
       if (validVals.length > 0 || !cat.requirePositive) {
         if (cat.type === 'max') {
           bestVal = validVals.length > 0 ? Math.max(...validVals) : 0;
-          worstVal = Math.min(...vals);
+          worstVal = validVals.length > 0 ? Math.min(...validVals) : 0;
           isWinner = (v) => v === bestVal && (!cat.requirePositive || v > 0);
-          isLoser = (v) => v === worstVal;
-          getScore = (v) => bestVal === worstVal ? 1 : (v - worstVal) / (bestVal! - worstVal);
+          isLoser = (v) => v === worstVal && (!cat.requirePositive || v > 0);
+          getScore = (v) => {
+            if (cat.requirePositive && v === 0) return 0;
+            return bestVal === worstVal ? 1 : (v - worstVal) / (bestVal! - worstVal);
+          };
         } else if (cat.type === 'min') {
           bestVal = validVals.length > 0 ? Math.min(...validVals) : 0;
-          worstVal = Math.max(...vals);
+          worstVal = validVals.length > 0 ? Math.max(...validVals) : 0;
           isWinner = (v) => v === bestVal && (!cat.requirePositive || v > 0);
-          isLoser = (v) => v === worstVal;
-          getScore = (v) => bestVal === worstVal ? 1 : (worstVal - v) / (worstVal - bestVal!);
-        } else if (cat.type === 'target') {
-          const distances = vals.map(v => Math.abs(v - (cat.target as number)));
-          const minDistance = Math.min(...distances);
-          const maxDistance = Math.max(...distances);
-          
-          isWinner = (v) => Math.abs(v - (cat.target as number)) === minDistance;
-          isLoser = (v) => Math.abs(v - (cat.target as number)) === maxDistance;
+          isLoser = (v) => v === worstVal && (!cat.requirePositive || v > 0);
           getScore = (v) => {
+            if (cat.requirePositive && v === 0) return 0;
+            return bestVal === worstVal ? 1 : (worstVal - v) / (worstVal - bestVal!);
+          };
+        } else if (cat.type === 'target') {
+          const distances = validVals.map(v => Math.abs(v - (cat.target as number)));
+          const minDistance = distances.length > 0 ? Math.min(...distances) : 0;
+          const maxDistance = distances.length > 0 ? Math.max(...distances) : 0;
+          
+          isWinner = (v) => (!cat.requirePositive || v > 0) && Math.abs(v - (cat.target as number)) === minDistance;
+          isLoser = (v) => (!cat.requirePositive || v > 0) && Math.abs(v - (cat.target as number)) === maxDistance;
+          getScore = (v) => {
+            if (cat.requirePositive && v === 0) return 0;
             const d = Math.abs(v - (cat.target as number));
             return minDistance === maxDistance ? 1 : (maxDistance - d) / (maxDistance - minDistance);
           };
@@ -2443,7 +2479,12 @@ export function ManagerView({
 
     const getTop = (key: keyof typeof list[0], ascending = false) => {
       if (list.length === 0) return null;
-      const sorted = [...list].sort((a, b) => ascending ? (a[key] as number) - (b[key] as number) : (b[key] as number) - (a[key] as number));
+      let validList = list;
+      if (key !== "akmBb") {
+        validList = list.filter(item => (item[key] as number) > 0);
+      }
+      if (validList.length === 0) return null;
+      const sorted = [...validList].sort((a, b) => ascending ? (a[key] as number) - (b[key] as number) : (b[key] as number) - (a[key] as number));
       const topVal = sorted[0][key];
       const allTops = sorted.filter(item => item[key] === topVal);
       const joinedNames = allTops.map(i => cleanYlName(i.nama)).join(", ");
@@ -3564,7 +3605,7 @@ export function ManagerView({
                       <td className="p-1 text-center font-black text-white bg-red-900">{monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt}</td>
                       
                       {(() => {
-                        const pembagiStr = Object.values(activeGridMap || {}).reduce((acc: number, curr: any) => Math.max(acc, Number(curr.pembagiTanggal) || 25), 25);
+                        const pembagiStr = (activeGridMap && Object.keys(activeGridMap).length > 0) ? (activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25) : 25;
                         const pembagi = Number(pembagiStr) || 25;
                         const ryo = Math.round(monthlyGridTotals.yo / pembagi);
                         const rom = Math.round(monthlyGridTotals.om / pembagi);
@@ -3584,14 +3625,18 @@ export function ManagerView({
 
                       {(() => {
                         let totalTarget = 0, totalBL = 0, totalTL = 0;
-                        const pembagiStr = Object.values(activeGridMap || {}).reduce((acc: number, curr: any) => Math.max(acc, Number(curr.pembagiTanggal) || 25), 25);
+                        const pembagiStr = (activeGridMap && Object.keys(activeGridMap).length > 0) ? (activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25) : 25;
                         const pembagi = Number(pembagiStr) || 25;
-                        activeYLsList.forEach((yl: any) => {
-                          const tgtObj = activeTargetYLMap[String(yl.area).substring(0, 3)] || { target: 0, bln_lalu: 0, thn_lalu: 0 };
-                          totalTarget += (tgtObj.target || 0) * pembagi;
-                          totalBL += (tgtObj.bln_lalu || 0) * pembagi;
-                          totalTL += (tgtObj.thn_lalu || 0) * pembagi;
-                        });
+                        
+                        const activeYLs = activeYLsList.filter((y: any) => y.status !== "nonaktif");
+                        const sumTarget = activeYLs.reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.target) || 0), 0);
+                        const sumBL = activeYLs.reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.bln_lalu) || 0), 0);
+                        const sumTL = activeYLs.reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.thn_lalu) || 0), 0);
+                        
+                        totalTarget = Math.round(sumTarget) * pembagi;
+                        totalBL = Math.round(sumBL) * pembagi;
+                        totalTL = Math.round(sumTL) * pembagi;
+
                         const grandTotal = monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt;
                         const dTarget = grandTotal - totalTarget;
                         const dBL = grandTotal - totalBL;
@@ -3632,7 +3677,7 @@ export function ManagerView({
                         {monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt} btl
                       </td>
                       {(() => {
-                        const pembagiStr = Object.values(activeGridMap || {}).reduce((acc: number, curr: any) => Math.max(acc, Number(curr.pembagiTanggal) || 25), 25);
+                        const pembagiStr = (activeGridMap && Object.keys(activeGridMap).length > 0) ? (activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25) : 25;
                         const pembagi = Number(pembagiStr) || 25;
                         const ryo = Math.round(monthlyGridTotals.yo / pembagi);
                         const rom = Math.round(monthlyGridTotals.om / pembagi);
@@ -3740,7 +3785,7 @@ export function ManagerView({
                             {rowItem.title}
                           </td>
                           <td className="p-2 text-center border-r border-slate-200 font-black text-blue-900 bg-blue-50/30 text-xs">
-                            {totalVal.toLocaleString("id-ID")}
+                            {Math.round(totalVal).toLocaleString("id-ID")}
                           </td>
                           {(["_yo", "_om", "_os", "_yt"] as const).map((sfx, cIdx) => {
                             const val = (activeTargetTKU as any)[`${rowItem.prefix}${sfx}`] ?? 0;
@@ -3816,6 +3861,20 @@ export function ManagerView({
                       />
                     ))}
                   </tbody>
+                  <tfoot className="bg-slate-100 text-slate-800 text-[11px] font-black uppercase shadow-[inset_0_1px_0_rgba(0,0,0,0.1)]">
+                    <tr>
+                      <td className="p-2.5 text-right border-r-2 border-slate-300">TOTAL</td>
+                      <td className="p-1.5 text-center border-r border-slate-300 text-sm">
+                        {Math.round(ylList.filter((y: any) => y.status !== "nonaktif").reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.target) || 0), 0)).toLocaleString("id-ID")}
+                      </td>
+                      <td className="p-1.5 text-center border-r border-slate-300 text-sm">
+                        {Math.round(ylList.filter((y: any) => y.status !== "nonaktif").reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.bln_lalu) || 0), 0)).toLocaleString("id-ID")}
+                      </td>
+                      <td className="p-1.5 text-center border-r border-slate-300 text-sm">
+                        {Math.round(ylList.filter((y: any) => y.status !== "nonaktif").reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.thn_lalu) || 0), 0)).toLocaleString("id-ID")}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>

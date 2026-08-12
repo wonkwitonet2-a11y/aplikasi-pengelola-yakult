@@ -430,13 +430,26 @@ export function YLView({
 
   useEffect(() => {
     if (!ylName) return;
-    safeFetchJson<{ ok: boolean; foto?: string }>(`/api/getYlFoto?nama=${encodeURIComponent(ylName)}`)
+    safeFetchJson<{ ok: boolean; foto?: string }>(`/api/getYlFoto?nama=${encodeURIComponent(ylName)}&t=${Date.now()}`)
       .then(res => {
-        if (res && res.ok && res.foto) {
-          setYlFoto(res.foto);
-          try {
-            localStorage.setItem(`yl_foto_${ylName}`, res.foto);
-          } catch (e) {}
+        if (res && res.ok) {
+          if (res.foto) {
+            setYlFoto(res.foto);
+            try {
+              localStorage.setItem(`yl_foto_${ylName}`, res.foto);
+            } catch (e) {}
+          } else {
+            try {
+              const localFoto = localStorage.getItem(`yl_foto_${ylName}`);
+              if (localFoto) {
+                fetch("/api/saveYlFoto", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ nama: ylName, foto: localFoto })
+                }).catch(() => {});
+              }
+            } catch (e) {}
+          }
         }
       }).catch(() => {});
   }, [ylName]);
@@ -450,42 +463,98 @@ export function YLView({
     }
     const reader = new FileReader();
     reader.onload = async () => {
-      const base64 = reader.result as string;
-      setYlFoto(base64);
-      try {
-        localStorage.setItem(`yl_foto_${ylName}`, base64);
-      } catch (e) {}
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 500;
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height *= MAX_SIZE / width;
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width *= MAX_SIZE / height;
+            height = MAX_SIZE;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        
+        const base64 = canvas.toDataURL('image/jpeg', 0.7);
+        setYlFoto(base64);
+        try {
+          localStorage.setItem(`yl_foto_${ylName}`, base64);
+        } catch (e) {}
 
-      try {
-        await fetch("/api/saveYlFoto", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nama: ylName, foto: base64 })
-        });
-      } catch (err) {
-        console.error("Gagal simpan foto YL ke server:", err);
-      }
+        try {
+          await fetch("/api/saveYlFoto", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nama: ylName, foto: base64 })
+          });
+        } catch (err) {
+          console.error("Gagal simpan foto YL ke server:", err);
+        }
+      };
+      img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
 
   // Motivasi sliding slideshow state
   const [activeMotivasi, setActiveMotivasi] = useState<string>("Semangat menjalani hari ini dengan tulus!");
-  const motivasiIndexRef = useRef<number>(0);
 
   // Rotate motivasi slideshow
   useEffect(() => {
     if (!motivasiConfig.enabled || motivasiConfig.terpilih.length === 0) return;
+    
     const list = motivasiConfig.terpilih;
-    setActiveMotivasi(list[0]);
+    const storageKey = `yakult_motivasi_state_${ylName.replace(/\s+/g, '_')}`;
+
+    const getNextQuote = () => {
+      let remaining: string[] = [];
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          remaining = JSON.parse(saved);
+        }
+      } catch (e) {}
+
+      // Filter remaining to only include quotes that are STILL in the current terpilih list
+      remaining = remaining.filter(q => list.includes(q));
+
+      if (remaining.length === 0) {
+        // reshuffle from list
+        remaining = [...list];
+        for (let i = remaining.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
+        }
+      }
+
+      const nextQuote = remaining.shift() || list[0];
+      
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(remaining));
+      } catch (e) {}
+      
+      return nextQuote;
+    };
+
+    setActiveMotivasi(getNextQuote());
 
     const timer = setInterval(() => {
-      motivasiIndexRef.current = (motivasiIndexRef.current + 1) % list.length;
-      setActiveMotivasi(list[motivasiIndexRef.current]);
+      setActiveMotivasi(getNextQuote());
     }, (motivasiConfig.intervalDetik || 30) * 1000);
 
     return () => clearInterval(timer);
-  }, [motivasiConfig]);
+  }, [motivasiConfig, ylName]);
 
   const loadedDateRef = useRef<string>("");
 
@@ -810,7 +879,7 @@ export function YLView({
   });
 
   // PLG/RK/RA/RB/PB/BB/Sampah Botol & pembagi E6 diambil dari sheet atau penjumlahan transaksi
-  const tgtObjBulanIni: any = targetYL.find((t: any) => t.bulan === currentMonth) || targetYL[0] || null;
+  const tgtObjBulanIni: any = (Array.isArray(targetYL) ? targetYL.find((t: any) => t.bulan === currentMonth) || targetYL[0] : targetYL) || null;
   const mPlg = tgtObjBulanIni?.plg || sumPlg;
   const mRk = tgtObjBulanIni?.rk || sumRk;
   const mRa = tgtObjBulanIni?.ra || sumRa;
@@ -1388,7 +1457,7 @@ export function YLView({
                 <div className="p-3.5 bg-red-50/90 rounded-2xl border border-red-200 shadow-sm flex flex-col justify-between">
                   <div>
                     <span className="text-xs font-extrabold text-red-900 uppercase block mb-1">Target Bulan Ini</span>
-                    <span className="text-2xl sm:text-4xl font-black text-red-700 block">{targetVal}</span>
+                    <span className="text-2xl sm:text-4xl font-black text-red-700 block">{Math.round(targetVal).toLocaleString("id-ID")}</span>
                     <span className="text-xs font-bold text-red-600/90 block mt-1">btl / hari</span>
                   </div>
                   <div className="mt-2.5 pt-2 border-t border-red-200/80">
@@ -1400,24 +1469,24 @@ export function YLView({
                 <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                   <div>
                     <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Bulan Lalu</span>
-                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{blnLaluVal}</span>
+                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{Math.round(blnLaluVal).toLocaleString("id-ID")}</span>
                     <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
                   </div>
                   <div className="mt-2.5 pt-2 border-t border-slate-200">
                     <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Bln Lalu</span>
-                    <span className="text-sm sm:text-base font-black text-slate-800">{getPctString(mRata2, blnLaluVal)}</span>
+                    <span className="text-sm sm:text-base font-black text-slate-700">{getPctString(mRata2, blnLaluVal)}</span>
                   </div>
                 </div>
 
                 <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
                   <div>
                     <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Tahun Lalu</span>
-                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{thnLaluVal}</span>
+                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{Math.round(thnLaluVal).toLocaleString("id-ID")}</span>
                     <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
                   </div>
                   <div className="mt-2.5 pt-2 border-t border-slate-200">
                     <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Thn Lalu</span>
-                    <span className="text-sm sm:text-base font-black text-slate-800">{getPctString(mRata2, thnLaluVal)}</span>
+                    <span className="text-sm sm:text-base font-black text-slate-700">{getPctString(mRata2, thnLaluVal)}</span>
                   </div>
                 </div>
               </div>

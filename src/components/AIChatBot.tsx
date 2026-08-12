@@ -27,7 +27,7 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
   const createWelcomeMessage = (): Message => ({
     id: "welcome",
     role: "assistant",
-    content: `Halo ${role === "manager" ? "Manager Ahmad" : "Ibu " + userName}! Saya adalah **${botName}** 🚀. Saya terhubung langsung dengan database Jember 1 Anda.\n\nAnda bisa meminta saya untuk **menganalisa penjualan**, **mengevaluasi kinerja rute**, atau bahkan **bertanya apa saja di luar pekerjaan** seperti resep makanan, tips kesehatan, atau topik lainnya secara bebas. Ada yang bisa saya bantu hari ini?`,
+    content: `Halo ${role === "manager" ? "Manager Wito" : "Ibu " + userName}! Saya adalah **${botName}** 🚀. Saya terhubung langsung dengan database Jember 1 Anda.\n\nAnda bisa meminta saya untuk **menganalisa penjualan**, **mengevaluasi kinerja rute**, atau bahkan **bertanya apa saja di luar pekerjaan** seperti resep makanan, tips kesehatan, atau topik lainnya secara bebas. Ada yang bisa saya bantu hari ini?`,
     timestamp: new Date(),
   });
 
@@ -102,7 +102,7 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
     const resetMsg: Message = {
       id: "reset_" + Date.now(),
       role: "assistant",
-      content: `Halo ${role === "manager" ? "Manager Ahmad" : "Ibu " + userName}! Saya adalah **${botName}** 🚀. Seluruh riwayat percakapan sebelumnya telah **dihapus total** 🧹.\n\nAda yang ingin ditanyakan lagi hari ini?`,
+      content: `Halo ${role === "manager" ? "Manager Wito" : "Ibu " + userName}! Saya adalah **${botName}** 🚀. Seluruh riwayat percakapan sebelumnya telah **dihapus total** 🧹.\n\nAda yang ingin ditanyakan lagi hari ini?`,
       timestamp: new Date()
     };
 
