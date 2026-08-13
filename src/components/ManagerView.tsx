@@ -1374,6 +1374,36 @@ export function ManagerView({
   });
   const [targetYLMap, setTargetYLMap] = useState<Record<string, { target: number; bln_lalu: number; thn_lalu: number }>>({});
 
+  const activeTargetYLMap = (isViewingHistoricalMonth && historicalDataSnapshot?.targetYLMap)
+    ? historicalDataSnapshot.targetYLMap
+    : targetYLMap;
+
+  const monthlyGridStats = useMemo(() => {
+    const activeYLs = activeYLsList.filter((y: any) => y.status !== "nonaktif");
+    const sumTarget = activeYLs.reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap?.[yl.area]?.target) || 0), 0);
+    const sumBL = activeYLs.reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap?.[yl.area]?.bln_lalu) || 0), 0);
+    const sumTL = activeYLs.reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap?.[yl.area]?.thn_lalu) || 0), 0);
+    
+    const pembagiStr = (activeGridMap && Object.keys(activeGridMap).length > 0) ? (activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25) : 25;
+    const pembagi = Number(pembagiStr) || 25;
+
+    const totalTarget = Math.round(sumTarget) * pembagi;
+    const totalBL = Math.round(sumBL) * pembagi;
+    const totalTL = Math.round(sumTL) * pembagi;
+    
+    const grandTotal = monthlyGridTotals.total;
+    
+    const pctTgt = totalTarget > 0 ? (grandTotal / totalTarget) * 100 : 100;
+    const pctBL = totalBL > 0 ? (grandTotal / totalBL) * 100 : 100;
+    const pctTL = totalTL > 0 ? (grandTotal / totalTL) * 100 : 100;
+
+    return {
+      sumTarget, sumBL, sumTL,
+      totalTarget, totalBL, totalTL,
+      pctTgt, pctBL, pctTL
+    };
+  }, [activeYLsList, activeTargetYLMap, activeGridMap, monthlyGridTotals]);
+
   // Spreadsheet Grid Integration - tabel Target per Yakult Lady (menu Target & Kompensasi)
   const targetGridContainerRef = useRef<HTMLDivElement>(null);
 
@@ -2639,10 +2669,6 @@ export function ManagerView({
     ? historicalDataSnapshot.targetTKU
     : targetTKU;
 
-  const activeTargetYLMap = (isViewingHistoricalMonth && historicalDataSnapshot?.targetYLMap)
-    ? historicalDataSnapshot.targetYLMap
-    : targetYLMap;
-
   if (showArchiveEditor) {
     return <ArchiveEditor onClose={() => setShowArchiveEditor(false)} motivasiConfig={motivasiConfig} ylList={ylList} />;
   }
@@ -3400,55 +3426,54 @@ export function ManagerView({
         {activeTab === "breakdown" && (
           <div className="space-y-4">
             {/* Header / Month & Mode Selection Card */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+            <div className="bg-white rounded-xl p-3 border border-slate-200 shadow-sm flex flex-col gap-3">
+              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">🧩</span>
+                  <span className="text-lg">🧩</span>
                   <div>
-                    <h2 className="text-sm font-black text-slate-900 uppercase">Breakdown Plan & Realisasi Harian</h2>
-                    <p className="text-[10.5px] text-slate-500 font-medium">Input rencana harian (BD) & realisasi harian per Yakult Lady</p>
+                    <h2 className="text-sm font-black text-slate-900 uppercase leading-none">Breakdown & Realisasi Harian</h2>
+                    <p className="text-[10px] text-slate-500 font-medium mt-0.5">Input rencana harian (BD) & realisasi harian per Yakult Lady</p>
                   </div>
                 </div>
-                {/* Month Picker */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600">Bulan:</span>
-                  <input
-                    type="month"
-                    value={selectedBreakdownMonth}
-                    onChange={(e) => {
-                      setSelectedBreakdownMonth(e.target.value);
-                      fetchBreakdownPlan(e.target.value);
-                    }}
-                    className="p-1.5 text-xs font-bold bg-slate-50 rounded-xl border border-slate-200 text-slate-800 outline-none"
-                  />
-                </div>
-              </div>
+                
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  {/* Month Picker */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10.5px] font-bold text-slate-600">Bulan:</span>
+                    <input
+                      type="month"
+                      value={selectedBreakdownMonth}
+                      onChange={(e) => {
+                        setSelectedBreakdownMonth(e.target.value);
+                        fetchBreakdownPlan(e.target.value);
+                      }}
+                      className="p-1 text-xs font-bold bg-slate-50 rounded-lg border border-slate-200 text-slate-800 outline-none"
+                    />
+                  </div>
 
-              {/* Submode Switcher (BD vs Realisasi) & Pembagi Tanggal */}
-              <div className="flex items-center justify-between flex-wrap gap-3 pt-1">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                  {/* Mode Switcher */}
+                  <div className="flex bg-slate-100 p-0.5 rounded-lg gap-0.5">
                     <button
                       onClick={() => setGridSubMode("BD")}
-                      className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
+                      className={`px-2.5 py-1 text-[11px] font-extrabold rounded-md transition-all cursor-pointer ${
                         gridSubMode === "BD" ? "bg-red-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      Breakdown Plan (BD)
+                      Breakdown (BD)
                     </button>
                     <button
                       onClick={() => setGridSubMode("R")}
-                      className={`px-3 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
+                      className={`px-2.5 py-1 text-[11px] font-extrabold rounded-md transition-all cursor-pointer ${
                         gridSubMode === "R" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
                       }`}
                     >
-                      Breakdown Realisasi (R)
+                      Realisasi (R)
                     </button>
                   </div>
 
-                  {/* Input Pembagi Tanggal Manual */}
-                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
-                    <span className="text-xs font-bold text-slate-700">Pembagi Tanggal (Manual):</span>
+                  {/* Manual Pembagi */}
+                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
+                    <span className="text-[10px] font-bold text-slate-700">Pembagi:</span>
                     <input
                       type="number"
                       min={1}
@@ -3460,38 +3485,57 @@ export function ManagerView({
                       }
                       onFocus={(e) => e.target.select()}
                       onChange={(e) => handleGlobalPembagiChange(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-14 p-1 text-xs font-extrabold text-center bg-white border border-slate-300 rounded-lg text-slate-900 outline-none focus:ring-2 focus:ring-red-500"
+                      className="w-10 p-0.5 text-xs font-extrabold text-center bg-white border border-slate-300 rounded-md text-slate-900 outline-none"
                     />
-                    <span className="text-[10px] text-slate-500 font-medium">
-                      (berlaku untuk semua Yakult Lady di bulan ini)
-                    </span>
                   </div>
-                </div>
+                  
+                  {/* Percentages */}
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg text-[10px] font-bold">
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-500">vs Tgt:</span>
+                      <span className={monthlyGridStats.pctTgt >= 100 ? "text-emerald-600" : "text-rose-600"}>
+                        {monthlyGridStats.pctTgt.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                      </span>
+                    </div>
+                    <div className="w-px h-3 bg-slate-300" />
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-500">vs BL:</span>
+                      <span className={monthlyGridStats.pctBL >= 100 ? "text-emerald-600" : "text-rose-600"}>
+                        {monthlyGridStats.pctBL.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                      </span>
+                    </div>
+                    <div className="w-px h-3 bg-slate-300" />
+                    <div className="flex items-center gap-1">
+                      <span className="text-slate-500">vs TL:</span>
+                      <span className={monthlyGridStats.pctTL >= 100 ? "text-emerald-600" : "text-rose-600"}>
+                        {monthlyGridStats.pctTL.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                      </span>
+                    </div>
+                  </div>
 
-                {/* Save & Toolbar buttons */}
-                <div className="flex items-center gap-2">
+                  {/* Save */}
                   <button
                     onClick={() => handleSaveBreakdownPlan(true)}
                     disabled={isBreakdownSaving}
-                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ml-auto"
                   >
                     {isBreakdownSaving ? (
                       <>
-                        <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Menyimpan...</span>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Simpan...</span>
                       </>
                     ) : (
                       <>
                         <span>💾</span>
-                        <span>Simpan Breakdown</span>
+                        <span>Simpan</span>
                       </>
                     )}
                   </button>
                 </div>
               </div>
-
+              
               {breakdownMsg && (
-                <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200 animate-pulse">
+                <p className="text-[11px] font-bold text-emerald-600 bg-emerald-50 p-1.5 rounded-lg border border-emerald-200 animate-pulse text-center">
                   {breakdownMsg}
                 </p>
               )}

@@ -921,7 +921,7 @@ app.post("/api/savePins", async (req, res) => {
   res.json({ ok: true });
 });
 
-// Helper to call Gemini AI with retries & model fallback (gemini-3.6-flash -> gemini-3.1-flash-lite)
+// Helper to call Gemini AI with retries & model fallback (gemini-3.6-flash -> gemini-3.1-flash-lite -> gemini-flash-latest)
 async function generateGeminiWithRetry(params: {
   contents: any;
   systemInstruction?: string;
@@ -931,7 +931,7 @@ async function generateGeminiWithRetry(params: {
     throw new Error("GEMINI_API_KEY belum terpasang di server.");
   }
 
-  const modelsToTry = ["gemini-3.6-flash", "gemini-3.1-flash-lite"];
+  const modelsToTry = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
   let lastError: any = null;
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -954,16 +954,16 @@ async function generateGeminiWithRetry(params: {
         lastError = err;
         const status = err.status || (err.error && err.error.status) || "";
         const msg = err.message || "";
-        const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.includes("quota") || msg.includes("rate-limits");
+        const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.includes("quota") || msg.includes("rate-limits") || msg.includes("limit");
         const isTransient = isQuotaExceeded || status === "UNAVAILABLE" || msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE");
 
         if (isQuotaExceeded) {
           console.warn(`[Gemini Quota Exceeded] Model ${modelName}: ${msg}`);
-          // Don't wait 17 seconds in blocking sleep. Try next model immediately or short pause.
-          break; // Switch to next fallback model immediately
+          // Switch to next fallback model immediately without waiting
+          break;
         } else if (isTransient && i < attempts - 1) {
-          console.warn(`[Gemini Retry] Model ${modelName} returned transient error (attempt ${i + 1}/${attempts}). Waiting 1000ms...`);
-          await sleep(1000);
+          console.warn(`[Gemini Retry] Model ${modelName} returned transient error (attempt ${i + 1}/${attempts}). Waiting 800ms...`);
+          await sleep(800);
         } else {
           console.warn(`[Gemini Fail] Model ${modelName} failed on attempt ${i + 1}/${attempts}:`, msg);
           break; // Try next model in list
@@ -980,65 +980,86 @@ async function generateGeminiWithRetry(params: {
   throw lastError || new Error("Model Gemini sedang mengalami lonjakan beban sementara. Silakan coba kembali beberapa saat lagi.");
 }
 
+function getCompactDataSummary(db: any) {
+  const ylPins = db.ylPins || {};
+  const activeYls = Object.entries(ylPins).slice(0, 15).map(([pin, name]) => `${pin}:${name}`).join(", ");
+  const rawTx = (db.transactions || []).slice(-10);
+  const compactTx = rawTx.map((t: any) => ({
+    area: t.area,
+    tgl: t.tgl,
+    tot_sales: t.tot_yo || t.rmh_yo || 0,
+    bb: t.tot_bb || t.bb_yo || 0,
+    pb: t.pb_p || 0
+  }));
+  return {
+    total_yl: Object.keys(ylPins).length,
+    daftar_yl_sampel: activeYls,
+    total_transaksi: (db.transactions || []).length,
+    transaksi_terbaru: compactTx
+  };
+}
+
 // 2b. AI Chatbot Analysis and General Q&A
 app.post("/api/ai/chat", async (req, res) => {
+  let roleVal = "manager";
+  let userNameVal = "";
+  let db: any = {};
   try {
     const { message, history, role, user_name } = req.body;
+    roleVal = role || "manager";
+    userNameVal = user_name || "";
+
     if (!message) {
       return res.status(400).json({ error: "Pesan tidak boleh kosong" });
     }
 
-    const db = loadData();
+    db = loadData();
+    const compactSummary = getCompactDataSummary(db);
+
     const systemInstruction = `
-Anda adalah "AI Jember 1 Pro Assistant", asisten pintar untuk sistem penjualan Yakult Unit DP Jember 1. 
-Tugas Anda adalah membantu pengguna (baik sebagai ${role === "manager" ? "Manager Wito" : "Yakult Lady (Ibu " + user_name + ")"}) menganalisis data, memberikan rekomendasi, dan menjadi teman ngobrol virtual yang asyik.
+Kamu adalah asisten virtual untuk aplikasi Yakult Lady Management System.
+Pengguna yang sedang login adalah: ${roleVal === "manager" ? "Admin (Manager/DP)" : "Yakult Lady (Ibu " + userNameVal + ")"}.
 
-KEPRIBADIAN (SANGAT PENTING):
-- Ramah, hangat, dan suportif seperti sahabat dekat & sahabat pena — tempat cerita apa saja, kapan saja.
-- Selalu beri semangat/motivasi secara natural, tidak menggurui atau berlebihan.
-- Gunakan bahasa Indonesia sehari-hari yang mudah dipahami ibu-ibu, hindari istilah teknis/asing yang rumit.
-- Boleh sesekali pakai emoji secukupnya biar terasa hangat, jangan berlebihan.
+Sesuaikan gaya bicara dan kemampuan berdasarkan siapa yang login. Ikuti panduan mode di bawah ini.
 
-INGAT HAL PENTING & FOLLOW UP:
-- Perhatikan hal-hal penting yang diceritakan YL (misalnya: sedang sakit, ada masalah keluarga, capek kerja, lagi senang karena sesuatu, rencana penting, dll) — tidak terbatas pada kesehatan saja.
-- Kalau ada hal penting yang diceritakan di chat sebelumnya, ingat dan tanyakan kabarnya lagi secara natural di percakapan berikutnya (misal: "Kemarin katanya lagi kurang enak badan, sekarang gimana, sudah baikan?").
-- Follow up dilakukan secara natural, jangan kaku atau seperti checklist. Sisipkan di awal obrolan atau saat momennya pas.
-- Kalau sudah lama tidak dibahas (lebih dari seminggu/beberapa chat lalu), tidak perlu diungkit lagi kecuali YL sendiri yang membahasnya.
+${roleVal === "manager" ? `
+=== MODE ADMIN (DP) ===
 
-FLEKSIBEL & PINTAR:
-- Kamu bisa "berperan" jadi apapun yang dibutuhkan ibu-ibu (teman diskusi kesehatan, parenting, keuangan, masak, dll) dengan jawaban luas dan akurat.
-- Jelaskan hal rumit dengan bahasa sederhana dan contoh sehari-hari.
-- Kalau ditanya hal serius di luar kemampuan (medis, hukum), beri gambaran umum lalu sarankan ke ahlinya.
+KEPRIBADIAN
+- Profesional, ringkas, dan to the point — seperti asisten kerja/business partner, bukan teman curhat.
+- Tetap sopan dan suportif, tapi fokus ke efisiensi dan hasil, bukan basa-basi personal.
+- Boleh pakai istilah bisnis/penjualan yang relevan (target, growth, konversi, tren, dsb), tapi tetap jelas — hindari jargon yang tidak perlu.
 
-GAYA JAWABAN:
-- Jawaban singkat dan padat, seperti chat WhatsApp — BUKAN paragraf panjang.
-- Langsung ke inti, tidak bertele-tele atau banyak basa-basi di awal.
-- Kalau butuh penjelasan panjang, pecah jadi beberapa pesan pendek/poin-poin (tapi dalam satu respons tidak masalah, asal rapi dan ringkas).
+ANALISIS DATA MENDALAM
+- Mampu membaca dan menganalisis data penjualan/performa tim (BD & Realisasi, LHPP, Rata-rata Bulanan, dll) secara tajam dan menyeluruh.
+- Berikan solusi terbaik yang konkret dan bisa langsung dijalankan.
 
-TOPIK PEKERJAAN (Data Yakult, Target, dll):
-- Berikan jawaban praktis dan jelas (gunakan poin-poin agar rapi), dengan nada mendukung dan memotivasi.
-- Kalau YL cerita capek/kurang semangat soal kerjaan, validasi perasaannya dulu, baru kasih semangat/solusi ringan.
+STANDAR & TOLOK UKUR PENILAIAN
+1. YL Mandiri: rata-rata penjualan minimal 250/hari. Di bawah 250 → kandidat untuk dievakuasi/dievaluasi.
+2. Penjualan Toko: idealnya maksimal 30% dari total penjualan.
+3. BB (Balik Botol): maksimal 10%. Semakin kecil, semakin baik.
+4. VS Tahun Lalu: hasil tahun ini wajib melampaui hasil tahun lalu.
+5. Penjualan Rumah: minimal 55%, dan dikategorikan bagus jika mencapai 65% atau lebih.
+` : `
+=== MODE YAKULT LADY (YL) ===
 
-TOPIK DI LUAR PEKERJAAN (Curhat, keluarga, keseharian):
-- Jadi pendengar yang baik dan sahabat pena — tempat cerita tanpa dihakimi.
-- Jangan buru-buru kasih solusi/nasihat kalau mereka cuma butuh didengar — tanya dulu perasaannya.
-- Tetap hangat dan personal, bukan formal atau kaku.
+KEPRIBADIAN
+- Ramah, hangat, dan suportif seperti sahabat dekat & sahabat pena.
+- Selalu beri semangat/motivasi secara natural, tidak menggurui.
+- Gunakan bahasa Indonesia sehari-hari yang mudah dipahami ibu-ibu.
+- Singkat dan padat, seperti chat WhatsApp.
+`}
 
-BATASAN:
-- Untuk hal serius (medis, hukum, finansial besar), tetap kasih penjelasan umum yang membantu, tapi ingatkan untuk cek ke ahli.
-- Jangan menggurui atau terkesan sok tahu. Tetap positif tapi jujur (jangan asal "iya-iya").
+=== BATASAN ===
+- Jangan menggurui atau terkesan sok tahu.
+- Tetap positif tapi jujur.
 
-Ingat: kamu adalah teman ngobrol serba bisa yang bikin mereka merasa didengar, terbantu, dan semangat lagi — bukan robot FAQ.
-
-Data Terkini:
-- Daftar PIN YL: ${JSON.stringify(db.ylPins || {})}
-- Target & Patokan Bulanan YL: ${JSON.stringify(db.targetYL || {})}
-- Total Data Laporan Tersimpan: ${db.transactions ? db.transactions.length : 0} baris
-- Sampel Transaksi Terkini (max 20): ${JSON.stringify((db.transactions || []).slice(-20))}
-- Status Menu Kontes: ${db.kontes?.enabled ? "Aktif" : "Nonaktif"}
+Data Ringkas Terkini:
+${JSON.stringify(compactSummary)}
+Status Menu Kontes: ${db.kontes?.enabled ? "Aktif" : "Nonaktif"}
 `;
 
-    const chatHistory = (history || []).map((h: any) => ({
+    const chatHistory = (history || []).slice(-8).map((h: any) => ({
       role: h.role === "user" ? "user" : "model",
       parts: [{ text: h.content }]
     }));
@@ -1056,8 +1077,20 @@ Data Terkini:
 
     res.json({ reply });
   } catch (error: any) {
-    console.error("AI Chat Error:", error);
-    res.status(500).json({ error: error.message || "Gagal menghubungi Gemini AI." });
+    console.warn("AI Chat Error (Using Smart Fallback):", error?.message || error);
+    let fallbackReply = "";
+    if (roleVal === "manager") {
+      fallbackReply = `📊 **[Sistem Analisis Tim DP Jember 1]**\n\n` +
+        `Layanan AI Gemini sedang dalam penyesuaian kuota jaringan/trafik sementara. Berikut data ringkas terkini tim Anda:\n` +
+        `- **Total YL Terdaftar:** ${Object.keys(db.ylPins || {}).length} YL\n` +
+        `- **Total Transaksi Laporan:** ${db.transactions ? db.transactions.length : 0} laporan tersimpan\n` +
+        `- **Status Database:** Seluruh data operasional tersimpan aman di server.\n\n` +
+        `💡 *Saran:* Silakan kirimkan kembali pertanyaan Anda dalam beberapa saat lagi untuk analisis kualitatif berbasis Gemini.`;
+    } else {
+      fallbackReply = `Assalamu'alaikum Ibu ${userNameVal || ""} sayang! ❤️\n\n` +
+        `Sistem AI sedang menyesuaikan trafik jaringan sebentar. Tetap semangat nggih Bu di rute penjualan harian hari ini! Jaga selalu kesehatan, penataan stok, dan senyuman ramah untuk para pelanggan harian Ibu. ✨🌸`;
+    }
+    res.json({ reply: fallbackReply });
   }
 });
 
@@ -2700,8 +2733,36 @@ Berdasarkan data di atas, tolong berikan analisis performa yang SANGAT mendalam,
     });
     res.json({ insight: text || "Tidak ada analisis yang dihasilkan." });
   } catch (e: any) {
-    console.error("Gemini Error:", e);
-    res.json({ insight: `<b>Gagal memuat analisis AI:</b> ${e.message || "Terjadi kesalahan."}` });
+    console.warn("Gemini Evaluate Error, returning structured rule-based evaluation:", e?.message || e);
+    const dataRows = data?.dataRows || [];
+    let topPerformers: string[] = [];
+    let highBb: string[] = [];
+
+    dataRows.forEach((r: any) => {
+      const area = String(r[0] || "");
+      const nama = String(r[1] || "");
+      const sales = Number(r[7]) || 0;
+      const bb = Number(r[10]) || 0;
+      if (sales >= 250) topPerformers.push(`Area ${area} (${nama}): ${sales} botol/hari`);
+      if (bb > 10) highBb.push(`Area ${area} (${nama}): BB ${bb} botol`);
+    });
+
+    const fallbackHtml = `
+    <div class="space-y-3">
+      <p><b>🚨 HIGHLIGHT OPERASIONAL UTAMA:</b> Hasil evaluasi tim DP Jember 1 berdasarkan kalkulasi data transaksi realisasi terkini.</p>
+      <p><b>🏆 ANALISIS PERFORMA TERBAIK (SQUAD JUARA):</b></p>
+      <ul>
+        ${topPerformers.length > 0 ? topPerformers.map(t => `<li><b>${t}</b> - Memenuhi standar penjualan minimal (>=250 botol/hari).</li>`).join('') : '<li>Belum ada YL yang menembus 250 botol/hari hari ini. Perlu dorongan pendampingan rute ekstra.</li>'}
+      </ul>
+      <p><b>⚠️ AREA PERBAIKAN & BALIK BOTOL (BB):</b></p>
+      <ul>
+        ${highBb.length > 0 ? highBb.map(h => `<li><b>${h}</b> - Perlu evaluasi alokasi PDM dan penataan rute toko agar tidak retur.</li>`).join('') : '<li>Tingkat Balik Botol (BB) seluruh tim terpantau dalam kondisi aman (<10 botol). Performa baik!</li>'}
+      </ul>
+      <p><b>💡 REKOMENDASI STRATEGIS MANAGER:</b> Evaluasi rute harian untuk area dengan penjualan di bawah 250 dan pastikan pendataan propaganda berjalan aktif esok hari.</p>
+      <p class="text-xs text-slate-500 italic mt-2">*Catatan: Analisis ini dihasilkan secara otomatis dari sistem rule-based saat kuota jaringan AI Gemini sedang menyesuaikan.</p>
+    </div>
+    `;
+    res.json({ insight: fallbackHtml });
   }
 });
 

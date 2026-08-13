@@ -339,7 +339,7 @@ export function YLView({
     }
   }, [activeTab, isEditRealisasi, realisasiGridSelection, handleRealisasiGridClear, handleRealisasiGridCopy, handleRealisasiGridPaste]);
 
-  // YL Breakdown Plan & Realisasi state (from Admin)
+  // YL Breakdown & Realisasi state (from Admin)
   const [ylBreakdownPlan, setYlBreakdownPlan] = useState<{ pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> } | null>(null);
   const [ylBreakdownRealisasi, setYlBreakdownRealisasi] = useState<{ pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> } | null>(null);
   
@@ -362,7 +362,7 @@ export function YLView({
     }).catch(() => {});
   }, []);
   
-  // Fetch Breakdown Plan & Realisasi for YL from Admin
+  // Fetch Breakdown & Realisasi for YL from Admin
   useEffect(() => {
     const area = currentYlInfo.area || ylName.substring(0, 3).trim();
     const month = selectedDate ? selectedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
@@ -1158,7 +1158,7 @@ export function YLView({
                   
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Breakdown Plan</h3>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Breakdown</h3>
                 </div>
               </button>
 
