@@ -225,6 +225,7 @@ export function YLView({
   const [apkBotol, setApkBotol] = useState<number>(0);
       
   const [isEditRealisasi, setIsEditRealisasi] = useState(false);
+  const [mismatchConfirm, setMismatchConfirm] = useState<{ type: 'edit' | 'input', detail: string } | null>(null);
   const [editDataRealisasi, setEditDataRealisasi] = useState<Record<number, any>>({});
 
   const realisasiFields = useMemo(() => [
@@ -706,9 +707,13 @@ export function YLView({
 
     if (mismatches.length > 0) {
       const detail = mismatches.map(m => `• ${m.tanggal}: ${m.detail}`).join("\n");
-      alert(`⚠️ Tidak bisa disimpan. Total per produk (Aktual/Acuan) harus pas dengan Acuan Admin:\n\n${detail}`);
+      setMismatchConfirm({ type: 'edit', detail });
       return;
     }
+    executeSaveEditRealisasi();
+  };
+
+  const executeSaveEditRealisasi = async () => {
 
     setIsSavingRealisasi(true);
     try {
@@ -770,8 +775,15 @@ export function YLView({
 
   const canSaveInputHarian = cocokAcuanAdmin;
 
-  const handleSaveInputHarian = async () => {
-    if (!canSaveInputHarian) return;
+  const handleSaveInputHarian = () => {
+    if (!canSaveInputHarian) {
+      setMismatchConfirm({ type: 'input', detail: "Total pecahan sektor (Aktual) tidak pas dengan Acuan Admin." });
+      return;
+    }
+    executeSaveInputHarian();
+  };
+
+  const executeSaveInputHarian = async () => {
     setIsSavingInputHarian(true);
     setInputHarianMsg("");
     try {
@@ -1431,16 +1443,12 @@ export function YLView({
             {/* Simpan */}
             <button
               onClick={handleSaveInputHarian}
-              disabled={!canSaveInputHarian || isSavingInputHarian}
+              disabled={isSavingInputHarian}
               className="w-full bg-red-600 hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-black text-sm py-4 rounded-2xl shadow-sm transition-all active:scale-[0.99]"
             >
               {isSavingInputHarian ? "Menyimpan..." : "💾 Simpan Laporan Harian"}
             </button>
-            {!canSaveInputHarian && (
-              <p className="text-xs font-bold text-rose-600 text-center -mt-2">
-                Belum bisa disimpan — pastikan pecahan sektor pas dengan Acuan Admin.
-              </p>
-            )}
+            
             {inputHarianMsg && (
               <p className={`text-xs font-bold text-center -mt-2 ${inputHarianMsg.includes("❌") ? "text-rose-600" : "text-emerald-600"}`}>
                 {inputHarianMsg}
@@ -2005,6 +2013,50 @@ export function YLView({
             </div>
           </div>
         )}
+
+      {/* Modal Konfirmasi Mismatch Acuan */}
+      {mismatchConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden animate-slide-up border border-slate-200">
+            <div className="p-4 bg-amber-50 border-b border-amber-100 flex items-start gap-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <h3 className="font-black text-slate-800">Peringatan: Data Tidak Cocok</h3>
+                <p className="text-[10px] sm:text-xs text-slate-600 font-medium mt-1">
+                  Data realisasi tidak sama dengan acuan.
+                </p>
+              </div>
+            </div>
+            <div className="p-4">
+              <p className="text-xs text-slate-700 whitespace-pre-wrap font-mono bg-slate-50 p-2 rounded-lg border border-slate-200 max-h-32 overflow-y-auto">
+                {mismatchConfirm.detail}
+              </p>
+              <p className="text-xs text-slate-700 font-bold mt-4 text-center">
+                Apakah Anda ingin tetap menyimpan data ini?
+              </p>
+            </div>
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-2">
+              <button 
+                onClick={() => setMismatchConfirm(null)} 
+                className="flex-1 py-2 rounded-xl text-xs font-bold text-slate-600 bg-white border border-slate-300 hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={() => {
+                  if (mismatchConfirm.type === 'edit') executeSaveEditRealisasi();
+                  else executeSaveInputHarian();
+                  setMismatchConfirm(null);
+                }} 
+                className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 shadow-sm"
+              >
+                Tetap Simpan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       </main>
     </div>
   );

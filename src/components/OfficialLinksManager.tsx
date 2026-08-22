@@ -12,6 +12,8 @@ export const OfficialLinksManager: React.FC = () => {
   const [links, setLinks] = useState<OfficialLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [saveMsg, setSaveMsg] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState("");
@@ -49,13 +51,15 @@ export const OfficialLinksManager: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
-      alert("Gagal menyimpan tautan");
+      setErrorMsg("Gagal menyimpan tautan");
+      setTimeout(() => setErrorMsg(""), 3000);
     }
   };
 
   const handleSaveLink = () => {
     if (!title.trim() || !url.trim()) {
-      alert("Judul dan URL harus diisi.");
+      setErrorMsg("Judul dan URL harus diisi.");
+      setTimeout(() => setErrorMsg(""), 3000);
       return;
     }
     
@@ -83,10 +87,15 @@ export const OfficialLinksManager: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm("Yakin ingin menghapus tautan ini?")) {
-      const newLinks = links.filter(l => l.id !== id);
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirmId) {
+      const newLinks = links.filter(l => l.id !== deleteConfirmId);
       setLinks(newLinks);
       saveToBackend(newLinks);
+      setDeleteConfirmId(null);
     }
   };
 
@@ -165,6 +174,7 @@ export const OfficialLinksManager: React.FC = () => {
           )}
         </div>
         {saveMsg && <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-lg">{saveMsg}</p>}
+        {errorMsg && <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2 rounded-lg">{errorMsg}</p>}
       </div>
 
       {/* List */}
@@ -175,24 +185,35 @@ export const OfficialLinksManager: React.FC = () => {
           <p className="text-xs text-slate-400 font-medium italic">Belum ada tautan yang ditambahkan.</p>
         ) : (
           links.map(l => (
-            <div key={l.id} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white hover:bg-slate-50 transition-colors">
-              <div className="flex items-start gap-3 overflow-hidden pr-2">
-                <div className="mt-0.5 text-indigo-500 shrink-0">
-                  {l.mode === "new_tab" ? <ExternalLink className="w-4 h-4" /> : <LayoutTemplate className="w-4 h-4" />}
+            <div key={l.id} className="flex flex-col p-3 rounded-xl border border-slate-100 bg-white hover:bg-slate-50 transition-colors">
+              <div className="flex items-center justify-between">
+                <div className="flex items-start gap-3 overflow-hidden pr-2">
+                  <div className="mt-0.5 text-indigo-500 shrink-0">
+                    {l.mode === "new_tab" ? <ExternalLink className="w-4 h-4" /> : <LayoutTemplate className="w-4 h-4" />}
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-slate-800 truncate">{l.title}</h4>
+                    <p className="text-[10px] text-slate-500 truncate">{l.url}</p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <h4 className="text-xs font-bold text-slate-800 truncate">{l.title}</h4>
-                  <p className="text-[10px] text-slate-500 truncate">{l.url}</p>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => handleEdit(l)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Edit">
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => handleDelete(l.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Hapus">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button onClick={() => handleEdit(l)} className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Edit">
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={() => handleDelete(l.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="Hapus">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
+              {deleteConfirmId === l.id && (
+                <div className="flex items-center justify-between bg-rose-50 border border-rose-100 p-2 rounded-lg mt-3">
+                   <p className="text-[10px] text-rose-700 font-bold ml-1">Yakin hapus tautan ini?</p>
+                   <div className="flex items-center gap-2">
+                      <button onClick={() => setDeleteConfirmId(null)} className="text-[10px] font-bold text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50">Batal</button>
+                      <button onClick={confirmDelete} className="text-[10px] font-bold text-white bg-rose-600 px-3 py-1.5 rounded-lg hover:bg-rose-700 shadow-sm">Hapus</button>
+                   </div>
+                </div>
+              )}
             </div>
           ))
         )}

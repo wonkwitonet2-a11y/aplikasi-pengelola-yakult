@@ -144,7 +144,7 @@ export const OfficialLinksViewer: React.FC<Props> = ({ onBack, isAdmin = false }
               src={activeIframeLink.url} 
               className="w-full h-full border-0 absolute inset-0"
               title={activeIframeLink.title}
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+              sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-downloads"
             />
           </div>
         </div>
