@@ -4,7 +4,7 @@ import { useTabHistory } from "../hooks/useTabHistory";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
 import { useSimpleGrid } from "./useSimpleGrid";
 import {
-  TrendingUp,
+  TrendingUp, Globe,
   Award,
   Users,
   Settings, BookOpen,
@@ -89,6 +89,9 @@ interface ManagerViewProps {
 type BreakdownGridMap = Record<string, { pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> }>;
 
 import { ArchiveEditor } from "./archive/ArchiveEditor";
+import { OfficialLinksManager } from "./OfficialLinksManager";
+import { OfficialLinksViewer } from "./OfficialLinksViewer";
+
 
 
 export const parseIndonesianNumber = (val: string | number): number => {
@@ -2783,6 +2786,7 @@ export function ManagerView({
                 { id: "rata2_bulanan", icon: Calendar, label: "Rata-rata", color: "bg-teal-500", text: "text-teal-500", light: "bg-teal-50" },
                 { id: "plg_pjl", icon: PieChart, label: "Pelanggan", color: "bg-cyan-500", text: "text-cyan-500", light: "bg-cyan-50" },
                 { id: "lady", icon: Users, label: "Profil YL", color: "bg-indigo-500", text: "text-indigo-500", light: "bg-indigo-50" },
+                                { id: "tautan", icon: Globe, label: "Tautan", color: "bg-indigo-600", text: "text-indigo-600", light: "bg-indigo-50" },
                 { id: "seragam", icon: Grid3X3, label: "Seragam", color: "bg-purple-500", text: "text-purple-500", light: "bg-purple-50" },
                 { id: "product_knowledge", icon: BookOpen, label: "Edukasi", color: "bg-rose-500", text: "text-rose-500", light: "bg-rose-50" },
               ].map((item) => {
@@ -2840,6 +2844,37 @@ export function ManagerView({
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto p-4">
+        {/* Notifikasi Ulang Tahun */}
+        {(() => {
+          const today = new Date();
+          const todayMonthDay = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+          const birthdayLadies = ylList.filter((y: any) => y.tglLahir && y.tglLahir.endsWith(todayMonthDay) && y.status !== "Resign" && y.status !== "nonaktif");
+          
+          if (birthdayLadies.length === 0) return null;
+          
+          return (
+            <div className="bg-gradient-to-r from-rose-500 to-pink-600 rounded-2xl p-3 sm:p-4 mb-4 shadow-lg text-white border border-rose-400 flex items-center justify-between animate-fade-in relative overflow-hidden">
+              <div className="absolute -right-4 -top-4 opacity-10">
+                <Sparkles className="w-24 h-24" />
+              </div>
+              <div className="flex items-center gap-3 relative z-10">
+                <div className="bg-white/20 p-2.5 rounded-full backdrop-blur-sm animate-bounce">
+                  <span className="text-xl sm:text-2xl leading-none block">🎂</span>
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-white drop-shadow-md flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-rose-200" />
+                    Notifikasi Ulang Tahun!
+                  </h3>
+                  <p className="text-rose-50 text-[11px] sm:text-xs font-medium mt-0.5 max-w-xl leading-snug">
+                    Hari ini adalah hari ulang tahun: <strong className="text-white font-black text-xs sm:text-sm">{birthdayLadies.map((y:any) => cleanYlName(y.nama)).join(", ")}</strong>. Jangan lupa berikan ucapan selamat! 🎉
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Banner Status Mode Melihat Data Bulanan (Historical vs Live) */}
         {isViewingHistoricalMonth && (
           <div className={`p-3.5 mb-4 rounded-2xl border shadow-md flex flex-wrap items-center justify-between gap-3 animate-fade-in ${
@@ -2946,8 +2981,8 @@ export function ManagerView({
                   {/* Ultra Compact Header */}
                   <div className="py-1 px-2.5 bg-red-950 text-white flex items-center justify-between shrink-0 rounded-t-xl">
                     <div className="flex items-center gap-1.5">
-                      <h3 className="text-[10.5px] sm:text-xs font-black uppercase tracking-tight">Laporan Evaluasi Harian (Mirror Sheet)</h3>
-                      <span className="text-[8px] bg-red-800 text-red-100 px-1.5 py-0.5 rounded font-bold">
+                      <h3 className="text-[11.5px] sm:text-[13px] font-black uppercase tracking-tight">Laporan Evaluasi Harian (Mirror Sheet)</h3>
+                      <span className="text-[9.5px] bg-red-800 text-red-100 px-1.5 py-0.5 rounded font-bold">
                         {showFullEvalTable ? "32 Kolom Lengkap" : "8 Kategori Utama"}
                       </span>
                     </div>
@@ -2957,17 +2992,17 @@ export function ManagerView({
                           e.stopPropagation();
                           setShowFullEvalTable(!showFullEvalTable);
                         }}
-                        className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[8.5px] cursor-pointer"
+                        className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[9.5px] cursor-pointer"
                       >
                         {showFullEvalTable ? "Sembunyikan Kolom" : "Tampilkan Tabel Lengkap"}
                       </button>
                       {!isFullscreenEval && (
                         <button
                           onClick={() => setIsFullscreenEval(true)}
-                          className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[8.5px]"
+                          className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[9.5px]"
                           title="Layar Penuh"
                         >
-                          <Maximize2 className="w-2.5 h-2.5" />
+                          <Maximize2 className="w-3 h-3" />
                           <span>Slide Layar Penuh</span>
                         </button>
                       )}
@@ -2979,8 +3014,8 @@ export function ManagerView({
                     onClick={() => { if (!isFullscreenEval) setIsFullscreenEval(true); }}
                     title={isFullscreenEval ? "" : "Klik tabel untuk masuk Mode Presentasi Slide"}
                   >
-                    <table className="w-full text-left border-collapse relative text-[9px] sm:text-[9.5px] bg-white text-slate-800 font-mono">
-                      <thead className="sticky top-0 z-10 bg-slate-950 text-white text-[8px] sm:text-[8.5px] uppercase tracking-wider text-center font-bold">
+                    <table className="w-full text-left border-collapse relative text-[12px] sm:text-[13px] bg-white text-slate-800 font-sans tabular-nums font-semibold">
+                      <thead className="sticky top-0 z-10 bg-slate-950 text-white text-[10.5px] sm:text-[11.5px] uppercase tracking-wider text-center font-bold">
                         {/* Row 0 */}
                         <tr className="border-b border-slate-800">
                           <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-950 min-w-[32px]">Area</th>
@@ -3117,7 +3152,7 @@ export function ManagerView({
                                     className={`py-0.5 px-1 border-r border-slate-200 text-center whitespace-nowrap ${
                                       cIdx === 1 
                                         ? "text-left font-sans font-bold text-slate-900 min-w-[70px]" 
-                                        : "font-mono"
+                                        : "font-sans tabular-nums font-semibold"
                                     } ${
                                       isTopPerf ? "bg-emerald-100 font-extrabold text-emerald-900" : ""
                                     }`}
@@ -3136,7 +3171,7 @@ export function ManagerView({
                               if (!showFullEvalTable && !visibleCols.includes(cIdx)) return null;
                               const displayVal = (cIdx === 1 && typeof val === "string") ? cleanYlName(val) : val;
                               return (
-                                <td key={cIdx} className={`py-0.5 px-1 border-r border-amber-200 text-center whitespace-nowrap ${cIdx === 1 ? "text-left font-sans font-black" : "font-mono"}`}>
+                                <td key={cIdx} className={`py-0.5 px-1 border-r border-amber-200 text-center whitespace-nowrap ${cIdx === 1 ? "text-left font-sans font-black" : "font-sans tabular-nums font-semibold"}`}>
                                   {typeof displayVal === "number" ? ([15, 18, 21, 29, 31].includes(cIdx) ? `${displayVal}%` : (cIdx === 27 && displayVal > 0 ? `+${displayVal.toLocaleString("id-ID")}` : displayVal.toLocaleString("id-ID"))) : displayVal}
                                 </td>
                               );
@@ -3149,8 +3184,8 @@ export function ManagerView({
 
                   {/* Ultra Compact Action Footer */}
                   <div className="bg-slate-50 py-0.5 px-2 text-xs font-bold flex flex-wrap items-center justify-between gap-1 border-t border-slate-200 shrink-0">
-                    <div className="flex items-center gap-1 text-[8.5px] text-slate-600">
-                      <span className="inline-block w-2 h-2 bg-emerald-200 border border-emerald-400 rounded mr-0.5" />
+                    <div className="flex items-center gap-1 text-[9.5px] text-slate-600">
+                      <span className="inline-block w-2.5 h-2.5 bg-emerald-200 border border-emerald-400 rounded mr-0.5" />
                       Sel hijau = Performa terbaik harian.
                     </div>
                     <button
@@ -3158,7 +3193,7 @@ export function ManagerView({
                         e.stopPropagation();
                         setShowFullEvalTable(!showFullEvalTable);
                       }}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-700 hover:bg-red-800 text-white font-black text-[9.5px] rounded transition-all shadow-sm active:scale-95 cursor-pointer"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-700 hover:bg-red-800 text-white font-black text-[10.5px] rounded transition-all shadow-sm active:scale-95 cursor-pointer"
                     >
                       {showFullEvalTable ? (
                         <>
@@ -3178,10 +3213,10 @@ export function ManagerView({
                 {/* 2. PALING ATAS (KANAN): RINGKASAN PRESTASI (Slimmed to lg:col-span-3) */}
                 <div className="col-span-1 lg:col-span-3 xl:col-span-3 bg-white rounded-2xl p-1.5 sm:p-2 border-2 border-slate-200 shadow-md flex flex-col justify-between h-full text-slate-900">
                   <div className="flex items-center justify-between shrink-0 mb-1 pb-1 border-b border-slate-100">
-                    <h3 className="text-[10px] sm:text-[10.5px] font-black text-slate-900 uppercase tracking-tight flex items-center gap-1">
+                    <h3 className="text-[13px] sm:text-[14px] font-black text-slate-900 uppercase tracking-tight flex items-center gap-1">
                       <Award className="w-3 h-3 text-red-600" /> Ringkasan Prestasi
                     </h3>
-                    <span className="text-[7.5px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">8 Block</span>
+                    <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1 py-0.2 rounded">8 Block</span>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-1 flex-1 items-stretch">
@@ -3189,16 +3224,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-red-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <TrendingUp className="w-3 h-3 text-red-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-red-800 bg-red-100 border border-red-200 px-0.5 py-0 rounded">Hari Ini</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-red-800 bg-red-100 border border-red-200 px-0.5 py-0 rounded">Hari Ini</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Penjualan</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Penjualan</p>
                       {evaluasiBlocks?.block1 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block1.nama)}</p>
-                          <p className="text-[9px] font-black text-red-600">{evaluasiBlocks!.block1.jualHariIni} <span className="text-[7.5px] font-semibold text-slate-500">btl</span></p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block1.nama)}</p>
+                          <p className="text-[13px] font-black text-red-600">{evaluasiBlocks!.block1.jualHariIni} <span className="text-[10px] font-semibold text-slate-500">btl</span></p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
 
@@ -3206,16 +3241,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-amber-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <Clock className="w-3 h-3 text-amber-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-amber-800 bg-amber-100 border border-amber-200 px-0.5 py-0 rounded">Bulan Ini</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-amber-800 bg-amber-100 border border-amber-200 px-0.5 py-0 rounded">Bulan Ini</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Rata-Rata</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Rata-Rata</p>
                       {evaluasiBlocks?.block2 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block2.nama)}</p>
-                          <p className="text-[9px] font-black text-amber-600">{Math.trunc(evaluasiBlocks!.block2.rata2BulanBerjalan)} <span className="text-[7.5px] font-semibold text-slate-500">btl/hr</span></p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block2.nama)}</p>
+                          <p className="text-[13px] font-black text-amber-600">{Math.trunc(evaluasiBlocks!.block2.rata2BulanBerjalan)} <span className="text-[10px] font-semibold text-slate-500">btl/hr</span></p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
 
@@ -3223,16 +3258,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-emerald-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <Zap className="w-3 h-3 text-emerald-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-emerald-800 bg-emerald-100 border border-emerald-200 px-0.5 py-0 rounded">vs Mgg</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-emerald-800 bg-emerald-100 border border-emerald-200 px-0.5 py-0 rounded">vs Mgg</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">vs Mgg Lalu</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">vs Mgg Lalu</p>
                       {evaluasiBlocks?.block3 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block3.nama)}</p>
-                          <p className="text-[9px] font-black text-emerald-600">+{Math.trunc(evaluasiBlocks!.block3.vsMingguLaluPct)}%</p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block3.nama)}</p>
+                          <p className="text-[13px] font-black text-emerald-600">+{Math.trunc(evaluasiBlocks!.block3.vsMingguLaluPct)}%</p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
 
@@ -3240,16 +3275,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-blue-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <Home className="w-3 h-3 text-blue-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-blue-800 bg-blue-100 border border-blue-200 px-0.5 py-0 rounded">Sektor</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-blue-800 bg-blue-100 border border-blue-200 px-0.5 py-0 rounded">Sektor</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">% Rumah</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">% Rumah</p>
                       {evaluasiBlocks?.block4 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block4.nama)}</p>
-                          <p className="text-[9px] font-black text-blue-600">{Math.trunc(evaluasiBlocks!.block4.persenRumah)}%</p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block4.nama)}</p>
+                          <p className="text-[13px] font-black text-blue-600">{Math.trunc(evaluasiBlocks!.block4.persenRumah)}%</p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
 
@@ -3257,16 +3292,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-purple-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <UserCheck className="w-3 h-3 text-purple-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-purple-800 bg-purple-100 border border-purple-200 px-0.5 py-0 rounded">Kunjungan</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-purple-800 bg-purple-100 border border-purple-200 px-0.5 py-0 rounded">Kunjungan</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">% RB/PLG</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">% RB/PLG</p>
                       {evaluasiBlocks?.block5 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block5.nama)}</p>
-                          <p className="text-[9px] font-black text-purple-600">{Math.trunc(evaluasiBlocks!.block5.persenRbVsPlg)}%</p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block5.nama)}</p>
+                          <p className="text-[13px] font-black text-purple-600">{Math.trunc(evaluasiBlocks!.block5.persenRbVsPlg)}%</p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
 
@@ -3274,16 +3309,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-indigo-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <Megaphone className="w-3 h-3 text-indigo-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-indigo-800 bg-indigo-100 border border-indigo-200 px-0.5 py-0 rounded">Propaganda</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-indigo-800 bg-indigo-100 border border-indigo-200 px-0.5 py-0 rounded">Propaganda</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">PB Hari Ini</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">PB Hari Ini</p>
                       {evaluasiBlocks?.block6 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block6.nama)}</p>
-                          <p className="text-[9px] font-black text-indigo-600">{evaluasiBlocks!.block6.propagandaHariIni} <span className="text-[7.5px] font-semibold text-slate-500">PB</span></p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block6.nama)}</p>
+                          <p className="text-[13px] font-black text-indigo-600">{evaluasiBlocks!.block6.propagandaHariIni} <span className="text-[10px] font-semibold text-slate-500">PB</span></p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
 
@@ -3291,16 +3326,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-teal-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <Trash2 className="w-3 h-3 text-teal-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-teal-800 bg-teal-100 border border-teal-200 px-0.5 py-0 rounded">Lingkungan</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-teal-800 bg-teal-100 border border-teal-200 px-0.5 py-0 rounded">Lingkungan</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Akm Sampah</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Akm Sampah</p>
                       {evaluasiBlocks?.block7 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block7.nama)}</p>
-                          <p className="text-[9px] font-black text-teal-600">{evaluasiBlocks!.block7.sampahBotol} <span className="text-[7.5px] font-semibold text-slate-500">btl</span></p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block7.nama)}</p>
+                          <p className="text-[13px] font-black text-teal-600">{evaluasiBlocks!.block7.sampahBotol} <span className="text-[10px] font-semibold text-slate-500">btl</span></p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
 
@@ -3308,16 +3343,16 @@ export function ManagerView({
                     <div className="bg-white p-1 rounded-md border border-emerald-200 shadow-[0_1px_2px_rgba(0,0,0,0.02)] flex flex-col justify-between text-slate-900">
                       <div className="flex items-center justify-between leading-none">
                         <CheckCircle className="w-3 h-3 text-emerald-600 shrink-0" />
-                        <span className="text-[6.5px] font-black uppercase tracking-tight text-emerald-800 bg-emerald-100 border border-emerald-200 px-0.5 py-0 rounded">Retur</span>
+                        <span className="text-[9.5px] font-black uppercase tracking-tight text-emerald-800 bg-emerald-100 border border-emerald-200 px-0.5 py-0 rounded">Retur</span>
                       </div>
-                      <p className="text-[8.5px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Akm BB</p>
+                      <p className="text-[11px] font-extrabold text-slate-600 mt-0.5 truncate leading-none">Akm BB</p>
                       {evaluasiBlocks?.block8 ? (
                         <div className="mt-0.5 leading-tight">
-                          <p className="text-[9px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block8.nama)}</p>
-                          <p className="text-[9px] font-black text-emerald-600">{(evaluasiBlocks!.block8 as any).akmBb ?? evaluasiBlocks!.block8.bb} <span className="text-[7.5px] font-semibold text-slate-500">btl</span></p>
+                          <p className="text-[12px] font-black text-slate-950 truncate">{cleanYlName(evaluasiBlocks!.block8.nama)}</p>
+                          <p className="text-[13px] font-black text-emerald-600">{(evaluasiBlocks!.block8 as any).akmBb ?? evaluasiBlocks!.block8.bb} <span className="text-[10px] font-semibold text-slate-500">btl</span></p>
                         </div>
                       ) : (
-                        <p className="text-[8px] text-slate-400 italic">Memuat...</p>
+                        <p className="text-[11px] text-slate-400 italic">Memuat...</p>
                       )}
                     </div>
                   </div>
@@ -3328,26 +3363,26 @@ export function ManagerView({
                   {/* Top Performer Card - Compact Height */}
                   <div className="bg-white dark:bg-white rounded-xl p-2 sm:p-2.5 border-2 border-emerald-300 shadow-sm text-slate-900 flex flex-col justify-between">
                     <div>
-                      <h3 className="text-[11px] font-black text-emerald-800 uppercase tracking-tight mb-1 flex items-center gap-1.5">
+                      <h3 className="text-[13px] sm:text-[14px] font-black text-emerald-800 uppercase tracking-tight mb-1 flex items-center gap-1.5">
                         🏆 PERFORMA TERBAIK
                       </h3>
                       {top ? (
-                        <div className="text-[10px] sm:text-[10.5px] text-slate-800 space-y-0.5 leading-snug">
+                        <div className="text-[12px] sm:text-[13px] text-slate-800 space-y-0.5 leading-snug">
                           <p>
                             <strong className="font-black text-slate-950">{cleanYlName(top.nama)}</strong> memimpin dengan memenangkan{" "}
                             <span className="font-black text-emerald-700">{(top as any).winCount || 0} dari 8 kategori</span>.
                           </p>
                           {(top as any).wonCategories && (top as any).wonCategories.length > 0 && (
-                            <p className="text-slate-600 text-[9.5px]">
+                            <p className="text-slate-600 text-[12px]">
                               Keunggulan di: <strong className="font-bold text-emerald-800">{(top as any).wonCategories.join(", ")}</strong>.
                             </p>
                           )}
                         </div>
                       ) : (
-                        <p className="text-[9.5px] text-emerald-700 italic">Memuat data...</p>
+                        <p className="text-[12px] text-emerald-700 italic">Memuat data...</p>
                       )}
                     </div>
-                    <div className="text-[9px] font-bold text-emerald-900 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200 mt-1">
+                    <div className="text-[11.5px] font-bold text-emerald-900 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200 mt-1">
                       👍 Pertahankan efisiensi kunjungan dan rute di sektor andalan Anda!
                     </div>
                   </div>
@@ -3355,32 +3390,32 @@ export function ManagerView({
                   {/* Need Improvement Card - Compact Height */}
                   <div className="bg-white dark:bg-white rounded-xl p-2 sm:p-2.5 border-2 border-rose-300 shadow-sm text-slate-900 flex flex-col justify-between">
                     <div>
-                      <h3 className="text-[11px] font-black text-rose-800 uppercase tracking-tight mb-1 flex items-center gap-1.5">
+                      <h3 className="text-[13px] sm:text-[14px] font-black text-rose-800 uppercase tracking-tight mb-1 flex items-center gap-1.5">
                         ⚠️ PERFORMA TURUN
                       </h3>
                       {needImprovement ? (
-                        <div className="text-[10px] sm:text-[10.5px] text-slate-800 space-y-0.5 leading-snug">
+                        <div className="text-[12px] sm:text-[13px] text-slate-800 space-y-0.5 leading-snug">
                           <p>
                             <strong className="font-black text-slate-950">{cleanYlName(needImprovement.nama)}</strong> berada di posisi terbawah pada{" "}
                             <span className="font-black text-rose-700">{(needImprovement as any).loseCount || 0} dari 8 kategori</span>.
                           </p>
                           {(needImprovement as any).lostCategories && (needImprovement as any).lostCategories.length > 0 && (
-                            <p className="text-slate-600 text-[9.5px]">
+                            <p className="text-slate-600 text-[10.5px]">
                               Kelemahan di: <strong className="font-bold text-rose-800">{(needImprovement as any).lostCategories.join(", ")}</strong>.
                             </p>
                           )}
                           {highestBB && (
-                            <p className="text-[9.5px]">
+                            <p className="text-[12px]">
                               Balik Botol (BB) terbanyak:{" "}
                               <strong className="font-black text-slate-950">{cleanYlName(highestBB.nama)}</strong> ({highestBB.bb} btl).
                             </p>
                           )}
                         </div>
                       ) : (
-                        <p className="text-[9.5px] text-rose-700 italic">Memuat data...</p>
+                        <p className="text-[12px] text-rose-700 italic">Memuat data...</p>
                       )}
                     </div>
-                    <div className="text-[9px] font-bold text-rose-900 bg-rose-50 px-2 py-1 rounded-md border border-rose-200 mt-1">
+                    <div className="text-[11.5px] font-bold text-rose-900 bg-rose-50 px-2 py-1 rounded-md border border-rose-200 mt-1">
                       🚨 Tindakan: Review rute drop-off dan sisa stock harian agar botol retur tidak membengkak!
                     </div>
                   </div>
@@ -4095,271 +4130,71 @@ export function ManagerView({
           </div>
         )}
 
+        {/* Tautan Yakult */}
+        {activeTab === "tautan" && <OfficialLinksViewer isAdmin={true} onBack={() => { setActiveTab("dashboard"); setIsNavMenuOpen(false); }} />}
+
         {/* Tab Pengaturan & Cloud Supabase */}
         {activeTab === "setting" && (
           <div className="space-y-4">
-            {/* 1. Supabase Credentials Card */}
+            {/* 7. Catatan Perhatian Manager (Attention YL) */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">⚙️</span>
-                  <div>
-                    <h2 className="text-sm font-black text-slate-900 uppercase">Kredensial & Server Cloud Supabase</h2>
-                    <p className="text-[10.5px] text-slate-500 font-medium">Pengaturan koneksi Supabase untuk sinkronisasi database cloud</p>
-                  </div>
-                </div>
-                {isSbSyncing && (
-                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full animate-pulse">
-                    ⚡ Sedang Sinkron...
-                  </span>
-                )}
-              </div>
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                📌 Catatan Perhatian Manager (Attention YL)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Pesan atau arahan khusus ini akan ditampilkan secara eksklusif di dashboard YL sesuai area yang dipilih.
+              </p>
 
-              {sbMsg && (
-                <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200">
-                  {sbMsg}
-                </p>
-              )}
-
-              <div className="space-y-3 pt-1">
-                <div>
-                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Project URL</label>
-                  <input
-                    type="text"
-                    value={sbUrl}
-                    onChange={(e) => setSbUrl(e.target.value)}
-                    placeholder="https://your-project.supabase.co"
-                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Anon Key</label>
-                  <input
-                    type="password"
-                    value={sbKey}
-                    onChange={(e) => setSbKey(e.target.value)}
-                    placeholder="eyJhbGciOi..."
-                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button
-                    onClick={handleSaveSupabaseConfig}
-                    className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
-                  >
-                    <span>💾</span>
-                    <span>Simpan Kredensial Supabase</span>
-                  </button>
-                  <button
-                    onClick={handleSyncAllToSupabase}
-                    disabled={isSbSyncing}
-                    className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                  >
-                    <span>☁️</span>
-                    <span>{isSbSyncing ? "Menyinkronkan..." : "Sinkronkan Semua Data ke Supabase"}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* 2. Finish & Archive Month */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
-                  📦 Selesaikan & Arsipkan Bulan Berjalan
-                </h2>
-                {/* Month Picker for Archive */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600">Pilih Bulan Arsip:</span>
-                  <input
-                    type="month"
-                    value={selectedMonthlyArchive}
-                    onChange={(e) => setSelectedMonthlyArchive(e.target.value)}
-                    className="p-1.5 text-xs font-bold bg-slate-50 rounded-xl border border-slate-200 text-slate-800 outline-none"
-                  />
-                </div>
-              </div>
-
-              {archivedMonthsList.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  <span className="text-[10.5px] font-bold text-slate-600">📂 Daftar Bulan Tersimpan di Supabase:</span>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    Pilih Area YL
+                  </label>
                   <select
-                    value={archivedMonthsList.includes(selectedMonthlyArchive) ? selectedMonthlyArchive : ""}
+                    value={attentionArea}
                     onChange={(e) => {
-                      if (e.target.value) setSelectedMonthlyArchive(e.target.value);
+                      const area = e.target.value;
+                      setAttentionArea(area);
+                      setAttentionText(attentionMap[area] || "");
                     }}
-                    className="p-1.5 text-xs font-bold bg-white rounded-lg border border-slate-300 text-slate-800 outline-none cursor-pointer"
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
-                    <option value="" disabled>-- Pilih Bulan Tersimpan --</option>
-                    {archivedMonthsList.map((m) => (
-                      <option key={m} value={m}>
-                        {getIndonesianMonthLabel(m)} ({m})
+                    {ylList.map((y: any) => (
+                      <option key={y.area} value={y.area}>
+                        Area {y.area} - {y.nama}
                       </option>
                     ))}
                   </select>
                 </div>
-              )}
 
-              <p className="text-[10.5px] text-slate-500 font-medium">
-                Mengunci dan mengarsipkan seluruh rekapitulasi data bulan <strong className="text-indigo-900 font-black">{getIndonesianMonthLabel(selectedMonthlyArchive) || selectedMonthlyArchive} ({selectedMonthlyArchive})</strong> ke Supabase secara permanen.
-              </p>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    Pesan Attention / Catatan Khusus
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={attentionText}
+                    onChange={(e) => setAttentionText(e.target.value)}
+                    placeholder="Ketik catatan atau instruksi khusus untuk YL di area ini..."
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+                  />
+                </div>
 
-              {archiveStatusMsg && (
-                <p className="text-xs font-bold text-indigo-600 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 leading-relaxed">
-                  {archiveStatusMsg}
-                </p>
-              )}
-
-              <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
-                <button
-                  onClick={handleFinishAndArchiveMonth}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
-                >
-                  🔒 Selesaikan & Arsipkan Data Bulan Ini ({selectedMonthlyArchive})
-                </button>
-                <button
-                  onClick={() => handleFetchMonthFromSupabase(selectedMonthlyArchive)}
-                  disabled={isSbSyncing}
-                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  📂 Ambil Data Arsip Bulan Ini dari Supabase
-                </button>
-                <button
-                  onClick={handleUpdateArchiveMonth}
-                  disabled={isSbSyncing}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
-                  title="Ambil data live terbaru untuk bulan ini lalu timpa/perbarui arsip di Supabase"
-                >
-                  🔄 Perbarui / Refresh Arsip Bulan Ini
-                </button>
-                {isViewingHistoricalMonth && (
-                  <button
-                    onClick={handleResetToLiveData}
-                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 shrink-0"
-                  >
-                    🔄 Kembali ke Data Live
-                  </button>
+                {attentionSavedMsg && (
+                  <p className="text-xs font-bold text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                    Catatan Attention berhasil disimpan!
+                  </p>
                 )}
-              </div>
-            </div>
 
-            {/* 3. Reset Data (Targeted) */}
-            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
-                🗑️ Reset Data Khusus (4 Kategori)
-              </h2>
-              <p className="text-[10px] text-slate-500 leading-relaxed">
-                Hanya menghapus data: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU. Data lain (Profil, PIN, Motivasi, dll) AMAN.
-              </p>
-              <div className="space-y-2 mt-2">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cakupan Reset:</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                    <input type="radio" name="resetScope" value="current_month" checked={resetScope === "current_month"} onChange={() => setResetScope("current_month")} className="accent-rose-600" />
-                    Hanya Bulan Ini ({selectedBreakdownMonth || "2026-08"})
-                  </label>
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                    <input type="radio" name="resetScope" value="all" checked={resetScope === "all"} onChange={() => setResetScope("all")} className="accent-rose-600" />
-                    Semua Riwayat (Semua Bulan)
-                  </label>
-                </div>
-              </div>
-              <button
-                onClick={() => { setShowTargetedResetModal(true); setResetTargetedConfirmText(""); }}
-                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-3"
-              >
-                ⚠️ Reset Data
-              </button>
-            </div>
-
-            {/* 4. Backup & Cache */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-slate-600 pl-2">
-                💾 Cadangan & Pembersihan Cache
-              </h2>
-              <div className="flex flex-wrap gap-2 pt-1">
                 <button
-                  onClick={handleExportBackupJson}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                  onClick={handleSaveAttention}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
                 >
-                  📥 Ekspor Backup Data JSON
-                </button>
-                <label className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1">
-                  <span>📤 Impor Backup JSON</span>
-                  <input type="file" accept=".json" onChange={handleImportBackupJson} className="hidden" />
-                </label>
-                <button
-                  onClick={handleDownloadExcel}
-                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1"
-                >
-                  📊 Simpan ke Excel Manual (.xlsx)
-                </button>
-                <button
-                  onClick={handleClearCache}
-                  className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
-                >
-                  🧹 Bersihkan Cache LocalStorage
+                  <span>💾</span>
+                  <span>Simpan Catatan Attention</span>
                 </button>
               </div>
             </div>
-
-            {/* 5. Branding & Identitas Aplikasi */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-cyan-600 pl-2">
-                🏷️ Identitas Depo & Chatbot AI
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
-                    Nama TKU / Depo (DP)
-                  </label>
-                  <input
-                    type="text"
-                    value={tkuNameInput}
-                    onChange={(e) => setTkuNameInput(e.target.value)}
-                    placeholder="DP Jember 1"
-                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
-                    Nama Chatbot AI
-                  </label>
-                  <input
-                    type="text"
-                    value={chatbotNameInput}
-                    onChange={(e) => setChatbotNameInput(e.target.value)}
-                    placeholder="AI Jember 1 Pro"
-                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-              </div>
-              <button
-                onClick={handleSaveMotivasiConfigAll}
-                className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
-              >
-                <span>💾</span>
-                <span>Simpan Branding</span>
-              </button>
-            </div>
-
-            {/* Archive Editor Feature */}
-            <div className="bg-white rounded-2xl p-4 border border-indigo-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-indigo-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
-                📂 Archive Editor (Edit Data Masa Lalu)
-              </h2>
-              <p className="text-[10px] text-slate-500 font-medium">
-                Masuk ke lingkungan terisolasi untuk melihat dan merevisi data arsip bulan-bulan sebelumnya yang tersimpan di Supabase tanpa mempengaruhi bulan berjalan.
-              </p>
-              <button
-                onClick={() => setShowArchiveEditor(true)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-2"
-              >
-                🛠️ Buka Archive Editor
-              </button>
-            </div>
-
             {/* 6. Kelola Kalimat Motivasi Harian (YL) */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
@@ -4493,65 +4328,270 @@ export function ManagerView({
               </button>
             </div>
 
-            {/* 7. Catatan Perhatian Manager (Attention YL) */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
-                📌 Catatan Perhatian Manager (Attention YL)
+            {/* Archive Editor Feature */}
+            <div className="bg-white rounded-2xl p-4 border border-indigo-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-indigo-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                📂 Archive Editor (Edit Data Masa Lalu)
               </h2>
-              <p className="text-xs text-slate-500">
-                Pesan atau arahan khusus ini akan ditampilkan secara eksklusif di dashboard YL sesuai area yang dipilih.
+              <p className="text-[10px] text-slate-500 font-medium">
+                Masuk ke lingkungan terisolasi untuk melihat dan merevisi data arsip bulan-bulan sebelumnya yang tersimpan di Supabase tanpa mempengaruhi bulan berjalan.
               </p>
+              <button
+                onClick={() => setShowArchiveEditor(true)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-2"
+              >
+                🛠️ Buka Archive Editor
+              </button>
+            </div>
 
-              <div className="space-y-3">
+
+
+            {/* 5. Branding & Identitas Aplikasi */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-cyan-600 pl-2">
+                🏷️ Identitas Depo & Chatbot AI
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
-                    Pilih Area YL
+                    Nama TKU / Depo (DP)
                   </label>
+                  <input
+                    type="text"
+                    value={tkuNameInput}
+                    onChange={(e) => setTkuNameInput(e.target.value)}
+                    placeholder="DP Jember 1"
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                    Nama Chatbot AI
+                  </label>
+                  <input
+                    type="text"
+                    value={chatbotNameInput}
+                    onChange={(e) => setChatbotNameInput(e.target.value)}
+                    placeholder="AI Jember 1 Pro"
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={handleSaveMotivasiConfigAll}
+                className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+              >
+                <span>💾</span>
+                <span>Simpan Branding</span>
+              </button>
+            </div>
+
+            {/* 4. Backup & Cache */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-slate-600 pl-2">
+                💾 Cadangan & Pembersihan Cache
+              </h2>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  onClick={handleExportBackupJson}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                >
+                  📥 Ekspor Backup Data JSON
+                </button>
+                <label className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1">
+                  <span>📤 Impor Backup JSON</span>
+                  <input type="file" accept=".json" onChange={handleImportBackupJson} className="hidden" />
+                </label>
+                <button
+                  onClick={handleDownloadExcel}
+                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1"
+                >
+                  📊 Simpan ke Excel Manual (.xlsx)
+                </button>
+                <button
+                  onClick={handleClearCache}
+                  className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                >
+                  🧹 Bersihkan Cache LocalStorage
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Finish & Archive Month */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                  📦 Selesaikan & Arsipkan Bulan Berjalan
+                </h2>
+                {/* Month Picker for Archive */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">Pilih Bulan Arsip:</span>
+                  <input
+                    type="month"
+                    value={selectedMonthlyArchive}
+                    onChange={(e) => setSelectedMonthlyArchive(e.target.value)}
+                    className="p-1.5 text-xs font-bold bg-slate-50 rounded-xl border border-slate-200 text-slate-800 outline-none"
+                  />
+                </div>
+              </div>
+
+              {archivedMonthsList.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-[10.5px] font-bold text-slate-600">📂 Daftar Bulan Tersimpan di Supabase:</span>
                   <select
-                    value={attentionArea}
+                    value={archivedMonthsList.includes(selectedMonthlyArchive) ? selectedMonthlyArchive : ""}
                     onChange={(e) => {
-                      const area = e.target.value;
-                      setAttentionArea(area);
-                      setAttentionText(attentionMap[area] || "");
+                      if (e.target.value) setSelectedMonthlyArchive(e.target.value);
                     }}
-                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    className="p-1.5 text-xs font-bold bg-white rounded-lg border border-slate-300 text-slate-800 outline-none cursor-pointer"
                   >
-                    {ylList.map((y: any) => (
-                      <option key={y.area} value={y.area}>
-                        Area {y.area} - {y.nama}
+                    <option value="" disabled>-- Pilih Bulan Tersimpan --</option>
+                    {archivedMonthsList.map((m) => (
+                      <option key={m} value={m}>
+                        {getIndonesianMonthLabel(m)} ({m})
                       </option>
                     ))}
                   </select>
                 </div>
+              )}
 
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
-                    Pesan Attention / Catatan Khusus
+              <p className="text-[10.5px] text-slate-500 font-medium">
+                Mengunci dan mengarsipkan seluruh rekapitulasi data bulan <strong className="text-indigo-900 font-black">{getIndonesianMonthLabel(selectedMonthlyArchive) || selectedMonthlyArchive} ({selectedMonthlyArchive})</strong> ke Supabase secara permanen.
+              </p>
+
+              {archiveStatusMsg && (
+                <p className="text-xs font-bold text-indigo-600 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 leading-relaxed">
+                  {archiveStatusMsg}
+                </p>
+              )}
+
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
+                <button
+                  onClick={handleFinishAndArchiveMonth}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
+                >
+                  🔒 Selesaikan & Arsipkan Data Bulan Ini ({selectedMonthlyArchive})
+                </button>
+                <button
+                  onClick={() => handleFetchMonthFromSupabase(selectedMonthlyArchive)}
+                  disabled={isSbSyncing}
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  📂 Ambil Data Arsip Bulan Ini dari Supabase
+                </button>
+                <button
+                  onClick={handleUpdateArchiveMonth}
+                  disabled={isSbSyncing}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                  title="Ambil data live terbaru untuk bulan ini lalu timpa/perbarui arsip di Supabase"
+                >
+                  🔄 Perbarui / Refresh Arsip Bulan Ini
+                </button>
+                {isViewingHistoricalMonth && (
+                  <button
+                    onClick={handleResetToLiveData}
+                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 shrink-0"
+                  >
+                    🔄 Kembali ke Data Live
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Reset Data (Targeted) */}
+            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
+                🗑️ Reset Data Khusus (4 Kategori)
+              </h2>
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                Hanya menghapus data: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU. Data lain (Profil, PIN, Motivasi, dll) AMAN.
+              </p>
+              <div className="space-y-2 mt-2">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cakupan Reset:</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input type="radio" name="resetScope" value="current_month" checked={resetScope === "current_month"} onChange={() => setResetScope("current_month")} className="accent-rose-600" />
+                    Hanya Bulan Ini ({selectedBreakdownMonth || "2026-08"})
                   </label>
-                  <textarea
-                    rows={3}
-                    value={attentionText}
-                    onChange={(e) => setAttentionText(e.target.value)}
-                    placeholder="Ketik catatan atau instruksi khusus untuk YL di area ini..."
-                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input type="radio" name="resetScope" value="all" checked={resetScope === "all"} onChange={() => setResetScope("all")} className="accent-rose-600" />
+                    Semua Riwayat (Semua Bulan)
+                  </label>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowTargetedResetModal(true); setResetTargetedConfirmText(""); }}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-3"
+              >
+                ⚠️ Reset Data
+              </button>
+            </div>
+
+            {/* 1. Supabase Credentials Card */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">⚙️</span>
+                  <div>
+                    <h2 className="text-sm font-black text-slate-900 uppercase">Kredensial & Server Cloud Supabase</h2>
+                    <p className="text-[10.5px] text-slate-500 font-medium">Pengaturan koneksi Supabase untuk sinkronisasi database cloud</p>
+                  </div>
+                </div>
+                {isSbSyncing && (
+                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full animate-pulse">
+                    ⚡ Sedang Sinkron...
+                  </span>
+                )}
+              </div>
+
+              {sbMsg && (
+                <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200">
+                  {sbMsg}
+                </p>
+              )}
+
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Project URL</label>
+                  <input
+                    type="text"
+                    value={sbUrl}
+                    onChange={(e) => setSbUrl(e.target.value)}
+                    placeholder="https://your-project.supabase.co"
+                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Anon Key</label>
+                  <input
+                    type="password"
+                    value={sbKey}
+                    onChange={(e) => setSbKey(e.target.value)}
+                    placeholder="eyJhbGciOi..."
+                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
                   />
                 </div>
 
-                {attentionSavedMsg && (
-                  <p className="text-xs font-bold text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                    Catatan Attention berhasil disimpan!
-                  </p>
-                )}
-
-                <button
-                  onClick={handleSaveAttention}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
-                >
-                  <span>💾</span>
-                  <span>Simpan Catatan Attention</span>
-                </button>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    onClick={handleSaveSupabaseConfig}
+                    className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>💾</span>
+                    <span>Simpan Kredensial Supabase</span>
+                  </button>
+                  <button
+                    onClick={handleSyncAllToSupabase}
+                    disabled={isSbSyncing}
+                    className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <span>☁️</span>
+                    <span>{isSbSyncing ? "Menyinkronkan..." : "Sinkronkan Semua Data ke Supabase"}</span>
+                  </button>
+                </div>
               </div>
             </div>
+
           </div>
         )}
 

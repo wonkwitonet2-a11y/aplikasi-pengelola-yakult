@@ -65,14 +65,15 @@ if (!supabase) {
 }
 
 // Initialize Gemini lazily
-let _ai: GoogleGenAI | null = null;
-function getAI(): GoogleGenAI {
-  if (!_ai) {
-    if (!process.env.GEMINI_API_KEY) {
+const _aiInstances: Record<string, GoogleGenAI> = {};
+function getAI(apiKey?: string): GoogleGenAI {
+  const keyToUse = apiKey || process.env.GEMINI_API_KEY || "dummy";
+  if (!_aiInstances[keyToUse]) {
+    if (!process.env.GEMINI_API_KEY && keyToUse === "dummy") {
       console.warn("GEMINI_API_KEY is not set.");
     }
-    _ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY || "dummy",
+    _aiInstances[keyToUse] = new GoogleGenAI({
+      apiKey: keyToUse,
       httpOptions: {
         headers: {
           "User-Agent": "aistudio-build",
@@ -80,7 +81,7 @@ function getAI(): GoogleGenAI {
       },
     });
   }
-  return _ai;
+  return _aiInstances[keyToUse];
 }
 
 // DEFAULT KALIMAT MOTIVASI
@@ -927,80 +928,168 @@ async function generateGeminiWithRetry(params: {
   systemInstruction?: string;
   temperature?: number;
 }) {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY belum terpasang di server.");
+  const freeKey = process.env.GEMINI_API_KEY_FREE;
+  const paidKey = process.env.GEMINI_API_KEY;
+
+  if (!freeKey && !paidKey) {
+    throw new Error("GEMINI_API_KEY atau GEMINI_API_KEY_FREE belum terpasang di server.");
   }
 
   const modelsToTry = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-flash-latest"];
-  let lastError: any = null;
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  for (const modelName of modelsToTry) {
-    const attempts = 2;
-    for (let i = 0; i < attempts; i++) {
-      try {
-        const response = await getAI().models.generateContent({
-          model: modelName,
-          contents: params.contents,
-          config: {
-            systemInstruction: params.systemInstruction,
-            temperature: params.temperature ?? 0.7,
+  // Fungsi internal untuk mencoba model-model di satu API Key tertentu
+  async function tryWithKey(apiKey: string, label: string): Promise<string> {
+    let lastError: any = null;
+    for (const modelName of modelsToTry) {
+      const attempts = 2;
+      for (let i = 0; i < attempts; i++) {
+        try {
+          const response = await getAI(apiKey).models.generateContent({
+            model: modelName,
+            contents: params.contents,
+            config: {
+              systemInstruction: params.systemInstruction,
+              temperature: params.temperature ?? 0.7,
+            }
+          });
+          if (response && response.text) {
+            return response.text;
           }
-        });
-        if (response && response.text) {
-          return response.text;
-        }
-      } catch (err: any) {
-        lastError = err;
-        const status = err.status || (err.error && err.error.status) || "";
-        const msg = err.message || "";
-        const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.includes("quota") || msg.includes("rate-limits") || msg.includes("limit");
-        const isTransient = isQuotaExceeded || status === "UNAVAILABLE" || msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE");
+        } catch (err: any) {
+          lastError = err;
+          const status = err.status || (err.error && err.error.status) || "";
+          const msg = err.message || "";
+          const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.includes("quota") || msg.includes("rate-limits") || msg.includes("limit");
+          const isTransient = isQuotaExceeded || status === "UNAVAILABLE" || msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE");
 
-        if (isQuotaExceeded) {
-          console.warn(`[Gemini Quota Exceeded] Model ${modelName}: ${msg}`);
-          // Switch to next fallback model immediately without waiting
-          break;
-        } else if (isTransient && i < attempts - 1) {
-          console.warn(`[Gemini Retry] Model ${modelName} returned transient error (attempt ${i + 1}/${attempts}). Waiting 800ms...`);
-          await sleep(800);
-        } else {
-          console.warn(`[Gemini Fail] Model ${modelName} failed on attempt ${i + 1}/${attempts}:`, msg);
-          break; // Try next model in list
+          if (isQuotaExceeded) {
+            console.info(`[Gemini Quota] Switching model due to limits (${modelName})`);
+            break; 
+          } else if (isTransient && i < attempts - 1) {
+            console.info(`[Gemini Retry] Retrying ${modelName} due to transient issue...`);
+            await sleep(1500);
+          } else {
+            console.info(`[Gemini Swap] ${modelName} unavailable, trying next.`);
+            break; 
+          }
         }
+      }
+    }
+    throw lastError; // Jika semua model gagal di key ini, lemparkan error-nya ke atas
+  }
+
+  let finalError: any = null;
+
+  // Lapis 1: Coba pakai key gratis jika di-set di env
+  if (freeKey) {
+    try {
+      console.log("[Gemini] Using FREE key");
+      return await tryWithKey(freeKey, "FREE key");
+    } catch (err: any) {
+      finalError = err;
+      const status = err.status || (err.error && err.error.status) || "";
+      const msg = err.message || "";
+      const isQuotaExceeded = status === "RESOURCE_EXHAUSTED" || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("429") || msg.includes("quota") || msg.includes("rate-limits") || msg.includes("limit");
+
+      // Kalau error limit & ada key berbayar -> switch!
+      if (isQuotaExceeded && paidKey) {
+        console.log("[Gemini] Switched to PAID key");
+      } else {
+        // Jika gagal bukan karena limit, atau memang tidak punya paid key, stop disini
+        const errMsg = finalError?.message || "";
+        if (errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.includes("rate-limits")) {
+           throw new Error("Kuota API Key Gemini telah melampaui batas penggunaan harian/menit (Quota Exceeded / Rate Limit). Silakan coba lagi beberapa saat lagi.");
+        }
+        throw finalError || new Error("Model Gemini sedang mengalami lonjakan beban sementara. Silakan coba kembali beberapa saat lagi.");
       }
     }
   }
 
-  const errMsg = lastError?.message || "";
-  if (errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.includes("rate-limits")) {
-    throw new Error("Kuota API Key Gemini telah melampaui batas penggunaan harian/menit (Quota Exceeded / Rate Limit). Silakan coba lagi beberapa saat lagi atau periksa penggunaan kuota di https://ai.dev/rate-limit.");
+  // Lapis 2: Fallback ke key berbayar (atau eksekusi langsung jika freeKey tidak diset)
+  if (paidKey) {
+    try {
+      if (!freeKey) console.log("[Gemini] Using PAID key"); // Biar log jelas kalau dari awal tak ada freeKey
+      return await tryWithKey(paidKey, "PAID key");
+    } catch (err: any) {
+      finalError = err;
+    }
   }
 
-  throw lastError || new Error("Model Gemini sedang mengalami lonjakan beban sementara. Silakan coba kembali beberapa saat lagi.");
+  // Catch error terakhir (kalau Paid key juga kena limit atau fail)
+  const errMsg = finalError?.message || "";
+  if (errMsg.includes("quota") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("429") || errMsg.includes("rate-limits")) {
+    throw new Error("Kuota API Key Gemini telah melampaui batas penggunaan harian/menit (Quota Exceeded / Rate Limit). Silakan coba lagi beberapa saat lagi.");
+  }
+
+  throw finalError || new Error("Model Gemini sedang mengalami lonjakan beban sementara. Silakan coba kembali beberapa saat lagi.");
 }
 
 function getCompactDataSummary(db: any) {
   const ylPins = db.ylPins || {};
   const activeYls = Object.entries(ylPins).slice(0, 15).map(([pin, name]) => `${pin}:${name}`).join(", ");
+  
+  // Calculate current month accumulation for each YL
+  const txs = db.transactions || [];
+  const latestTxDate = txs.length > 0 ? txs[txs.length - 1].tanggal : new Date().toISOString().split("T")[0];
+  const currentMonth = latestTxDate ? latestTxDate.substring(0, 7) : "";
+  const currentMonthTx = txs.filter((t: any) => t.tanggal && t.tanggal.startsWith(currentMonth));
+  
+  const ylAccumulation: Record<string, { akumulasi: number, bb: number, rk: number, ra: number, rb: number, plg: number, plg_apk: number, sampah_botol: number }> = {};
+  currentMonthTx.forEach((t: any) => {
+     let nameOrArea = t.nama || t.area || "Unknown";
+     nameOrArea = cleanYlName(nameOrArea);
+     if (!ylAccumulation[nameOrArea]) ylAccumulation[nameOrArea] = { akumulasi: 0, bb: 0, rk: 0, ra: 0, rb: 0, plg: 0, plg_apk: 0, sampah_botol: 0 };
+     ylAccumulation[nameOrArea].akumulasi += (Number(t.tot_yo) || 0) + (Number(t.tot_om) || 0) + (Number(t.tot_os) || 0) + (Number(t.tot_yt) || 0);
+     ylAccumulation[nameOrArea].bb += (Number(t.tot_bb) || 0) + (Number(t.bb_yo) || 0) + (Number(t.bb_om) || 0) + (Number(t.bb_os) || 0) + (Number(t.bb_yt) || 0);
+     ylAccumulation[nameOrArea].rk += Number(t.f_rk) || 0;
+     ylAccumulation[nameOrArea].ra += Number(t.f_ra) || 0;
+     ylAccumulation[nameOrArea].rb += Number(t.f_rb) || 0;
+     ylAccumulation[nameOrArea].plg += Number(t.f_plg) || 0;
+     ylAccumulation[nameOrArea].plg_apk += Number(t.apk_plg) || 0;
+     ylAccumulation[nameOrArea].sampah_botol += Number(t.apk_botol) || 0;
+  });
+  
+  // Update from breakdownRealisasi as it is the source of truth for the accumulation
+  const realisasi = db.breakdownRealisasi && db.breakdownRealisasi[currentMonth] ? db.breakdownRealisasi[currentMonth] : {};
+  const realisasiAcc: Record<string, any> = {};
+  for (const area in realisasi) {
+    let sum = 0;
+    let yo = 0, om = 0, os = 0, yt = 0;
+    if (realisasi[area].days) {
+       for (const day in realisasi[area].days) {
+          const d = realisasi[area].days[day];
+          yo += (d.yo || 0);
+          om += (d.om || 0);
+          os += (d.os || 0);
+          yt += (d.yt || 0);
+          sum += (d.yo || 0) + (d.om || 0) + (d.os || 0) + (d.yt || 0);
+       }
+    }
+    realisasiAcc[area] = { total_semua: sum, yo, om, os, yt };
+  }
+
   const rawTx = (db.transactions || []).slice(-10);
   const compactTx = rawTx.map((t: any) => ({
     area: t.area,
-    tgl: t.tgl,
-    tot_sales: t.tot_yo || t.rmh_yo || 0,
-    bb: t.tot_bb || t.bb_yo || 0,
+    tgl: t.tanggal,
+    tot_sales: (Number(t.tot_yo) || 0) + (Number(t.tot_om) || 0) + (Number(t.tot_os) || 0) + (Number(t.tot_yt) || 0),
+    bb: (Number(t.tot_bb) || 0) + (Number(t.bb_yo) || 0) + (Number(t.bb_om) || 0) + (Number(t.bb_os) || 0) + (Number(t.bb_yt) || 0),
     pb: t.pb_p || 0
   }));
   return {
     total_yl: Object.keys(ylPins).length,
     daftar_yl_sampel: activeYls,
     total_transaksi: (db.transactions || []).length,
-    transaksi_terbaru: compactTx
+    transaksi_terbaru: compactTx,
+    akumulasi_transaksi_berjalan: ylAccumulation,
+    akumulasi_realisasi_admin_per_area: realisasiAcc
   };
 }
 
 // 2b. AI Chatbot Analysis and General Q&A
 app.post("/api/ai/chat", async (req, res) => {
+
   let roleVal = "manager";
   let userNameVal = "";
   let db: any = {};
@@ -1016,6 +1105,130 @@ app.post("/api/ai/chat", async (req, res) => {
     db = loadData();
     const compactSummary = getCompactDataSummary(db);
 
+    let ylSpecificData = "";
+    if (roleVal !== "manager" && userNameVal) {
+      const cleanName = cleanYlName(String(userNameVal));
+      const areaMatch = String(userNameVal).match(/^(\d{3})/);
+      const area = areaMatch ? areaMatch[1] : null;
+      
+      let myTxs = (db.transactions || []).filter((t) => 
+         t.nama === userNameVal || 
+         (area && t.nama && String(t.nama).startsWith(area)) ||
+         (area && t.area && (t.area === area || String(userNameVal).startsWith(t.area) || t.area === userNameVal)) ||
+         (cleanName && cleanYlName(t.nama || "") === cleanName)
+      );
+      
+      
+      const actualArea = myTxs.length > 0 ? myTxs[myTxs.length - 1].area : area;
+      const txs = db.transactions || [];
+      const latestTxDate = txs.length > 0 ? txs[txs.length - 1].tanggal : new Date().toISOString().split("T")[0];
+      const currentMonth = latestTxDate.substring(0, 7);
+
+      // Untuk mode YL, kita harus menghitung akumulasi total secara TEPAT sama seperti YLView
+      const currentMonthTx = myTxs.filter(t => t.tanggal.startsWith(currentMonth));
+      const hasRealisasiTable = !!(db.breakdownRealisasi && db.breakdownRealisasi[currentMonth] && db.breakdownRealisasi[currentMonth][actualArea] && db.breakdownRealisasi[currentMonth][actualArea].days);
+      
+      let mYo = 0, mOm = 0, mOs = 0, mYt = 0;
+      if (hasRealisasiTable) {
+         const days = db.breakdownRealisasi[currentMonth][actualArea].days;
+         for (const day in days) {
+            mYo += days[day].yo || 0;
+            mOm += days[day].om || 0;
+            mOs += days[day].os || 0;
+            mYt += days[day].yt || 0;
+         }
+      } else {
+         currentMonthTx.forEach(t => {
+            mYo += t.tot_yo || 0;
+            mOm += t.tot_om || 0;
+            mOs += t.tot_os || 0;
+            mYt += t.tot_yt || 0;
+         });
+      }
+      const totalPenjualan = mYo + mOm + mOs + mYt;
+
+      const totalBB = myTxs.reduce((sum, t) => sum + (Number(t.tot_bb) || 0) + (Number(t.bb_yo) || 0) + (Number(t.bb_om) || 0) + (Number(t.bb_os) || 0) + (Number(t.bb_yt) || 0), 0);
+      const totalPB = myTxs.reduce((sum, t) => sum + (Number(t.pb_p) || 0) + (Number(t.pb_s) || 0), 0);
+
+      
+      
+      const targetInfo = db.targetYL ? (db.targetYL[`${actualArea}_${currentMonth}`] || db.targetYL[actualArea] || {}) : {};
+      
+      const r_tot_om = mOm;
+      const r_tot_os = mOs;
+      const r_tot_yo = mYo;
+      const r_tot_yt = mYt;
+      const r_tot_all = totalPenjualan;
+      
+      const realisasiBulanIni = (db.breakdownRealisasi && db.breakdownRealisasi[currentMonth]) ? db.breakdownRealisasi[currentMonth] : {};
+      const areaRealisasi = realisasiBulanIni[actualArea] || {};
+      const tglPembagi = Number(areaRealisasi.pembagiTanggal) > 0 ? Number(areaRealisasi.pembagiTanggal) : 15;
+      const rataBulanIni = tglPembagi > 0 ? Math.round(r_tot_all / tglPembagi) : 0;
+      
+      const t_target = Number(targetInfo.target) || 0;
+      const t_bln_lalu = Number(targetInfo.bln_lalu) || 0;
+      const t_thn_lalu = Number(targetInfo.thn_lalu) || 0;
+      const capBulanIni = t_target > 0 ? ((rataBulanIni / t_target) * 100).toFixed(1) + "%" : "0%";
+      const capBulanLalu = t_bln_lalu > 0 ? ((rataBulanIni / t_bln_lalu) * 100).toFixed(1) + "%" : "0%";
+      const capTahunLalu = t_thn_lalu > 0 ? ((rataBulanIni / t_thn_lalu) * 100).toFixed(1) + "%" : "0%";
+      
+      const r_rmh_yo = currentMonthTx.reduce((sum, t) => sum + (Number(t.rmh_yo) || 0), 0);
+      const r_rmh_os = currentMonthTx.reduce((sum, t) => sum + (Number(t.rmh_os) || 0), 0);
+      const r_rmh_yt = currentMonthTx.reduce((sum, t) => sum + (Number(t.rmh_yt) || 0), 0);
+      const r_rmh_om = currentMonthTx.reduce((sum, t) => sum + (Number(t.rmh_om) || 0), 0);
+      const r_psr_yo = currentMonthTx.reduce((sum, t) => sum + (Number(t.psr_yo) || 0), 0);
+      const r_tk_yo = currentMonthTx.reduce((sum, t) => sum + (Number(t.tk_yo) || 0), 0);
+      const r_skh_yo = currentMonthTx.reduce((sum, t) => sum + (Number(t.skh_yo) || 0), 0);
+      const r_ktr_yo = currentMonthTx.reduce((sum, t) => sum + (Number(t.ktr_yo) || 0), 0);
+      
+      const sumFPlg = currentMonthTx.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
+      const sumFRk = currentMonthTx.reduce((sum, t) => sum + (Number(t.f_rk) || 0), 0);
+      const sumFRa = currentMonthTx.reduce((sum, t) => sum + (Number(t.f_ra) || 0), 0);
+      const sumFRb = currentMonthTx.reduce((sum, t) => sum + (Number(t.f_rb) || 0), 0);
+      const sumApkPlg = currentMonthTx.reduce((sum, t) => sum + (Number(t.apk_plg) || 0), 0);
+      const sumApkBotol = currentMonthTx.reduce((sum, t) => sum + (Number(t.apk_botol) || 0), 0);
+
+      const realisasiData = {
+         "Total OM": r_tot_om,
+         "Total OS": r_tot_os,
+         "Total YO": r_tot_yo,
+         "Total YT": r_tot_yt,
+         "Total Semua": r_tot_all,
+         "Rincian Potensi YO": {
+            "Rumah": r_rmh_yo,
+            "Pasar": r_psr_yo,
+            "Toko": r_tk_yo,
+            "Sekolah": r_skh_yo,
+            "Kantor": r_ktr_yo
+         },
+         "Rincian Potensi OM/OS/YT Rumah": {
+            "OS": r_rmh_os,
+            "YT": r_rmh_yt,
+            "OM": r_rmh_om
+         },
+         "Realisasi Potensi Kunjungan & Pelanggan": {
+            "RK (Rumah Kunjungan)": sumFRk,
+            "RA (Rumah Ada)": sumFRa,
+            "RB (Rumah Beli)": sumFRb,
+            "PLG (Pelanggan)": sumFPlg,
+            "APK Pelanggan Baru": sumApkPlg,
+            "APK Botol / Sampah Botol": sumApkBotol
+         }
+      };
+      ylSpecificData = `\n=== DATA KHUSUS IBU ${userNameVal.toUpperCase()} (AREA ${actualArea}) ===
+- Tanggal/Hari Pembagi (Admin): ${tglPembagi}
+- Total Akumulasi Penjualan Anda (Bulan Ini): ${r_tot_all} botol
+- Rata-rata Penjualan Anda (Bulan Ini): ${rataBulanIni} botol/hari (Dari akumulasi ${r_tot_all} dibagi ${tglPembagi})
+- Target Bulanan (Bulan Ini): ${t_target} botol/hari (Capaian: ${capBulanIni})
+- Target Bulan Lalu: ${t_bln_lalu} botol/hari (Capaian: ${capBulanLalu})
+- Target Tahun Lalu: ${t_thn_lalu} botol/hari (Capaian: ${capTahunLalu})
+- Total Balik Botol (BB) Anda (Bulan Ini): ${totalBB} botol
+- Total Pelanggan Baru (PB) Anda (Bulan Ini): ${totalPB} orang
+- Data Penjualan per Potensi Anda (Realisasi Bulan Ini): ${JSON.stringify(realisasiData)}
+- Riwayat Transaksi Terakhir Anda: ${JSON.stringify(myTxs.map((t) => ({ tgl: t.tanggal, sales: (Number(t.tot_yo) || 0) + (Number(t.tot_om) || 0) + (Number(t.tot_os) || 0) + (Number(t.tot_yt) || 0), bb: (Number(t.tot_bb) || 0) + (Number(t.bb_yo) || 0) + (Number(t.bb_om) || 0) + (Number(t.bb_os) || 0) + (Number(t.bb_yt) || 0) })).slice(-5))}
+`;
+    }
+
     const systemInstruction = `
 Kamu adalah asisten virtual untuk aplikasi Yakult Lady Management System.
 Pengguna yang sedang login adalah: ${roleVal === "manager" ? "Admin (Manager/DP)" : "Yakult Lady (Ibu " + userNameVal + ")"}.
@@ -1025,10 +1238,15 @@ Sesuaikan gaya bicara dan kemampuan berdasarkan siapa yang login. Ikuti panduan 
 ${roleVal === "manager" ? `
 === MODE ADMIN (DP) ===
 
+PENTING UNTUK AKUMULASI PENJUALAN & DATA KUNJUNGAN:
+- Jika Admin menanyakan "akumulasi Gusrina" atau akumulasi penjualan YL lainnya, BACA data pasti dari objek "akumulasi_realisasi_admin_per_area" di dalam compactSummary. Objek tersebut memuat Akumulasi Penjualan Valid per YL (misal {"202": 6775} berarti area 202 / Gusrina adalah 6775).
+- Jika Admin menanyakan data RK, RA, RB, PLG, PLG APK, atau Sampah Botol dari YL tertentu (seperti RB Gusrina), WAJIB BACA dari objek "akumulasi_transaksi_berjalan" di dalam compactSummary. Objek tersebut memuat data seperti rk, ra, rb (misal {"Gusrina": {..., rb: 462}} berarti RB Gusrina adalah 462). JANGAN menjumlahkan/mengarang sendiri, dan jangan mengambil dari transaksi terbaru secara sembarangan!
+
 KEPRIBADIAN
 - Profesional, ringkas, dan to the point — seperti asisten kerja/business partner, bukan teman curhat.
 - Tetap sopan dan suportif, tapi fokus ke efisiensi dan hasil, bukan basa-basi personal.
 - Boleh pakai istilah bisnis/penjualan yang relevan (target, growth, konversi, tren, dsb), tapi tetap jelas — hindari jargon yang tidak perlu.
+- PENTING: Jawablah dengan SANGAT PENDEK, SINGKAT, TIDAK BERTELE-TELE, dan MUDAH DIPAHAMI.
 
 ANALISIS DATA MENDALAM
 - Mampu membaca dan menganalisis data penjualan/performa tim (BD & Realisasi, LHPP, Rata-rata Bulanan, dll) secara tajam dan menyeluruh.
@@ -1050,13 +1268,49 @@ KEPRIBADIAN
 - Singkat dan padat, seperti chat WhatsApp.
 `}
 
+- PENTING: Jawablah dengan SANGAT PENDEK, SINGKAT, TIDAK BERTELE-TELE, dan MUDAH DIPAHAMI.
 === BATASAN ===
 - Jangan menggurui atau terkesan sok tahu.
 - Tetap positif tapi jujur.
 
-Data Ringkas Terkini:
+=== PENANGANAN DATA TIDAK LENGKAP / BELUM TER-UPDATE ===
+- Kalau data yang diminta (misal capaian target, penjualan area tertentu) ternyata kosong/belum ter-update di sistem, JANGAN langsung menyerah dengan jawaban template generik ("belum ter-update, coba cek ke admin").
+- Langkah yang harus dilakukan sebelum menyerah:
+  1. Cek dulu apakah ada data parsial yang tersedia (misal: data harian ada tapi rekap bulanan belum, atau data minggu ini ada tapi minggu lalu kosong) — pakai itu dan jelaskan sejauh mana data yang tersedia.
+  2. Kalau memang benar-benar tidak ada data sama sekali untuk periode/area yang diminta, sampaikan dengan jujur DAN spesifik — sebutkan apa yang sebenarnya coba dicari (misal: "Untuk penjualan Area 201 bulan Agustus, saya belum menemukan datanya di sistem") — jangan jawaban umum yang terkesan tidak mencoba.
+  3. Tawarkan solusi konkret: minta YL/admin memberi tahu angka manual biar bisa dibantu dihitung, ATAU arahkan ke menu/fitur spesifik di aplikasi tempat data itu seharusnya ada (bukan cuma "hubungi admin").
+- Jangan mengarang/menebak angka yang tidak ada di data. Kejujuran soal data kosong lebih penting daripada terkesan "selalu bisa jawab".
+- Tetap jaga nada suportif & positif saat menyampaikan data tidak ditemukan, tapi jangan sampai terkesan basa-basi menutupi ketidakmampuan menjawab.
+
+=== ISTILAH REALISASI POTENSI KUNJUNGAN ===
+- RK: Rumah Kunjungan (Rumah yang dikunjungi)
+- RA: Rumah Ada (Rumah yang ada orangnya / ketemu)
+- RB: Rumah Beli (Rumah yang membeli)
+- PLG: Pelanggan
+- PLG APK: Pelanggan pengumpulan sampah botol
+- Sampah Botol: Akumulasi sampah botol kosong
+
+=== WAJIB: TRANSPARANSI SUMBER DATA & PERHITUNGAN ===
+- Rata-rata Penjualan = Total Akumulasi Penjualan / Tanggal (Hari Pembagi dari Admin).
+- Persentase Capaian Target = (Rata-rata Penjualan / Target) x 100.
+(Gunakan Rata-rata Penjualan untuk membandingkan dengan Target Bulan Ini, Bulan Lalu, maupun Tahun Lalu. Data persentase capaian sudah disediakan di "DATA KHUSUS", jadi kamu tinggal menyebutkannya saja).
+(RUMUS KEKURANGAN JUAL UNTUK SISA HARI: jika target harian adalah T, jumlah total hari aktif/kerja dalam bulan adalah H (misal 25), dan akumulasi penjualan saat ini adalah A, serta hari pembagi berjalan adalah D, maka sisa hari adalah (H - D). Kekurangan botol per hari untuk capai target adalah: ((T * H) - A) / (H - D). Gunakan ini HANYA jika YL menanyakan target sisa hari).
+
+
+Setiap kali menjawab pertanyaan yang melibatkan ANGKA (capaian target, penjualan, BB, persentase, dll), WAJIB ikuti aturan ini:
+1. HANYA gunakan angka yang benar-benar ada di data yang diterima/di-query dari sistem. DILARANG KERAS mengarang, menebak, atau membulatkan angka yang tidak benar-benar ada di data.
+2. Setiap jawaban yang mengandung angka WAJIB menyertakan rincian sumber & cara hitungnya, minimal:
+   - Data mentah yang dipakai (misal: "capaian: 267 botol, target: 268 botol")
+   - Cara menghitungnya kalau ada perhitungan turunan (misal: "persentase = 267 ÷ 268 × 100% = 99,6%")
+3. Kalau tidak menemukan data yang relevan atau tidak yakin datanya benar/lengkap, WAJIB bilang terus terang "saya belum menemukan data pastinya" — JANGAN mengisi kekosongan dengan angka karangan sendiri, meskipun untuk tujuan memotivasi.
+4. Motivasi/semangat tetap boleh dan dianjurkan, TAPI harus dibangun dari angka yang benar — jangan mengorbankan akurasi demi terdengar positif.
+5. Kalau ada ketidaksesuaian data (misal dua sumber data kasih angka beda), tampilkan dan jelaskan ketidaksesuaiannya, jangan pilih salah satu secara diam-diam.
+Prioritas: AKURASI DATA > gaya bahasa yang enak didengar. Lebih baik jujur "belum ada datanya" daripada memberi angka yang salah walau terdengar meyakinkan.
+
+Data Ringkas Terkini (Global):
 ${JSON.stringify(compactSummary)}
 Status Menu Kontes: ${db.kontes?.enabled ? "Aktif" : "Nonaktif"}
+${ylSpecificData}
 `;
 
     const chatHistory = (history || []).slice(-8).map((h: any) => ({
@@ -1986,9 +2240,10 @@ app.get("/api/getEvaluasi", async (req, res) => {
 
   const tableData = names.map(name => {
     const ylItem = ylList.find((y: any) => y.nama === name);
-    const area = ylItem ? ylItem.area : name.substring(0, 3);
+    const areaMatch = name.match(/^(\d{3})/);
+    const area = ylItem ? ylItem.area : (areaMatch ? areaMatch[1] : "");
     const yl = dashboard.perYL[area] || { yo:0, om:0, os:0, yt:0, akumulasi:0, bbYL:0, rata2:0 };
-    const ylTxs = db.transactions.filter((t: any) => (t.nama === name || (t.area && String(t.area) === String(area)) || (t.nama && t.nama.startsWith(area))) && t.tanggal && t.tanggal.startsWith(currentMonth));
+    const ylTxs = db.transactions.filter((t: any) => (t.nama === name || (area && t.area && String(t.area) === String(area)) || (area && t.nama && t.nama.startsWith(area))) && t.tanggal && t.tanggal.startsWith(currentMonth));
     
     const areaData = breakdownRealisasiMonth[area];
     const pembagi = areaData && areaData.pembagiTanggal > 0 ? Number(areaData.pembagiTanggal) : 15;
@@ -2882,6 +3137,25 @@ app.post("/api/resetDataTargeted", async (req, res) => {
   }
 });
 
+
+// Official Links API
+app.get("/api/getOfficialLinks", async (req, res) => {
+  const db = loadData();
+  res.json({ links: db.officialLinks || [] });
+});
+
+app.post("/api/saveOfficialLinks", async (req, res) => {
+  try {
+    const { links } = req.body;
+    const db = loadData();
+    db.officialLinks = links;
+    await saveData(db);
+    res.json({ ok: true, message: "Tautan berhasil disimpan." });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // API 404 Fallback - Ensure non-existent /api routes return JSON, not HTML
 app.all("/api/*", (req, res) => {
   res.status(404).json({ error: `API endpoint ${req.originalUrl} not found` });
@@ -2904,13 +3178,7 @@ async function startServer() {
 
   const distPath = path.join(process.cwd(), "dist");
   const distIndexHtml = path.join(distPath, "index.html");
-  const hasProdBuild = fs.existsSync(distIndexHtml);
-
-  // Only serve statically if dist/index.html actually exists on disk.
-  // Otherwise, fallback to Vite middleware mode so development server works even before `npm run build`.
-  const useProdStaticServing = hasProdBuild;
-
-  if (!useProdStaticServing) {
+  if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

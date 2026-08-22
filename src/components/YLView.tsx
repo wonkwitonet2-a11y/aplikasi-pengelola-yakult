@@ -1,4 +1,5 @@
 import ProductKnowledgeView from "./ProductKnowledgeView";
+import { OfficialLinksViewer } from "./OfficialLinksViewer";
 import { ClipboardFallbackModal } from "./ClipboardFallbackModal";
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useTabHistory } from "../hooks/useTabHistory";
@@ -1212,7 +1213,7 @@ export function YLView({
 
               <button
                 onClick={() => setActiveTab("product_knowledge")}
-                className="col-span-2 bg-rose-50 dark:bg-rose-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-rose-200 dark:border-rose-800 hover:border-rose-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+                className="col-span-1 bg-rose-50 dark:bg-rose-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-rose-200 dark:border-rose-800 hover:border-rose-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1225,6 +1226,20 @@ export function YLView({
               </button>
 
 
+                            <button
+                onClick={() => setActiveTab("tautan")}
+                className="col-span-1 bg-slate-100 dark:bg-slate-800 p-3 sm:p-4 rounded-[24px] shadow-sm border border-slate-300 dark:border-slate-700 hover:border-slate-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <span className="text-lg">🔗</span>
+                  </div>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Tautan</h3>
+                </div>
+              </button>
+              
               <div className="col-span-2 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/40 dark:to-orange-900/40 rounded-[24px] p-3 sm:p-4 border border-amber-300 dark:border-amber-700/50 shadow-sm flex flex-col justify-between h-auto">
                 <div className="flex items-center gap-1.5 border-b border-amber-200 dark:border-amber-800/60 pb-1.5 mb-2">
                   <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 animate-bounce shrink-0" />
@@ -1925,7 +1940,8 @@ export function YLView({
         {activeTab === "seragam" && <YLSeragamView onBack={() => setActiveTab("beranda")} />}
 
         {/* PRODUCT KNOWLEDGE TAB */}
-        {activeTab === "product_knowledge" && <ProductKnowledgeView onBack={() => setActiveTab("beranda")} />}
+                {activeTab === "product_knowledge" && <ProductKnowledgeView onBack={() => setActiveTab("beranda")} />}
+        {activeTab === "tautan" && <OfficialLinksViewer onBack={() => setActiveTab("beranda")} />}
 
         {activeTab === "potensi_tembus" && (
           <div className="space-y-4">

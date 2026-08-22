@@ -361,7 +361,8 @@ export default function App() {
 
       // Load specific YL records if role is YL
       if (session?.role === "yl" && activeName) {
-        const mine = await safeFetchJson(`/api/getMine?nama=${encodeURIComponent(activeName)}`);
+        const activeMonth = new Date().toISOString().substring(0, 7);
+        const mine = await safeFetchJson(`/api/getMine?nama=${encodeURIComponent(activeName)}&month=${encodeURIComponent(activeMonth)}`);
         if (mine) {
           if (mine.transactions) setIfChanged("myTransactions", mine.transactions, setTransactions);
           if (mine.targetYL) setIfChanged("myTargetYL", mine.targetYL, setTargetYL);

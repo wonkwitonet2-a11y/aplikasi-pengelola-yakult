@@ -2,7 +2,7 @@ import React from 'react';
 import {
   ClipboardCheck, Calculator, Store, CircleDollarSign, Shirt, PieChart,
   BookOpen, Link2, Trophy, Droplet, TrendingUp, Wallet, BarChart3, Users, Target, Activity
-} from 'lucide-react';
+, Globe } from 'lucide-react';
 import type { DashboardData } from '../types';
 
 interface AdminBentoMenuProps {
@@ -129,6 +129,7 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
           { id: "seragam", label: "Seragam", icon: Shirt, from: "from-blue-500/20", to: "to-indigo-900/40", border: "border-indigo-500/20", iconBg: "bg-indigo-500/20 text-indigo-300" },
           { id: "breakdown", label: "Breakdown dan Realisasi", icon: PieChart, from: "from-rose-500/20", to: "to-red-900/40", border: "border-red-500/20", iconBg: "bg-red-500/20 text-red-300" },
           { id: "plg_pjl", label: "Pelanggan", icon: BookOpen, from: "from-amber-500/20", to: "to-amber-900/40", border: "border-amber-500/20", iconBg: "bg-amber-500/20 text-amber-300" },
+          { id: "tautan", label: "Tautan", icon: Globe, from: "from-indigo-500/20", to: "to-indigo-900/40", border: "border-indigo-500/20", iconBg: "bg-indigo-500/20 text-indigo-300" },
           { id: "setting", label: "Pengaturan", icon: Link2, from: "from-purple-500/20", to: "to-fuchsia-900/40", border: "border-fuchsia-500/20", iconBg: "bg-fuchsia-500/20 text-fuchsia-300" },
           { id: "grafik", label: "Grafik Dasbor", icon: BarChart3, from: "from-emerald-500/20", to: "to-emerald-900/40", border: "border-emerald-500/20", iconBg: "bg-emerald-500/20 text-emerald-300" },
           { id: "lady", label: "Profil YL", icon: Users, from: "from-cyan-500/20", to: "to-cyan-900/40", border: "border-cyan-500/20", iconBg: "bg-cyan-500/20 text-cyan-300" },

@@ -70,7 +70,8 @@ function PlgPjlViewInner({
   const loadData = async () => {
     
     try {
-      const monthQuery = historicalMonth ? `?month=${encodeURIComponent(historicalMonth)}` : "";
+      const activeMonth = historicalMonth || new Date().toISOString().substring(0, 7);
+      const monthQuery = `?month=${encodeURIComponent(activeMonth)}`;
       const res = await safeFetchJson<{
         ok: boolean;
         ylList: YLLady[];
