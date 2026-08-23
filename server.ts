@@ -1726,7 +1726,12 @@ app.post("/api/saveAttention", async (req, res) => {
   const { area, text } = req.body;
   const db = loadData();
   if (!db.attention) db.attention = {};
-  if (area) {
+  if (area === "all") {
+    const list = db.ylList || INITIAL_YL_LIST;
+    list.forEach((yl: any) => {
+      db.attention[yl.area] = text || "";
+    });
+  } else if (area) {
     db.attention[area] = text || "";
   }
   await saveData(db);

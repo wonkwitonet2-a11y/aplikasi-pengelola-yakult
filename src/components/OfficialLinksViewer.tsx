@@ -95,21 +95,50 @@ export const OfficialLinksViewer: React.FC<Props> = ({ onBack, isAdmin = false }
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {links.map(link => (
-              <button
-                key={link.id}
-                onClick={() => handleLinkClick(link)}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 hover:shadow-md rounded-2xl p-4 flex flex-col justify-between items-start text-left group transition-all h-28"
-              >
-                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform mb-2">
-                  {link.mode === "new_tab" ? <ExternalLink className="w-5 h-5" /> : <LayoutTemplate className="w-5 h-5" />}
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-800 dark:text-white text-xs sm:text-sm">{link.title}</h3>
-                  <p className="text-[10px] text-slate-400 truncate w-48 mt-0.5 font-medium">{link.url}</p>
-                </div>
-              </button>
-            ))}
+            {links.map(link => {
+              const cardClass = "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-indigo-300 hover:shadow-md rounded-2xl p-4 flex flex-col justify-between items-start text-left group transition-all h-28 w-full";
+              const content = (
+                <>
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform mb-2">
+                    {link.mode === "new_tab" ? <ExternalLink className="w-5 h-5" /> : <LayoutTemplate className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-800 dark:text-white text-xs sm:text-sm">{link.title}</h3>
+                    <p className="text-[10px] text-slate-400 truncate w-48 mt-0.5 font-medium">{link.url}</p>
+                  </div>
+                </>
+              );
+
+              if (link.mode === "new_tab") {
+                return (
+                  <a
+                    key={link.id}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cardClass}
+                    onClick={(e) => {
+                      if ((window as any).AppInventor) {
+                        e.preventDefault();
+                        (window as any).AppInventor.setWebViewString(link.url);
+                      }
+                    }}
+                  >
+                    {content}
+                  </a>
+                );
+              }
+
+              return (
+                <button
+                  key={link.id}
+                  onClick={() => handleLinkClick(link)}
+                  className={cardClass}
+                >
+                  {content}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -130,14 +159,22 @@ export const OfficialLinksViewer: React.FC<Props> = ({ onBack, isAdmin = false }
                 <p className="text-[10px] text-slate-500 truncate">{activeIframeLink.url}</p>
               </div>
             </div>
-            <button
-              onClick={() => window.open(activeIframeLink.url, "_blank")}
+            <a
+              href={activeIframeLink.url}
+              target="_blank"
+              rel="noopener noreferrer"
               className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] sm:text-xs px-3 sm:px-4 py-2 rounded-xl border border-indigo-200 flex items-center gap-1.5 transition-colors shrink-0"
+              onClick={(e) => {
+                if ((window as any).AppInventor) {
+                  e.preventDefault();
+                  (window as any).AppInventor.setWebViewString(activeIframeLink.url);
+                }
+              }}
             >
               <ExternalLink className="w-4 h-4" />
               <span className="hidden sm:inline">Buka di Tab Lain</span>
               <span className="inline sm:hidden">Tab Lain</span>
-            </button>
+            </a>
           </div>
           <div className="flex-1 bg-slate-50 relative">
             <iframe 

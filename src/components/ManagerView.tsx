@@ -4155,10 +4155,11 @@ export function ManagerView({
                     onChange={(e) => {
                       const area = e.target.value;
                       setAttentionArea(area);
-                      setAttentionText(attentionMap[area] || "");
+                      setAttentionText(area === "all" ? "" : (attentionMap[area] || ""));
                     }}
                     className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                   >
+                    <option value="all">🌐 Semua YL (Kirim ke semua)</option>
                     {ylList.map((y: any) => (
                       <option key={y.area} value={y.area}>
                         Area {y.area} - {y.nama}
