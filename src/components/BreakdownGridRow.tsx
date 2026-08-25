@@ -106,6 +106,8 @@ function BreakdownGridRowInner({
       {/* Day inputs with spreadsheet block selection */}
       {daysList.flatMap(day => {
         const dData = ylPlan.days?.[String(day)] || { yo: 0, om: 0, os: 0, yt: 0 };
+        const dayTotal = (dData.yo || 0) + (dData.om || 0) + (dData.os || 0) + (dData.yt || 0);
+        const isUnderTarget = dayTotal > 0 && dayTotal < 400;
 
         return items.map((item, itemIdx) => {
           const cIdx = (day - 1) * 4 + itemIdx;
@@ -244,7 +246,7 @@ function BreakdownGridRowInner({
                   }
                 }}
                 className={`w-10 text-center text-[11px] font-bold py-1 border rounded outline-none ${
-                  isSelected ? "bg-blue-100 border-blue-400 ring-1 ring-blue-400" : "bg-slate-50 focus:bg-white border-slate-200"
+                  isSelected ? "bg-blue-100 border-blue-400 ring-1 ring-blue-400" : isUnderTarget ? "bg-red-50 focus:bg-white border-red-500 ring-1 ring-red-500" : "bg-slate-50 focus:bg-white border-slate-200"
                 } ${itemColors[item]}`}
               />
             </td>
@@ -253,30 +255,30 @@ function BreakdownGridRowInner({
       })}
 
       {/* AKUMULASI 4 ITEM + TOTAL */}
-      <td className="p-1 text-center font-bold text-red-700 bg-red-50/50 select-text cursor-text">{totYo}</td>
-      <td className="p-1 text-center font-bold text-amber-700 bg-amber-50/50 select-text cursor-text">{totOm}</td>
-      <td className="p-1 text-center font-bold text-pink-700 bg-pink-50/50 select-text cursor-text">{totOs}</td>
-      <td className="p-1 text-center font-bold text-blue-700 bg-blue-50/50 select-text cursor-text">{totYt}</td>
-      <td className="p-1 text-center font-black text-white bg-red-800 select-text cursor-text">{grandTotal}</td>
+      <td className="p-1 text-center font-bold text-red-700 bg-red-50/50 border-l border-slate-200 select-text cursor-text">{totYo}</td>
+      <td className="p-1 text-center font-bold text-amber-700 bg-red-50/50 select-text cursor-text">{totOm}</td>
+      <td className="p-1 text-center font-bold text-pink-700 bg-red-50/50 select-text cursor-text">{totOs}</td>
+      <td className="p-1 text-center font-bold text-blue-700 bg-red-50/50 select-text cursor-text">{totYt}</td>
+      <td className="p-1 text-center font-black text-slate-800 bg-slate-200 select-text cursor-text shadow-sm">{grandTotal}</td>
 
       {/* RATA-RATA 4 ITEM + TOTAL */}
-      <td className="p-1 text-center font-bold text-red-800 bg-amber-50/30 select-text cursor-text">{avgYo}</td>
-      <td className="p-1 text-center font-bold text-amber-800 bg-amber-50/30 select-text cursor-text">{avgOm}</td>
-      <td className="p-1 text-center font-bold text-pink-800 bg-amber-50/30 select-text cursor-text">{avgOs}</td>
-      <td className="p-1 text-center font-bold text-blue-800 bg-amber-50/30 select-text cursor-text">{avgYt}</td>
-      <td className="p-1 text-center font-black text-amber-950 bg-amber-200 select-text cursor-text">{avgTotal}</td>
+      <td className="p-1 text-center font-bold text-red-700 bg-amber-50/50 border-l border-slate-200 select-text cursor-text">{avgYo}</td>
+      <td className="p-1 text-center font-bold text-amber-700 bg-amber-50/50 select-text cursor-text">{avgOm}</td>
+      <td className="p-1 text-center font-bold text-pink-700 bg-amber-50/50 select-text cursor-text">{avgOs}</td>
+      <td className="p-1 text-center font-bold text-blue-700 bg-amber-50/50 select-text cursor-text">{avgYt}</td>
+      <td className="p-1 text-center font-black text-amber-900 bg-amber-300 select-text cursor-text shadow-sm">{avgTotal}</td>
 
       {/* VALUASI vs TARGET MANAGER */}
-      <td className="p-1 text-center font-bold text-purple-900 bg-purple-50 select-text cursor-text">{targetTotal}</td>
-      <td className={`p-1 text-center font-black select-text cursor-text ${diffTarget >= 0 ? "text-emerald-700 bg-emerald-100" : "text-rose-700 bg-rose-100"}`}>
+      <td className="p-1 text-center font-bold text-purple-700 bg-purple-50/80 border-l border-slate-200 select-text cursor-text">{targetTotal}</td>
+      <td className={`p-1 text-center font-black select-text cursor-text ${diffTarget >= 0 ? "text-emerald-700 bg-emerald-100/80" : "text-rose-700 bg-rose-100/80"}`}>
         {diffTarget >= 0 ? `+${diffTarget}` : diffTarget}
       </td>
-      <td className="p-1 text-center font-bold text-indigo-900 bg-indigo-50 select-text cursor-text">{blnLaluTotal}</td>
-      <td className={`p-1 text-center font-black select-text cursor-text ${diffLM >= 0 ? "text-emerald-700 bg-emerald-50" : "text-rose-700 bg-rose-50"}`}>
+      <td className="p-1 text-center font-bold text-indigo-700 bg-purple-50/80 select-text cursor-text">{blnLaluTotal}</td>
+      <td className={`p-1 text-center font-black select-text cursor-text ${diffLM >= 0 ? "text-emerald-700 bg-emerald-100/80" : "text-rose-700 bg-rose-100/80"}`}>
         {diffLM >= 0 ? `+${diffLM}` : diffLM}
       </td>
-      <td className="p-1 text-center font-bold text-teal-900 bg-teal-50 select-text cursor-text">{thnLaluTotal}</td>
-      <td className={`p-1 text-center font-black select-text cursor-text ${diffLY >= 0 ? "text-emerald-700 bg-emerald-50" : "text-rose-700 bg-rose-50"}`}>
+      <td className="p-1 text-center font-bold text-teal-700 bg-purple-50/80 select-text cursor-text">{thnLaluTotal}</td>
+      <td className={`p-1 text-center font-black select-text cursor-text ${diffLY >= 0 ? "text-emerald-700 bg-emerald-100/80" : "text-rose-700 bg-rose-100/80"}`}>
         {diffLY >= 0 ? `+${diffLY}` : diffLY}
       </td>
     </tr>

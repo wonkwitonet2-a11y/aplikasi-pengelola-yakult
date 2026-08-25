@@ -2946,64 +2946,50 @@ export function ManagerView({
             </div>
           ) : (
             <div className={isFullscreenEval ? "fixed inset-0 z-[9999] bg-slate-950 text-slate-100 overflow-y-auto p-2 sm:p-4 space-y-3" : "space-y-3"}>
-              {isFullscreenEval && (
-                <div className="py-1.5 px-3 bg-red-950 text-white rounded-xl flex items-center justify-between shrink-0 shadow-lg border border-red-800">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-[11px] font-black uppercase tracking-wider">Laporan Evaluasi Harian & Ringkasan Performa</h3>
-                    <span className="text-[8.5px] bg-red-800 text-red-100 px-1.5 py-0.5 rounded font-bold">
-                      {showFullEvalTable ? "32 Kolom Lengkap" : "8 Kategori Utama"}
-                    </span>
-                    <span className="text-[8.5px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-bold animate-pulse">
-                      Mode Slide Layar Penuh
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowFullEvalTable(!showFullEvalTable)}
-                      className="text-white bg-red-800 hover:bg-red-700 px-2 py-1 rounded-lg transition-all font-bold text-[9px] cursor-pointer"
-                    >
-                      {showFullEvalTable ? "Sembunyikan Kolom" : "Tampilkan Tabel Lengkap"}
-                    </button>
-                    <button
-                      onClick={() => setIsFullscreenEval(false)}
-                      className="text-white bg-red-800 hover:bg-red-700 px-2 py-1 rounded-lg transition-all flex items-center gap-1 font-bold text-[9px] cursor-pointer"
-                    >
-                      <Minimize2 className="w-3 h-3" />
-                      <span>Keluar Slide</span>
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-stretch">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-stretch">
                 {/* 1. PALING ATAS (KIRI): Laporan Evaluasi Harian (Mirror Sheet Table Card) - Expanded to 9 cols */}
-                <div className="col-span-1 lg:col-span-9 xl:col-span-9 bg-white text-slate-900 rounded-2xl border-2 border-slate-200 shadow-md p-1 flex flex-col justify-between overflow-hidden h-full">
+                <div className="col-span-1 md:col-span-9 bg-white text-slate-900 rounded-2xl border-2 border-slate-200 shadow-md p-1 flex flex-col justify-between overflow-hidden h-full">
                   {/* Ultra Compact Header */}
-                  <div className="py-1 px-2.5 bg-red-950 text-white flex items-center justify-between shrink-0 rounded-t-xl">
-                    <div className="flex items-center gap-1.5">
+                  <div className="py-1 px-2.5 bg-red-950 text-white flex flex-col sm:flex-row sm:items-center justify-between shrink-0 rounded-t-xl gap-1.5 sm:gap-0">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <h3 className="text-[11.5px] sm:text-[13px] font-black uppercase tracking-tight">Laporan Evaluasi Harian (Mirror Sheet)</h3>
-                      <span className="text-[9.5px] bg-red-800 text-red-100 px-1.5 py-0.5 rounded font-bold">
+                      <div className="text-[9.5px] bg-red-800 text-red-100 px-1.5 py-1 rounded font-bold flex items-center whitespace-nowrap">
                         {showFullEvalTable ? "32 Kolom Lengkap" : "8 Kategori Utama"}
-                      </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex flex-wrap items-center gap-1">
+                      {isFullscreenEval && (
+                        <div className="text-[9.5px] bg-emerald-600 text-white px-1.5 py-1 rounded font-bold animate-pulse flex items-center whitespace-nowrap">
+                          Mode Slide Layar Penuh
+                        </div>
+                      )}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setShowFullEvalTable(!showFullEvalTable);
                         }}
-                        className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[9.5px] cursor-pointer"
+                        className="text-white bg-red-800 hover:bg-red-700 px-2 py-1 rounded transition-all flex items-center gap-1 font-bold text-[9.5px] cursor-pointer whitespace-nowrap"
                       >
                         {showFullEvalTable ? "Sembunyikan Kolom" : "Tampilkan Tabel Lengkap"}
                       </button>
-                      {!isFullscreenEval && (
+                      {!isFullscreenEval ? (
                         <button
                           onClick={() => setIsFullscreenEval(true)}
-                          className="text-white bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-md transition-all flex items-center gap-1 font-bold text-[9.5px]"
+                          className="text-white bg-red-800 hover:bg-red-700 px-2 py-1 rounded transition-all flex items-center gap-1 font-bold text-[9.5px] cursor-pointer whitespace-nowrap"
                           title="Layar Penuh"
                         >
                           <Maximize2 className="w-3 h-3" />
                           <span>Slide Layar Penuh</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setIsFullscreenEval(false)}
+                          className="text-white bg-red-800 hover:bg-red-700 px-2 py-1 rounded transition-all flex items-center gap-1 font-bold text-[9.5px] cursor-pointer whitespace-nowrap"
+                          title="Keluar Layar Penuh"
+                        >
+                          <Minimize2 className="w-3 h-3" />
+                          <span>Keluar Slide</span>
                         </button>
                       )}
                     </div>
@@ -3015,95 +3001,95 @@ export function ManagerView({
                     title={isFullscreenEval ? "" : "Klik tabel untuk masuk Mode Presentasi Slide"}
                   >
                     <table className="w-full text-left border-collapse relative text-[12px] sm:text-[13px] bg-white text-slate-800 font-sans tabular-nums font-semibold">
-                      <thead className="sticky top-0 z-10 bg-slate-950 text-white text-[10.5px] sm:text-[11.5px] uppercase tracking-wider text-center font-bold">
+                      <thead className="sticky top-0 z-10 bg-blue-50 text-blue-900 text-[10.5px] sm:text-[11.5px] uppercase tracking-wider text-center font-bold">
                         {/* Row 0 */}
-                        <tr className="border-b border-slate-800">
-                          <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-950 min-w-[32px]">Area</th>
-                          <th rowSpan={3} className="py-1 px-1.5 border-r border-slate-800 bg-slate-950 text-left min-w-[75px]">Nama YL</th>
+                        <tr className="border-b border-blue-200">
+                          <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 min-w-[32px] text-slate-900">Area</th>
+                          <th rowSpan={3} className="py-1 px-1.5 border-r border-blue-200 text-left min-w-[75px] text-slate-900">Nama YL</th>
                           {showFullEvalTable ? (
                             <>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-900">Rata Mgg Lalu</th>
-                              <th colSpan={5} className="py-1 px-1 border-r border-slate-800 bg-red-950 text-red-200">Penjualan Hari Ini</th>
-                              <th colSpan={6} className="py-1 px-1 border-r border-slate-800 bg-emerald-950 text-emerald-200">Bulan Ini</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-900">Rata Mgg Ini</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-slate-900">vs Mgg Lalu</th>
-                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-blue-950 text-blue-200">Sektor Rmh</th>
-                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-purple-950 text-purple-200">RB vs Pelanggan</th>
-                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-amber-950 text-amber-200">Propaganda (PB)</th>
-                              <th colSpan={3} className="py-1 px-1 border-r border-slate-800 bg-teal-950 text-teal-200">Sampah Botol</th>
-                              <th colSpan={4} className="py-1 px-1 bg-rose-950 text-rose-200">Barang Kembali (BB)</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-slate-700">Rata Mgg Lalu</th>
+                              <th colSpan={5} className="py-1 px-1 border-r border-blue-200 text-indigo-800">Penjualan Hari Ini</th>
+                              <th colSpan={6} className="py-1 px-1 border-r border-blue-200 text-emerald-800">Bulan Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-slate-700">Rata Mgg Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-slate-700">vs Mgg Lalu</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-blue-200 text-sky-800">Sektor Rmh</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-blue-200 text-purple-800">RB vs Pelanggan</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-blue-200 text-amber-800">Propaganda (PB)</th>
+                              <th colSpan={3} className="py-1 px-1 border-r border-blue-200 text-teal-800">Sampah Botol</th>
+                              <th colSpan={4} className="py-1 px-1 text-rose-800">Barang Kembali (BB)</th>
                             </>
                           ) : (
                             <>
-                              <th colSpan={5} className="py-1 px-1 border-r border-slate-800 bg-red-950 text-red-200">Penjualan Hari Ini</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-amber-950 text-amber-200">Rata Bulan Ini</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-emerald-950 text-emerald-200">vs Mgg Lalu</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-blue-950 text-blue-200">Persen Rumah</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-purple-950 text-purple-200">Persen RB vs PLG</th>
-                              <th colSpan={2} className="py-1 px-1 border-r border-slate-800 bg-indigo-950 text-indigo-200">PB Hari Ini</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-teal-950 text-teal-200">Akm Sampah</th>
-                              <th rowSpan={3} className="py-1 px-1 border-r border-slate-800 bg-rose-950 text-rose-200">Akm BB</th>
+                              <th colSpan={5} className="py-1 px-1 border-r border-blue-200 text-indigo-800">Penjualan Hari Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-emerald-800">Rata Bulan Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-slate-700">vs Mgg Lalu</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-sky-800">Persen Rumah</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-purple-800">Persen RB vs PLG</th>
+                              <th colSpan={2} className="py-1 px-1 border-r border-blue-200 text-amber-800">PB Hari Ini</th>
+                              <th rowSpan={3} className="py-1 px-1 border-r border-blue-200 text-teal-800">Akm Sampah</th>
+                              <th rowSpan={3} className="py-1 px-1 text-rose-800">Akm BB</th>
                             </>
                           )}
                         </tr>
                         {/* Row 1 */}
-                        <tr className="border-b border-slate-800">
+                        <tr className="border-b border-blue-200">
                           {/* Penjualan Hari Ini */}
-                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">YO</th>
-                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">OM</th>
-                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">OS</th>
-                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-red-300">YT</th>
-                          <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 font-bold bg-slate-950">ALL</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-indigo-800 font-bold">YO</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-indigo-800 font-bold">OM</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-indigo-800 font-bold">OS</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-indigo-800 font-bold">YT</th>
+                          <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">ALL</th>
 
                           {showFullEvalTable ? (
                             <>
                               {/* Bulan Ini */}
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 font-bold text-emerald-300 bg-slate-950">Akm</th>
-                              <th colSpan={5} className="py-0.5 px-1 border-r border-slate-800 text-emerald-300">Rata-Rata (Rt2)</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">Akm</th>
+                              <th colSpan={5} className="py-0.5 px-1 border-r border-blue-200 text-emerald-800 font-bold">Rata-Rata (Rt2)</th>
 
                               {/* Sektor Rmh */}
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-blue-300">Hari</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-blue-300">Akm</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-blue-300 font-bold bg-slate-950">%</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-sky-800 font-bold">Hari</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-sky-800 font-bold">Akm</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">%</th>
 
                               {/* RB vs Pelanggan */}
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-purple-300">Pelanggan</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-purple-300">RB</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-purple-300 font-bold bg-slate-950">%</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-purple-800 font-bold">Pelanggan</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-purple-800 font-bold">RB</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">%</th>
 
                               {/* Propaganda Baru */}
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-amber-300">Pagi</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-amber-300">Sore</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-amber-300 font-bold bg-slate-950">Akm</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-amber-800 font-bold">Pagi</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-amber-800 font-bold">Sore</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">Akm</th>
 
                               {/* Sampah Botol */}
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-teal-300">Hari</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-teal-300">Akm</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-teal-300 font-bold bg-slate-950">vs 900</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-teal-800 font-bold">Hari</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-teal-800 font-bold">Akm</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">vs 900</th>
 
                               {/* Kembali Botol */}
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-rose-300">Hari</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-rose-300 font-bold bg-slate-950">%</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-rose-300">Akm</th>
-                              <th rowSpan={2} className="py-0.5 px-1 text-rose-300 font-bold bg-slate-950">%</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-rose-800 font-bold">Hari</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">%</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-rose-800 font-bold">Akm</th>
+                              <th rowSpan={2} className="py-0.5 px-1 text-slate-900 font-bold bg-blue-100/70">%</th>
                             </>
                           ) : (
                             <>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-indigo-300">Pagi</th>
-                              <th rowSpan={2} className="py-0.5 px-1 border-r border-slate-800 text-indigo-300">Sore</th>
+                              <th rowSpan={2} className="py-0.5 px-1 border-r border-blue-200 text-amber-800 font-bold">Pagi</th>
+                              <th rowSpan={2} className="py-0.5 px-1 text-amber-800 font-bold">Sore</th>
                             </>
                           )}
                         </tr>
                         {/* Row 2 */}
-                        <tr className="border-b border-slate-800">
+                        <tr className="border-b border-blue-200">
                           {showFullEvalTable && (
                             <>
                               {/* Rata-Rata Bulan Ini */}
-                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">YO</th>
-                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">OM</th>
-                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">OS</th>
-                              <th className="py-0.5 px-1 border-r border-slate-800 text-emerald-400">YT</th>
-                              <th className="py-0.5 px-1 border-r border-slate-800 font-bold text-emerald-400 bg-slate-950">ALL</th>
+                              <th className="py-0.5 px-1 border-r border-blue-200 text-emerald-800 font-bold">YO</th>
+                              <th className="py-0.5 px-1 border-r border-blue-200 text-emerald-800 font-bold">OM</th>
+                              <th className="py-0.5 px-1 border-r border-blue-200 text-emerald-800 font-bold">OS</th>
+                              <th className="py-0.5 px-1 border-r border-blue-200 text-emerald-800 font-bold">YT</th>
+                              <th className="py-0.5 px-1 border-r border-blue-200 font-bold text-slate-900 bg-blue-100/70">ALL</th>
                             </>
                           )}
                         </tr>
@@ -3130,7 +3116,7 @@ export function ManagerView({
                           const visibleCols = [0, 1, 3, 4, 5, 6, 7, 13, 15, 18, 21, 22, 23, 26, 30];
 
                           return (activeEvaluasiData?.dataRows || []).map((row, rIdx) => (
-                            <tr key={rIdx} className="hover:bg-red-50/80 border-b border-slate-200 transition-colors">
+                            <tr key={rIdx} className="hover:bg-slate-50 border-b border-slate-200 transition-colors">
                               {(row || []).map((val, cIdx) => {
                                 if (!showFullEvalTable && !visibleCols.includes(cIdx)) return null;
 
@@ -3149,12 +3135,12 @@ export function ManagerView({
                                 return (
                                   <td 
                                     key={cIdx} 
-                                    className={`py-0.5 px-1 border-r border-slate-200 text-center whitespace-nowrap ${
+                                    className={`py-0.5 px-1 border-r border-slate-100 text-center whitespace-nowrap ${
                                       cIdx === 1 
                                         ? "text-left font-sans font-bold text-slate-900 min-w-[70px]" 
                                         : "font-sans tabular-nums font-semibold"
                                     } ${
-                                      isTopPerf ? "bg-emerald-100 font-extrabold text-emerald-900" : ""
+                                      isTopPerf ? "bg-emerald-50/50 font-black text-emerald-700" : ""
                                     }`}
                                   >
                                     {typeof displayVal === "number" ? ([15, 18, 21, 29, 31].includes(cIdx) ? `${displayVal}%` : (cIdx === 27 && displayVal > 0 ? `+${displayVal.toLocaleString("id-ID")}` : displayVal.toLocaleString("id-ID"))) : displayVal}
@@ -3165,13 +3151,13 @@ export function ManagerView({
                           ));
                         })()}
                         {activeEvaluasiData?.totalRow && (
-                          <tr className="bg-amber-100 font-extrabold border-t-2 border-amber-300 text-amber-900">
+                          <tr className="bg-slate-50 font-black border-t-2 border-slate-300 text-slate-900">
                             {(activeEvaluasiData.totalRow || []).map((val, cIdx) => {
                               const visibleCols = [0, 1, 3, 4, 5, 6, 7, 13, 15, 18, 21, 22, 23, 26, 30];
                               if (!showFullEvalTable && !visibleCols.includes(cIdx)) return null;
                               const displayVal = (cIdx === 1 && typeof val === "string") ? cleanYlName(val) : val;
                               return (
-                                <td key={cIdx} className={`py-0.5 px-1 border-r border-amber-200 text-center whitespace-nowrap ${cIdx === 1 ? "text-left font-sans font-black" : "font-sans tabular-nums font-semibold"}`}>
+                                <td key={cIdx} className={`py-0.5 px-1 border-r border-slate-200 text-center whitespace-nowrap ${cIdx === 1 ? "text-left font-sans" : "font-sans tabular-nums"}`}>
                                   {typeof displayVal === "number" ? ([15, 18, 21, 29, 31].includes(cIdx) ? `${displayVal}%` : (cIdx === 27 && displayVal > 0 ? `+${displayVal.toLocaleString("id-ID")}` : displayVal.toLocaleString("id-ID"))) : displayVal}
                                 </td>
                               );
@@ -3183,35 +3169,16 @@ export function ManagerView({
                   </div>
 
                   {/* Ultra Compact Action Footer */}
-                  <div className="bg-slate-50 py-0.5 px-2 text-xs font-bold flex flex-wrap items-center justify-between gap-1 border-t border-slate-200 shrink-0">
+                  <div className="bg-slate-50 py-1 px-2 text-xs font-bold flex flex-wrap items-center justify-between gap-1 border-t border-slate-200 shrink-0">
                     <div className="flex items-center gap-1 text-[9.5px] text-slate-600">
                       <span className="inline-block w-2.5 h-2.5 bg-emerald-200 border border-emerald-400 rounded mr-0.5" />
                       Sel hijau = Performa terbaik harian.
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowFullEvalTable(!showFullEvalTable);
-                      }}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-700 hover:bg-red-800 text-white font-black text-[10.5px] rounded transition-all shadow-sm active:scale-95 cursor-pointer"
-                    >
-                      {showFullEvalTable ? (
-                        <>
-                          <ChevronUp className="w-3 h-3" />
-                          <span>Sembunyikan Kolom (Mode 8 Utama)</span>
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="w-3 h-3" />
-                          <span>Tampilkan Tabel Lengkap (32 Kolom)</span>
-                        </>
-                      )}
-                    </button>
                   </div>
                 </div>
 
                 {/* 2. PALING ATAS (KANAN): RINGKASAN PRESTASI (Slimmed to lg:col-span-3) */}
-                <div className="col-span-1 lg:col-span-3 xl:col-span-3 bg-white rounded-2xl p-1.5 sm:p-2 border-2 border-slate-200 shadow-md flex flex-col justify-between h-full text-slate-900">
+                <div className="col-span-1 md:col-span-3 bg-white rounded-2xl p-1.5 sm:p-2 border-2 border-slate-200 shadow-md flex flex-col justify-between h-full text-slate-900">
                   <div className="flex items-center justify-between shrink-0 mb-1 pb-1 border-b border-slate-100">
                     <h3 className="text-[13px] sm:text-[14px] font-black text-slate-900 uppercase tracking-tight flex items-center gap-1">
                       <Award className="w-3 h-3 text-red-600" /> Ringkasan Prestasi
@@ -3506,45 +3473,48 @@ export function ManagerView({
                     </button>
                   </div>
 
-                  {/* Manual Pembagi */}
-                  <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
-                    <span className="text-[10px] font-bold text-slate-700">Pembagi:</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={
-                        activeGridMap && Object.keys(activeGridMap).length > 0
-                          ? activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25
-                          : 25
-                      }
-                      onFocus={(e) => e.target.select()}
-                      onChange={(e) => handleGlobalPembagiChange(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-10 p-0.5 text-xs font-extrabold text-center bg-white border border-slate-300 rounded-md text-slate-900 outline-none"
-                    />
-                  </div>
-                  
-                  {/* Percentages */}
-                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg text-[10px] font-bold">
-                    <div className="flex items-center gap-1">
-                      <span className="text-slate-500">vs Tgt:</span>
-                      <span className={monthlyGridStats.pctTgt >= 100 ? "text-emerald-600" : "text-rose-600"}>
-                        {monthlyGridStats.pctTgt.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-                      </span>
+                  {/* Pembagi & Percentages Group */}
+                  <div className="flex items-center gap-2.5 flex-nowrap">
+                    {/* Manual Pembagi */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
+                      <span className="text-[10px] font-bold text-slate-700">Pembagi:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={31}
+                        value={
+                          activeGridMap && Object.keys(activeGridMap).length > 0
+                            ? activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25
+                            : 25
+                        }
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => handleGlobalPembagiChange(e.target.value === '' ? '' : Number(e.target.value))}
+                        className="w-10 p-0.5 text-xs font-extrabold text-center bg-white border border-slate-300 rounded-md text-slate-900 outline-none"
+                      />
                     </div>
-                    <div className="w-px h-3 bg-slate-300" />
-                    <div className="flex items-center gap-1">
-                      <span className="text-slate-500">vs BL:</span>
-                      <span className={monthlyGridStats.pctBL >= 100 ? "text-emerald-600" : "text-rose-600"}>
-                        {monthlyGridStats.pctBL.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-                      </span>
-                    </div>
-                    <div className="w-px h-3 bg-slate-300" />
-                    <div className="flex items-center gap-1">
-                      <span className="text-slate-500">vs TL:</span>
-                      <span className={monthlyGridStats.pctTL >= 100 ? "text-emerald-600" : "text-rose-600"}>
-                        {monthlyGridStats.pctTL.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-                      </span>
+                    
+                    {/* Percentages */}
+                    <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-500">vs Tgt:</span>
+                        <span className={monthlyGridStats.pctTgt >= 100 ? "text-emerald-600" : "text-rose-600"}>
+                          {monthlyGridStats.pctTgt.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                        </span>
+                      </div>
+                      <div className="w-px h-3 bg-slate-300" />
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-500">vs BL:</span>
+                        <span className={monthlyGridStats.pctBL >= 100 ? "text-emerald-600" : "text-rose-600"}>
+                          {monthlyGridStats.pctBL.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                        </span>
+                      </div>
+                      <div className="w-px h-3 bg-slate-300" />
+                      <div className="flex items-center gap-1">
+                        <span className="text-slate-500">vs TL:</span>
+                        <span className={monthlyGridStats.pctTL >= 100 ? "text-emerald-600" : "text-rose-600"}>
+                          {monthlyGridStats.pctTL.toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -3580,24 +3550,24 @@ export function ManagerView({
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
-                  <thead className="bg-slate-900 text-white text-[10px] uppercase font-bold sticky top-0 z-10">
+                  <thead className="bg-slate-50 text-slate-600 text-[10px] uppercase font-bold sticky top-0 z-10 shadow-sm">
                     {/* Baris 1: Tanggal Grouping (colSpan=4) & Summary Categories */}
                     <tr>
-                      <th rowSpan={2} className="p-2 sticky left-0 bg-slate-900 z-20 min-w-[130px] border-b border-r border-slate-800 text-slate-200">
+                      <th rowSpan={2} className="p-2 sticky left-0 bg-slate-50 z-20 min-w-[130px] border-b border-r border-slate-200 text-slate-700 shadow-[1px_0_0_0_#e2e8f0]">
                         Yakult Lady
                       </th>
                       {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-                        <th key={d} colSpan={4} className="p-1 text-center border-l border-b border-slate-800 bg-slate-900 text-slate-200 min-w-[160px]">
+                        <th key={d} colSpan={4} className="p-1 text-center border-l border-b border-slate-300 bg-blue-100 text-blue-900 min-w-[160px]">
                           {d}
                         </th>
                       ))}
-                      <th colSpan={5} className="p-1 text-center border-l border-b border-slate-800 bg-red-950/80 text-red-200">
+                      <th colSpan={5} className="p-1 text-center border-l border-b border-slate-300 bg-slate-200 text-slate-800">
                         TOTAL 4 ITEM
                       </th>
-                      <th colSpan={5} className="p-1 text-center border-l border-b border-slate-800 bg-amber-950/80 text-amber-200">
+                      <th colSpan={5} className="p-1 text-center border-l border-b border-slate-300 bg-amber-100 text-amber-900">
                         RATA-RATA HARIAN
                       </th>
-                      <th colSpan={6} className="p-1 text-center border-l border-b border-slate-800 bg-purple-950/80 text-purple-200">
+                      <th colSpan={6} className="p-1 text-center border-l border-b border-slate-300 bg-purple-100 text-purple-900">
                         TARGET & PEMBANDING
                       </th>
                     </tr>
@@ -3606,34 +3576,34 @@ export function ManagerView({
                     <tr>
                       {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
                         <React.Fragment key={d}>
-                          <th className="p-1 text-center border-l border-b border-slate-800 text-red-400 bg-slate-900/90 text-[9px] min-w-[40px]">YO</th>
-                          <th className="p-1 text-center border-l border-b border-slate-800 text-amber-400 bg-slate-900/90 text-[9px] min-w-[40px]">OM</th>
-                          <th className="p-1 text-center border-l border-b border-slate-800 text-pink-400 bg-slate-900/90 text-[9px] min-w-[40px]">OS</th>
-                          <th className="p-1 text-center border-l border-b border-slate-800 text-blue-400 bg-slate-900/90 text-[9px] min-w-[40px]">YT</th>
+                          <th className="p-1 text-center border-l border-b border-slate-300 text-slate-700 bg-slate-200/90 text-[9px] min-w-[40px]">YO</th>
+                          <th className="p-1 text-center border-l border-b border-slate-300 text-slate-700 bg-slate-200/90 text-[9px] min-w-[40px]">OM</th>
+                          <th className="p-1 text-center border-l border-b border-slate-300 text-slate-700 bg-slate-200/90 text-[9px] min-w-[40px]">OS</th>
+                          <th className="p-1 text-center border-l border-b border-slate-300 text-slate-700 bg-slate-200/90 text-[9px] min-w-[40px]">YT</th>
                         </React.Fragment>
                       ))}
 
                       {/* Sub-header TOTAL 4 ITEM */}
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-red-300 bg-red-950/60 text-[9px] min-w-[42px]">YO</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-amber-300 bg-red-950/60 text-[9px] min-w-[42px]">OM</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-pink-300 bg-red-950/60 text-[9px] min-w-[42px]">OS</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-blue-300 bg-red-950/60 text-[9px] min-w-[42px]">YT</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-white bg-red-900 text-[9px] min-w-[48px]">TOTAL</th>
+                      <th className="p-1 text-center border-l border-b border-slate-300 text-slate-800 bg-slate-200 text-[9px] min-w-[42px]">YO</th>
+                      <th className="p-1 text-center border-l border-b border-slate-300 text-slate-800 bg-slate-200 text-[9px] min-w-[42px]">OM</th>
+                      <th className="p-1 text-center border-l border-b border-slate-300 text-slate-800 bg-slate-200 text-[9px] min-w-[42px]">OS</th>
+                      <th className="p-1 text-center border-l border-b border-slate-300 text-slate-800 bg-slate-200 text-[9px] min-w-[42px]">YT</th>
+                      <th className="p-1 text-center border-l border-b border-slate-300 text-slate-900 bg-slate-300 text-[9px] min-w-[48px]">TOTAL</th>
 
                       {/* Sub-header RATA-RATA HARIAN */}
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-red-300 bg-amber-950/60 text-[9px] min-w-[42px]">YO</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-amber-300 bg-amber-950/60 text-[9px] min-w-[42px]">OM</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-pink-300 bg-amber-950/60 text-[9px] min-w-[42px]">OS</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-blue-300 bg-amber-950/60 text-[9px] min-w-[42px]">YT</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-amber-100 bg-amber-900 text-[9px] min-w-[48px]">RATA</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-red-700 bg-amber-100/60 text-[9px] min-w-[42px]">YO</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-amber-700 bg-amber-100/60 text-[9px] min-w-[42px]">OM</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-pink-700 bg-amber-100/60 text-[9px] min-w-[42px]">OS</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-blue-700 bg-amber-100/60 text-[9px] min-w-[42px]">YT</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-amber-900 bg-amber-300 text-[9px] min-w-[48px]">RATA</th>
 
                       {/* Sub-header TARGET & PEMBANDING */}
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-purple-200 bg-purple-950/60 text-[9px] min-w-[48px]">Target</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-emerald-300 bg-purple-950/60 text-[9px] min-w-[48px]">Sel. Tgt</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-indigo-200 bg-purple-950/60 text-[9px] min-w-[48px]">Bln Lalu</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-emerald-300 bg-purple-950/60 text-[9px] min-w-[48px]">Sel. BL</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-teal-200 bg-purple-950/60 text-[9px] min-w-[48px]">Thn Lalu</th>
-                      <th className="p-1 text-center border-l border-b border-slate-800 text-emerald-300 bg-purple-950/60 text-[9px] min-w-[48px]">Sel. TL</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-purple-700 bg-purple-100/60 text-[9px] min-w-[48px]">Target</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-emerald-700 bg-purple-100/60 text-[9px] min-w-[48px]">Sel. Tgt</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-indigo-700 bg-purple-100/60 text-[9px] min-w-[48px]">Bln Lalu</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-emerald-700 bg-purple-100/60 text-[9px] min-w-[48px]">Sel. BL</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-teal-700 bg-purple-100/60 text-[9px] min-w-[48px]">Thn Lalu</th>
+                      <th className="p-1 text-center border-l border-b border-slate-200 text-emerald-700 bg-purple-100/60 text-[9px] min-w-[48px]">Sel. TL</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -3661,27 +3631,27 @@ export function ManagerView({
                       />
                     ))}
                   </tbody>
-                  <tfoot className="bg-slate-900 text-slate-100 font-black border-t-2 border-slate-800">
-                    <tr className="text-[11px] divide-x divide-slate-800">
-                      <td className="p-2.5 sticky left-0 bg-slate-900 z-20 font-black text-slate-200 text-left whitespace-nowrap">
+                  <tfoot className="bg-slate-50 text-slate-800 font-black border-t-2 border-slate-300 shadow-[0_-1px_0_0_#cbd5e1]">
+                    <tr className="text-[11px] divide-x divide-slate-200">
+                      <td className="p-2.5 sticky left-0 bg-slate-50 z-20 font-black text-slate-800 text-left whitespace-nowrap shadow-[1px_0_0_0_#e2e8f0]">
                         TOTAL HARIAN
                       </td>
                       {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
                         const data = dailyGridTotals[d] || { yo: 0, om: 0, os: 0, yt: 0 };
                         return (
                           <React.Fragment key={d}>
-                            <td className="p-1 text-center text-red-300 font-black bg-slate-900/90">{data.yo}</td>
-                            <td className="p-1 text-center text-amber-300 font-black bg-slate-900/90">{data.om}</td>
-                            <td className="p-1 text-center text-pink-300 font-black bg-slate-900/90">{data.os}</td>
-                            <td className="p-1 text-center text-blue-300 font-black bg-slate-900/90">{data.yt}</td>
+                            <td className="p-1 text-center text-red-700 font-black bg-slate-50/90">{data.yo}</td>
+                            <td className="p-1 text-center text-amber-700 font-black bg-slate-50/90">{data.om}</td>
+                            <td className="p-1 text-center text-pink-700 font-black bg-slate-50/90">{data.os}</td>
+                            <td className="p-1 text-center text-blue-700 font-black bg-slate-50/90">{data.yt}</td>
                           </React.Fragment>
                         );
                       })}
-                      <td className="p-1 text-center font-bold text-red-300 bg-red-950/60">{monthlyGridTotals.yo}</td>
-                      <td className="p-1 text-center font-bold text-amber-300 bg-red-950/60">{monthlyGridTotals.om}</td>
-                      <td className="p-1 text-center font-bold text-pink-300 bg-red-950/60">{monthlyGridTotals.os}</td>
-                      <td className="p-1 text-center font-bold text-blue-300 bg-red-950/60">{monthlyGridTotals.yt}</td>
-                      <td className="p-1 text-center font-black text-white bg-red-900">{monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt}</td>
+                      <td className="p-1 text-center font-bold text-red-800 bg-red-100/60">{monthlyGridTotals.yo}</td>
+                      <td className="p-1 text-center font-bold text-amber-800 bg-red-100/60">{monthlyGridTotals.om}</td>
+                      <td className="p-1 text-center font-bold text-pink-800 bg-red-100/60">{monthlyGridTotals.os}</td>
+                      <td className="p-1 text-center font-bold text-blue-800 bg-red-100/60">{monthlyGridTotals.yt}</td>
+                      <td className="p-1 text-center font-black text-slate-800 bg-slate-200">{monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt}</td>
                       
                       {(() => {
                         const pembagiStr = (activeGridMap && Object.keys(activeGridMap).length > 0) ? (activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25) : 25;
@@ -3693,11 +3663,11 @@ export function ManagerView({
                         const rsum = ryo + rom + ros + ryt;
                         return (
                           <React.Fragment>
-                            <td className="p-1 text-center font-bold text-red-300 bg-amber-950/60">{ryo}</td>
-                            <td className="p-1 text-center font-bold text-amber-300 bg-amber-950/60">{rom}</td>
-                            <td className="p-1 text-center font-bold text-pink-300 bg-amber-950/60">{ros}</td>
-                            <td className="p-1 text-center font-bold text-blue-300 bg-amber-950/60">{ryt}</td>
-                            <td className="p-1 text-center font-black text-amber-100 bg-amber-900">{rsum}</td>
+                            <td className="p-1 text-center font-bold text-red-800 bg-amber-100/60">{ryo}</td>
+                            <td className="p-1 text-center font-bold text-amber-800 bg-amber-100/60">{rom}</td>
+                            <td className="p-1 text-center font-bold text-pink-800 bg-amber-100/60">{ros}</td>
+                            <td className="p-1 text-center font-bold text-blue-800 bg-amber-100/60">{ryt}</td>
+                            <td className="p-1 text-center font-black text-amber-900 bg-amber-300">{rsum}</td>
                           </React.Fragment>
                         );
                       })()}
@@ -3722,12 +3692,12 @@ export function ManagerView({
                         const dTL = grandTotal - totalTL;
                         return (
                           <React.Fragment>
-                            <td className="p-1 text-center font-bold text-purple-300 bg-purple-950/60">{totalTarget}</td>
-                            <td className={`p-1 text-center font-black ${dTarget >= 0 ? "text-emerald-300 bg-emerald-900/60" : "text-rose-300 bg-rose-900/60"}`}>
+                            <td className="p-1 text-center font-bold text-purple-800 bg-purple-100/60">{totalTarget}</td>
+                            <td className={`p-1 text-center font-black ${dTarget >= 0 ? "text-emerald-700 bg-emerald-100/80" : "text-rose-700 bg-rose-100/80"}`}>
                               {dTarget >= 0 ? `+${dTarget}` : dTarget}
                             </td>
-                            <td className="p-1 text-center font-bold text-indigo-300 bg-purple-950/60">{totalBL}</td>
-                            <td className={`p-1 text-center font-black ${dBL >= 0 ? "text-emerald-300 bg-emerald-900/60" : "text-rose-300 bg-rose-900/60"}`}>
+                            <td className="p-1 text-center font-bold text-indigo-800 bg-purple-100/60">{totalBL}</td>
+                            <td className={`p-1 text-center font-black ${dBL >= 0 ? "text-emerald-700 bg-emerald-100/80" : "text-rose-700 bg-rose-100/80"}`}>
                               {dBL >= 0 ? `+${dBL}` : dBL}
                             </td>
                             <td className="p-1 text-center font-bold text-teal-300 bg-purple-950/60">{totalTL}</td>
@@ -3739,20 +3709,20 @@ export function ManagerView({
                       })()}
                     </tr>
 
-                    <tr className="bg-emerald-900 text-white font-black text-[11px] uppercase divide-x divide-slate-800">
-                      <td className="p-2.5 sticky left-0 bg-emerald-950 z-20 text-left font-black tracking-wide text-emerald-200">
+                    <tr className="bg-slate-200 text-slate-800 font-black text-[11px] uppercase divide-x divide-slate-300">
+                      <td className="p-2.5 sticky left-0 bg-slate-300 z-20 text-left font-black tracking-wide text-slate-900 shadow-[1px_0_0_0_#cbd5e1]">
                         TOTAL ALL VARIAN
                       </td>
                       {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => {
                         const data = dailyGridTotals[d] || { yo: 0, om: 0, os: 0, yt: 0 };
                         const sum = data.yo + data.om + data.os + data.yt;
                         return (
-                          <td key={d} colSpan={4} className="p-1 text-center bg-emerald-900/90 font-black text-emerald-200">
+                          <td key={d} colSpan={4} className="p-1 text-center bg-slate-200 font-black text-slate-800">
                             {sum} btl
                           </td>
                         );
                       })}
-                      <td colSpan={5} className="p-1 text-center font-black text-white bg-emerald-800">
+                      <td colSpan={5} className="p-1 text-center font-black text-slate-900 bg-slate-300">
                         {monthlyGridTotals.yo + monthlyGridTotals.om + monthlyGridTotals.os + monthlyGridTotals.yt} btl
                       </td>
                       {(() => {
@@ -3764,12 +3734,12 @@ export function ManagerView({
                         const ryt = Math.round(monthlyGridTotals.yt / pembagi);
                         const rsum = ryo + rom + ros + ryt;
                         return (
-                          <td colSpan={5} className="p-1 text-center font-black text-emerald-100 bg-emerald-900/90">
+                          <td colSpan={5} className="p-1 text-center font-black text-slate-900 bg-slate-300/90">
                             {rsum} btl
                           </td>
                         );
                       })()}
-                      <td colSpan={6} className="bg-emerald-950/80"></td>
+                      <td colSpan={6} className="bg-slate-300/80"></td>
                     </tr>
                   </tfoot>
                 </table>

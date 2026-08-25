@@ -410,13 +410,20 @@ export const TrenHarianChart = memo(function TrenHarianChart({ data }: TrenProps
             />
 
             <Tooltip content={<CustomTrenTooltip />} />
-            <Legend wrapperStyle={{ fontSize: 10, paddingTop: 6 }} />
+            <Legend 
+              wrapperStyle={{ fontSize: 10, paddingTop: 6 }}
+              formatter={(value) => {
+                const textColor = value === "Balik Botol (BB)" ? "#2563eb" : "#475569";
+                return <span style={{ color: textColor, fontWeight: 600 }}>{value}</span>;
+              }}
+            />
 
             {/* 1. Balik Botol (BB): Bar Chart Transparan */}
             <Bar
               dataKey="balikBotol"
               name="Balik Botol (BB)"
-              fill="rgba(59, 130, 246, 0.25)"
+              fill="#3b82f6"
+              fillOpacity={0.25}
               stroke="#2563eb"
               strokeWidth={1}
               radius={[4, 4, 0, 0]}

@@ -805,49 +805,49 @@ function LhppRealisasiViewInner({
         <div className="overflow-x-auto max-h-[680px]">
           <table className="w-full text-left text-[11px] font-mono border-collapse select-none">
             {/* Header Level 1 */}
-            <thead className="sticky top-0 bg-slate-800 text-white z-30 shadow-xs">
-              <tr className="bg-slate-800 text-white font-black uppercase text-[10px] divide-x divide-slate-700">
-                <th className="p-2 sticky left-0 bg-slate-800 z-40 min-w-[140px] max-w-[140px] text-left border-r border-slate-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
+            <thead className="sticky top-0 bg-slate-50 text-slate-700 z-30 shadow-sm">
+              <tr className="bg-slate-50 text-slate-800 font-black uppercase text-[10px] divide-x divide-slate-200">
+                <th className="p-2 sticky left-0 bg-slate-50 z-40 min-w-[140px] max-w-[140px] text-left border-r border-slate-200 shadow-[1px_0_0_0_#e2e8f0]">
                   YAKULT LADY
                 </th>
                 <th
                   colSpan={4}
-                  className="p-2 text-center bg-slate-800 text-amber-300 border-r border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors font-extrabold tracking-wide"
+                  className="p-2 text-center bg-slate-50 text-slate-600 border-r border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors font-extrabold tracking-wide"
                   onClick={() => setSelection({ startR: 0, startC: 0, endR: Math.max(0, computedRows.length - 1), endC: 3 })}
                 >
                   PDM SEBELUMNYA
                 </th>
                 <th
                   colSpan={4}
-                  className="p-2 text-center bg-slate-800 text-rose-300 border-r border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors font-extrabold tracking-wide"
+                  className="p-2 text-center bg-red-50 text-red-800 border-r border-slate-200 cursor-pointer hover:bg-red-100 transition-colors font-extrabold tracking-wide"
                   onClick={() => setSelection({ startR: 0, startC: 4, endR: Math.max(0, computedRows.length - 1), endC: 7 })}
                 >
                   BB
                 </th>
                 <th
                   colSpan={4}
-                  className="p-2 text-center bg-slate-800 text-emerald-300 border-r border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors font-extrabold tracking-wide"
+                  className="p-2 text-center bg-emerald-50 text-emerald-800 border-r border-slate-200 cursor-pointer hover:bg-emerald-100 transition-colors font-extrabold tracking-wide"
                   onClick={() => setSelection({ startR: 0, startC: 8, endR: Math.max(0, computedRows.length - 1), endC: 11 })}
                 >
                   TERJUAL
                 </th>
                 <th
                   colSpan={1}
-                  className="p-2 text-center bg-slate-800 text-amber-400 border-r border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors font-extrabold tracking-wide"
+                  className="p-2 text-center bg-amber-50 text-amber-800 border-r border-slate-200 cursor-pointer hover:bg-amber-100 transition-colors font-extrabold tracking-wide"
                   onClick={() => selectColumn(12)}
                 >
                   SETORAN
                 </th>
                 <th
                   colSpan={4}
-                  className="p-2 text-center bg-slate-800 text-indigo-300 border-r border-slate-700 cursor-pointer hover:bg-slate-700 transition-colors font-extrabold tracking-wide"
+                  className="p-2 text-center bg-indigo-50 text-indigo-800 border-r border-slate-200 cursor-pointer hover:bg-indigo-100 transition-colors font-extrabold tracking-wide"
                   onClick={() => setSelection({ startR: 0, startC: 13, endR: Math.max(0, computedRows.length - 1), endC: 16 })}
                 >
                   PDM HARI INI
                 </th>
                 <th
                   colSpan={4}
-                  className="p-2 text-center bg-slate-800 text-sky-300 cursor-pointer hover:bg-slate-700 transition-colors font-extrabold tracking-wide"
+                  className="p-2 text-center bg-sky-50 text-sky-800 cursor-pointer hover:bg-sky-100 transition-colors font-extrabold tracking-wide"
                   onClick={() => setSelection({ startR: 0, startC: 17, endR: Math.max(0, computedRows.length - 1), endC: 20 })}
                 >
                   TURUN PDM
@@ -855,8 +855,8 @@ function LhppRealisasiViewInner({
               </tr>
 
               {/* Header Level 2 Sub-columns */}
-              <tr className="bg-slate-100 text-slate-800 font-black uppercase text-[9px] border-t border-slate-300 divide-x divide-slate-200">
-                <th className="p-1 sticky left-0 bg-slate-100 z-40 border-r border-slate-300 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"></th>
+              <tr className="bg-slate-50/80 text-slate-700 font-black uppercase text-[9px] border-t border-slate-200 divide-x divide-slate-200">
+                <th className="p-1 sticky left-0 bg-slate-50/80 z-40 border-r border-slate-200 shadow-[1px_0_0_0_#e2e8f0]"></th>
 
                 {[
                   { label: "YO", c: 0 }, { label: "OM", c: 1 }, { label: "OS", c: 2 }, { label: "YT", c: 3, borderRight: true },
@@ -869,7 +869,7 @@ function LhppRealisasiViewInner({
                   <th
                     key={col.c}
                     data-c={col.c}
-                    className={`p-1 text-center bg-slate-100 text-slate-800 cursor-pointer hover:bg-slate-200 transition-colors select-none ${col.minW ? "min-w-[125px]" : "w-11"} ${col.borderRight ? "border-r border-slate-300" : ""}`}
+                    className={`p-1 text-center bg-slate-50/80 text-slate-700 cursor-pointer hover:bg-slate-100 transition-colors select-none ${col.minW ? "min-w-[125px]" : "w-11"} ${col.borderRight ? "border-r border-slate-200" : ""}`}
                     onClick={() => selectColumn(col.c)}
                   >
                     {col.label}
@@ -891,7 +891,7 @@ function LhppRealisasiViewInner({
                     {/* YAKULT LADY Column */}
                     <td
                       data-r={rIdx}
-                      className="p-1.5 sticky left-0 bg-slate-50 z-20 border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors select-none min-w-[140px] max-w-[140px] truncate shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                      className="p-1.5 sticky left-0 bg-slate-50 z-20 border-r border-slate-200 cursor-pointer hover:bg-slate-200 transition-colors select-none min-w-[140px] max-w-[140px] truncate shadow-[1px_0_0_0_#e2e8f0]"
                       onClick={() => selectRow(rIdx)}
                     >
                       <span className="text-rose-700 font-black mr-1">[{row.area}]</span>
@@ -1037,84 +1037,84 @@ function LhppRealisasiViewInner({
             </tbody>
 
             {/* Bottom Row Totals */}
-            <tfoot className="bg-slate-900 text-slate-100 font-black border-t-2 border-slate-800">
+            <tfoot className="bg-slate-50 text-slate-800 font-black border-t-2 border-slate-300 shadow-[0_-1px_0_0_#cbd5e1]">
               {/* Row 1: Subtotal Item Totals */}
-              <tr className="text-[11px] divide-x divide-slate-800">
-                <td className="p-2.5 sticky left-0 bg-slate-900 z-20 font-black text-slate-200 text-left shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
+              <tr className="text-[11px] divide-x divide-slate-200">
+                <td className="p-2.5 sticky left-0 bg-slate-50 z-20 font-black text-slate-800 text-left shadow-[1px_0_0_0_#e2e8f0]">
                   Subtotal
                 </td>
 
                 {/* PDM SEBELUM Total */}
-                <td className="p-2 text-center text-rose-300 font-black">{totals.pdmSebelum.yo}</td>
-                <td className="p-2 text-center text-amber-300 font-black">{totals.pdmSebelum.om}</td>
-                <td className="p-2 text-center text-fuchsia-300 font-black">{totals.pdmSebelum.os}</td>
-                <td className="p-2 text-center text-sky-300 font-black border-r-2 border-slate-700">
+                <td className="p-2 text-center text-slate-600 font-black">{totals.pdmSebelum.yo}</td>
+                <td className="p-2 text-center text-slate-600 font-black">{totals.pdmSebelum.om}</td>
+                <td className="p-2 text-center text-slate-600 font-black">{totals.pdmSebelum.os}</td>
+                <td className="p-2 text-center text-slate-600 font-black border-r border-slate-300">
                   {totals.pdmSebelum.yt}
                 </td>
 
                 {/* BB Total */}
-                <td className="p-2 text-center text-rose-300 font-black">{totals.bb.yo}</td>
-                <td className="p-2 text-center text-amber-300 font-black">{totals.bb.om}</td>
-                <td className="p-2 text-center text-fuchsia-300 font-black">{totals.bb.os}</td>
-                <td className="p-2 text-center text-sky-300 font-black border-r-2 border-slate-700">
+                <td className="p-2 text-center text-red-700 font-black">{totals.bb.yo}</td>
+                <td className="p-2 text-center text-amber-700 font-black">{totals.bb.om}</td>
+                <td className="p-2 text-center text-fuchsia-700 font-black">{totals.bb.os}</td>
+                <td className="p-2 text-center text-blue-700 font-black border-r border-slate-300">
                   {totals.bb.yt}
                 </td>
 
                 {/* TERJUAL Total */}
-                <td className="p-2 text-center text-rose-300 font-black">{totals.terjual.yo}</td>
-                <td className="p-2 text-center text-amber-300 font-black">{totals.terjual.om}</td>
-                <td className="p-2 text-center text-fuchsia-300 font-black">{totals.terjual.os}</td>
-                <td className="p-2 text-center text-sky-300 font-black border-r-2 border-slate-700">
+                <td className="p-2 text-center text-emerald-700 font-black">{totals.terjual.yo}</td>
+                <td className="p-2 text-center text-emerald-700 font-black">{totals.terjual.om}</td>
+                <td className="p-2 text-center text-emerald-700 font-black">{totals.terjual.os}</td>
+                <td className="p-2 text-center text-emerald-700 font-black border-r border-slate-300">
                   {totals.terjual.yt}
                 </td>
 
                 {/* SETORAN Total */}
-                <td className="p-2 text-right text-xs bg-amber-950/80 text-amber-300 font-black border-r-2 border-slate-700 font-mono">
+                <td className="p-2 text-right text-xs bg-amber-100/60 text-amber-800 font-black border-r border-slate-300 font-mono">
                   Rp {totals.setoran.setor.toLocaleString("id-ID")}
                 </td>
 
                 {/* PDM HARI INI Total */}
-                <td className="p-2 text-center text-rose-300 font-black">{totals.pdmHariIni.yo}</td>
-                <td className="p-2 text-center text-amber-300 font-black">{totals.pdmHariIni.om}</td>
-                <td className="p-2 text-center text-fuchsia-300 font-black">{totals.pdmHariIni.os}</td>
-                <td className="p-2 text-center text-sky-300 font-black border-r-2 border-slate-700">
+                <td className="p-2 text-center text-indigo-700 font-black">{totals.pdmHariIni.yo}</td>
+                <td className="p-2 text-center text-indigo-700 font-black">{totals.pdmHariIni.om}</td>
+                <td className="p-2 text-center text-indigo-700 font-black">{totals.pdmHariIni.os}</td>
+                <td className="p-2 text-center text-indigo-700 font-black border-r border-slate-300">
                   {totals.pdmHariIni.yt}
                 </td>
 
                 {/* TURUN Total */}
-                <td className="p-2 text-center text-rose-300 font-black">{totals.turun.yo}</td>
-                <td className="p-2 text-center text-amber-300 font-black">{totals.turun.om}</td>
-                <td className="p-2 text-center text-fuchsia-300 font-black">{totals.turun.os}</td>
-                <td className="p-2 text-center text-sky-300 font-black">{totals.turun.yt}</td>
+                <td className="p-2 text-center text-sky-700 font-black">{totals.turun.yo}</td>
+                <td className="p-2 text-center text-sky-700 font-black">{totals.turun.om}</td>
+                <td className="p-2 text-center text-sky-700 font-black">{totals.turun.os}</td>
+                <td className="p-2 text-center text-sky-700 font-black">{totals.turun.yt}</td>
               </tr>
 
               {/* Row 2: Grand Total Combined Bottle Sum */}
-              <tr className="bg-emerald-900 text-white font-black text-xs uppercase divide-x divide-slate-800">
-                <td className="p-2.5 sticky left-0 bg-emerald-950 z-20 text-left font-black tracking-wide text-emerald-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
+              <tr className="bg-slate-200 text-slate-800 font-black text-xs uppercase divide-x divide-slate-300 border-t border-slate-200">
+                <td className="p-2.5 sticky left-0 bg-slate-300 z-20 text-left font-black tracking-wide text-slate-900 shadow-[1px_0_0_0_#cbd5e1]">
                   Total Yo, Om, Os & Yt
                 </td>
 
-                <td colSpan={4} className="p-2 text-center bg-emerald-900/90 border-r-2 border-slate-800 font-black text-emerald-200">
+                <td colSpan={4} className="p-2 text-center bg-slate-200 border-r border-slate-300 font-black text-slate-800">
                   {totals.pdmSebelum.sum} btl
                 </td>
 
-                <td colSpan={4} className="p-2 text-center bg-emerald-900/90 border-r-2 border-slate-800 font-black text-emerald-200">
+                <td colSpan={4} className="p-2 text-center bg-slate-200 border-r border-slate-300 font-black text-slate-800">
                   {totals.bb.sum} btl
                 </td>
 
-                <td colSpan={4} className="p-2 text-center bg-emerald-900/90 border-r-2 border-slate-800 font-black text-emerald-200">
+                <td colSpan={4} className="p-2 text-center bg-slate-200 border-r border-slate-300 font-black text-slate-800">
                   {totals.terjual.sum} btl
                 </td>
 
-                <td colSpan={1} className="p-2 text-center bg-amber-900/90 border-r-2 border-slate-800 font-black text-amber-200">
+                <td colSpan={1} className="p-2 text-center bg-amber-100/80 border-r border-slate-300 font-black text-amber-900">
                   Rp {totals.setoran.setor.toLocaleString("id-ID")}
                 </td>
 
-                <td colSpan={4} className="p-2 text-center bg-emerald-900/90 border-r-2 border-slate-800 font-black text-emerald-200">
+                <td colSpan={4} className="p-2 text-center bg-slate-200 border-r border-slate-300 font-black text-slate-800">
                   {totals.pdmHariIni.sum} btl
                 </td>
 
-                <td colSpan={4} className="p-2 text-center bg-emerald-900/90 font-black text-emerald-200">
+                <td colSpan={4} className="p-2 text-center bg-slate-200 font-black text-slate-800">
                   {totals.turun.sum} btl
                 </td>
               </tr>
