@@ -3326,7 +3326,7 @@ export function ManagerView({
                 </div>
 
                 {/* 3. BARIS KEDUA: PERFORMA TERBAIK & PERFORMA TURUN (Compact Height / Perkecil Ke Atas) */}
-                <div className="col-span-1 lg:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div className="col-span-1 md:col-span-12 grid grid-cols-1 md:grid-cols-2 gap-2">
                   {/* Top Performer Card - Compact Height */}
                   <div className="bg-white dark:bg-white rounded-xl p-2 sm:p-2.5 border-2 border-emerald-300 shadow-sm text-slate-900 flex flex-col justify-between">
                     <div>
@@ -3389,7 +3389,7 @@ export function ManagerView({
                 </div>
 
                 {/* 4. BARIS KETIGA: AI DEEP EVALUATION CARD (Paling Bawah) */}
-                <div className="col-span-1 lg:col-span-12 bg-white dark:bg-white rounded-2xl p-3.5 sm:p-4 border-2 border-indigo-200 shadow-md text-slate-900 relative overflow-hidden">
+                <div className="col-span-1 md:col-span-12 bg-white dark:bg-white rounded-2xl p-3.5 sm:p-4 border-2 border-indigo-200 shadow-md text-slate-900 relative overflow-hidden">
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-xs font-black text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
                       <Sparkles className="w-4 h-4 text-indigo-600 animate-pulse" /> Analisis & Evaluasi AI Jember 1
