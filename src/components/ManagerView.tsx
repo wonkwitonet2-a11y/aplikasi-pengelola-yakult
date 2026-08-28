@@ -2397,7 +2397,7 @@ export function ManagerView({
       { key: 'persenRumah', label: 'Persen Rumah', type: 'max', requirePositive: true },
       { key: 'persenRbVsPlg', label: 'Persen RB vs PLG', type: 'max', requirePositive: true },
       { key: 'propagandaHariIni', label: 'PB Hari Ini', type: 'max', requirePositive: true },
-      { key: 'sampahBotol', label: 'Akm Sampah', type: 'target', target: 900, requirePositive: true },
+      { key: 'sampahBotol', label: 'Akm Sampah', type: 'max', requirePositive: true },
       { key: 'akmBb', label: 'Akm BB', type: 'min', requirePositive: false }
     ];
 

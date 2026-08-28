@@ -225,14 +225,26 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
       try {
         const sbIndex = await loadFromSupabase<string[]>("rata2_bulanan_index");
         if (Array.isArray(sbIndex) && sbIndex.length > 0) {
-          const merged = Array.from(new Set([...localIndex, ...sbIndex, "2025-07", "2026-01"])).sort();
+          const merged = Array.from(new Set([...localIndex, ...sbIndex, "2025-07", "2026-01"])).sort().reverse();
           setSavedMonthsList(merged);
+          if (merged.length > 0) {
+            const [y, m] = merged[0].split("-");
+            setSelectedYear(y);
+            setSelectedMonth(m);
+            setActiveYearMonth(merged[0]);
+          }
           return;
         }
       } catch (e) {}
 
-      const merged = Array.from(new Set([...localIndex, "2025-07", "2026-01"])).sort();
+      const merged = Array.from(new Set([...localIndex, "2025-07", "2026-01"])).sort().reverse();
       setSavedMonthsList(merged);
+      if (merged.length > 0) {
+        const [y, m] = merged[0].split("-");
+        setSelectedYear(y);
+        setSelectedMonth(m);
+        setActiveYearMonth(merged[0]);
+      }
     };
     loadIndex();
   }, []);
@@ -339,7 +351,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
     // 1. Save locally
     try {
       localStorage.setItem(`rata2_bulanan_${ymKey}`, JSON.stringify(updatedData));
-      const newIndex = Array.from(new Set([...savedMonthsList, ymKey])).sort();
+      const newIndex = Array.from(new Set([...savedMonthsList, ymKey])).sort().reverse();
       setSavedMonthsList(newIndex);
       localStorage.setItem("rata2_bulanan_index", JSON.stringify(newIndex));
     } catch (e) {}
@@ -347,7 +359,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
     // 2. Save to Supabase
     try {
       await saveToSupabase(`rata2_bulanan_${ymKey}`, updatedData);
-      const newIndex = Array.from(new Set([...savedMonthsList, ymKey])).sort();
+      const newIndex = Array.from(new Set([...savedMonthsList, ymKey])).sort().reverse();
       await saveToSupabase("rata2_bulanan_index", newIndex);
       
       setStatusMsg(`✅ Berhasil! Data Rata-Rata Bulanan ${label} tersimpan abadi di Supabase & penyimpanan lokal.`);
@@ -429,6 +441,17 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
     };
   }, [isEditing, editableRows, currentData]);
 
+  const allMonthsOptions = useMemo(() => {
+    const options = [];
+    for (let year = 2028; year >= 2024; year--) {
+      for (let month = 12; month >= 1; month--) {
+        const mm = String(month).padStart(2, "0");
+        options.push(`${year}-${mm}`);
+      }
+    }
+    return options;
+  }, []);
+
   const activeLabel = `${MONTH_NAMES[parseInt(selectedMonth, 10) - 1]} ${selectedYear}`;
 
   return (
@@ -459,85 +482,64 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
         </div>
       </div>
 
-      {/* Control Toolbar: Month Picker & Quick Actions */}
+      {/* Control Toolbar: Unified Month Picker & Quick Actions */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* 1. Pilih Tahun & Bulan */}
-          <div className="space-y-1.5">
+        <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-end">
+          
+          {/* Unified Dropdown Selector */}
+          <div className="space-y-1.5 w-full md:w-auto flex-1 max-w-sm">
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-              1. Pilih Bulan & Tahun Data
+              Pilih Bulan & Tahun
             </label>
-            <div className="flex gap-2">
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="flex-1 p-2.5 text-xs bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-              >
-                {MONTH_NAMES.map((m, idx) => {
-                  const val = String(idx + 1).padStart(2, "0");
-                  return <option key={val} value={val}>{m}</option>;
-                })}
-              </select>
-
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="w-28 p-2.5 text-xs bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-              >
-                <option value="2024">2024</option>
-                <option value="2025">2025</option>
-                <option value="2026">2026</option>
-                <option value="2027">2027</option>
-                <option value="2028">2028</option>
-              </select>
-            </div>
+            <select
+              value={activeYearMonth}
+              onChange={(e) => handleSelectMonthYear(e.target.value)}
+              className="w-full p-2.5 text-xs bg-slate-50 border border-slate-300 rounded-xl font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+            >
+              {allMonthsOptions.map(ymKey => {
+                const [yr, mo] = ymKey.split("-");
+                const lbl = `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${yr}`;
+                const isSaved = savedMonthsList.includes(ymKey);
+                return (
+                  <option key={ymKey} value={ymKey}>
+                    {isSaved ? "✅ " : "📅 "}{lbl} {isSaved ? "(Tersimpan)" : "(Kosong)"}
+                  </option>
+                );
+              })}
+            </select>
           </div>
 
-          {/* 2. Action Buttons */}
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
-              2. Operasi Data ({activeLabel})
-            </label>
-            <div className="flex flex-wrap gap-2">
+          {/* Action Buttons */}
+          <div className="flex flex-wrap gap-2 w-full md:w-auto">
+            {!isEditing ? (
               <button
-                onClick={() => {
-                  const ym = `${selectedYear}-${selectedMonth}`;
-                  handleSelectMonthYear(ym);
-                }}
-                className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow transition-all cursor-pointer flex items-center gap-1.5"
+                onClick={handleCreateOrEditNewMonth}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow transition-all cursor-pointer flex items-center gap-1.5"
               >
-                <Search className="w-4 h-4 text-emerald-400" />
-                <span>Lihat Data {activeLabel}</span>
+                <Plus className="w-4 h-4" />
+                <span>Input / Edit Manual ({activeLabel})</span>
               </button>
+            ) : (
+              <button
+                onClick={handleSavePermanently}
+                disabled={isSaving}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                <span>{isSaving ? "Menyimpan..." : `Simpan Permanen (${activeLabel})`}</span>
+              </button>
+            )}
 
-              {!isEditing ? (
-                <button
-                  onClick={handleCreateOrEditNewMonth}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Input / Edit Manual Data {activeLabel}</span>
-                </button>
-              ) : (
-                <button
-                  onClick={handleSavePermanently}
-                  disabled={isSaving}
-                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>{isSaving ? "Menyimpan..." : `Simpan Permanen (${activeLabel})`}</span>
-                </button>
-              )}
-
+            {savedMonthsList.includes(activeYearMonth) && (
               <button
                 onClick={() => setDeleteModalMonth({ ym: activeYearMonth, label: activeLabel })}
-                className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition-all cursor-pointer flex items-center gap-1.5 ml-auto"
+                className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs rounded-xl border border-rose-200 transition-all cursor-pointer flex items-center gap-1.5"
                 title="Hapus permanen data bulan ini dari Supabase & lokal"
               >
                 <Trash2 className="w-4 h-4 text-rose-600" />
-                <span>Hapus Permanen Bulan Ini</span>
+                <span>Hapus Data</span>
               </button>
-            </div>
+            )}
           </div>
         </div>
 
@@ -553,50 +555,6 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
             {statusMsg}
           </div>
         )}
-
-        {/* Saved Months Badge Selector */}
-        <div className="pt-2 border-t border-slate-100 space-y-2">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-            📋 Daftar Bulan Rata-Rata Bulanan yang Tersimpan di Supabase:
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {savedMonthsList.map(ymKey => {
-              const [yr, mo] = ymKey.split("-");
-              const lbl = `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${yr}`;
-              const isSelected = activeYearMonth === ymKey;
-
-              return (
-                <div
-                  key={ymKey}
-                  className={`group flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                    isSelected
-                      ? "bg-emerald-600 text-white border-emerald-500 shadow-md scale-105"
-                      : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200 cursor-pointer"
-                  }`}
-                >
-                  <button
-                    onClick={() => handleSelectMonthYear(ymKey)}
-                    className="flex items-center gap-1.5"
-                  >
-                    <span>📅 {lbl}</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteModalMonth({ ym: ymKey, label: lbl });
-                    }}
-                    className={`ml-1 p-1 rounded-md transition-colors ${
-                      isSelected ? "hover:bg-emerald-700 text-emerald-100" : "hover:bg-rose-100 text-slate-400 hover:text-rose-600"
-                    }`}
-                    title={`Hapus permanen ${lbl} dari Supabase`}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       {/* Main Table View / Edit Section */}
