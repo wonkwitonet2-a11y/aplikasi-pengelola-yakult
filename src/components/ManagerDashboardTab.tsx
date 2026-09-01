@@ -13,6 +13,7 @@ import {
   PieChart,
   Activity,
   Table,
+  Palette,
 } from "lucide-react";
 import {
   RankingYLChart,
@@ -20,8 +21,74 @@ import {
   TargetVsActualChart,
   SektorTimChart,
   TrenHarianChart,
+  DASHBOARD_THEMES,
+  FIXED_PRODUCT_COLORS,
 } from "./Charts";
 import type { DashboardData } from "../types";
+
+// Berapa jenis tampilan (jenis grafik) yang tersedia per card. 1 = tidak ganti jenis, cuma warna.
+const CARD_CHART_VARIANTS: Record<number, number> = {
+  0: 1, // Ringkasan Utama Tim (tabel/kartu statistik, tanpa grafik)
+  1: 2, // Komposisi Produk: donut <-> bar
+  2: 2, // Potensi Sektor Tim: bar <-> donut
+  3: 2, // Tren Harian: combo <-> area
+  4: 2, // Ranking YL: horizontal <-> vertikal (kolom), warna + podium ikut berubah
+  5: 2, // Target vs Actual: bar <-> line
+  6: 1, // Kinerja Akumulatif (tabel)
+};
+
+const ACCENT_THEMES = [
+  {
+    accentBar: "bg-red-600", ring: "hover:ring-red-500/40", headerDark: "bg-red-950", badgeDarkBg: "bg-red-900/40", badgeDarkText: "text-red-400", badgeLightText: "group-hover:text-red-600", badgeLightBg: "group-hover:bg-red-50",
+    // Warna font untuk Card 0 (Ringkasan Utama Tim)
+    totalPenjualan: "text-red-600", rataRataTim: "text-amber-600", vsTarget: "text-blue-600", vsBulanLalu: "text-purple-600", vsTahunLalu: "text-teal-600", bbTim: "text-rose-600",
+    // Warna font untuk Card 6 (Kinerja Akumulatif)
+    akm: "text-emerald-600", rata2Table: "text-slate-900", vsTgtTable: "text-blue-600", vsBlnTable: "text-purple-600", vsThnTable: "text-teal-600", bbTable: "text-rose-600",
+  },
+  {
+    accentBar: "bg-emerald-600", ring: "hover:ring-emerald-500/40", headerDark: "bg-emerald-950", badgeDarkBg: "bg-emerald-900/40", badgeDarkText: "text-emerald-400", badgeLightText: "group-hover:text-emerald-600", badgeLightBg: "group-hover:bg-emerald-50",
+    totalPenjualan: "text-emerald-600", rataRataTim: "text-cyan-600", vsTarget: "text-indigo-600", vsBulanLalu: "text-fuchsia-600", vsTahunLalu: "text-orange-600", bbTim: "text-red-600",
+    akm: "text-teal-600", rata2Table: "text-slate-900", vsTgtTable: "text-indigo-600", vsBlnTable: "text-fuchsia-600", vsThnTable: "text-orange-600", bbTable: "text-red-600",
+  },
+  {
+    accentBar: "bg-indigo-600", ring: "hover:ring-indigo-500/40", headerDark: "bg-indigo-950", badgeDarkBg: "bg-indigo-900/40", badgeDarkText: "text-indigo-400", badgeLightText: "group-hover:text-indigo-600", badgeLightBg: "group-hover:bg-indigo-50",
+    totalPenjualan: "text-indigo-600", rataRataTim: "text-rose-600", vsTarget: "text-cyan-600", vsBulanLalu: "text-lime-600", vsTahunLalu: "text-pink-600", bbTim: "text-amber-600",
+    akm: "text-violet-600", rata2Table: "text-slate-900", vsTgtTable: "text-cyan-600", vsBlnTable: "text-lime-600", vsThnTable: "text-pink-600", bbTable: "text-amber-600",
+  },
+];
+
+const CARD_STYLE_STORAGE_KEY = "dashboardCardStyles_v1";
+
+function loadCardStyles(): number[] {
+  try {
+    const raw = localStorage.getItem(CARD_STYLE_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length === 7) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return [0, 0, 0, 0, 0, 0, 0];
+}
+
+// Tombol kecil untuk mengganti tampilan (jenis grafik + tema warna) sebuah card
+function StyleToggleButton({ onClick }: { onClick: (e: React.MouseEvent) => void }) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onTouchEnd={(e) => e.stopPropagation()}
+      title="Ganti Tampilan Card"
+      className="text-[8px] font-bold text-slate-400 hover:text-white bg-slate-100 hover:bg-slate-700 px-1.5 py-0.5 rounded transition-all inline-flex items-center gap-1 cursor-pointer border border-slate-200 hover:border-slate-700"
+    >
+      <Palette className="w-2.5 h-2.5" /> <span className="hidden sm:inline">Ganti Tampilan</span>
+    </button>
+  );
+}
 
 interface ManagerDashboardTabProps {
   dashboardData: DashboardData | null;
@@ -39,7 +106,39 @@ function ManagerDashboardTabInner({
   calculateSektorTotals,
 }: ManagerDashboardTabProps) {
   const [fullscreenCardIndex, setFullscreenCardIndex] = useState<number | null>(null);
+  const [cardStyleIdx, setCardStyleIdx] = useState<number[]>(loadCardStyles);
   const lastTapRef = useRef<{ time: number; index: number }>({ time: 0, index: -1 });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CARD_STYLE_STORAGE_KEY, JSON.stringify(cardStyleIdx));
+    } catch {
+      // ignore
+    }
+  }, [cardStyleIdx]);
+
+  const cycleCardStyle = (index: number) => {
+    const numVariants = CARD_CHART_VARIANTS[index] || 1;
+    const totalCombos = numVariants * ACCENT_THEMES.length;
+    setCardStyleIdx(prev => {
+      const next = [...prev];
+      next[index] = (next[index] + 1) % totalCombos;
+      return next;
+    });
+  };
+
+  // Mengurai index gabungan menjadi { variantIdx (jenis grafik), theme (warna) }
+  const getCardStyle = (index: number) => {
+    const numVariants = CARD_CHART_VARIANTS[index] || 1;
+    const combo = cardStyleIdx[index] || 0;
+    const variantIdx = combo % numVariants;
+    const themeIdx = Math.floor(combo / numVariants) % ACCENT_THEMES.length;
+    return {
+      variantIdx,
+      accent: ACCENT_THEMES[themeIdx],
+      chartTheme: DASHBOARD_THEMES[themeIdx % DASHBOARD_THEMES.length],
+    };
+  };
 
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -121,6 +220,7 @@ function ManagerDashboardTabInner({
 
   // Card Content Renderers
   const renderCardContent = (index: number, isFullscreen: boolean = false) => {
+    const style = getCardStyle(index);
     switch (index) {
       case 0: // 1. Gabungan: Total Penjualan, Rata2 Tim, Capaian vs Perbandingan, Ringkasan Operasional
         return (
@@ -128,14 +228,17 @@ function ManagerDashboardTabInner({
             {!isFullscreen && (
               <div className="flex items-center justify-between border-b border-slate-100 pb-2 sm:pb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-5 bg-red-600 rounded-sm" />
+                  <div className={`w-2.5 h-5 rounded-sm ${style.accent.accentBar}`} />
                   <h2 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-wider">
                     Ringkasan Utama Tim
                   </h2>
                 </div>
-                <span className="text-[8px] font-bold text-slate-400 group-hover:text-red-600 bg-slate-100 group-hover:bg-red-50 px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1">
-                  <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <StyleToggleButton onClick={() => cycleCardStyle(0)} />
+                  <span className={`text-[8px] font-bold text-slate-400 ${style.accent.badgeLightText} bg-slate-100 ${style.accent.badgeLightBg} px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1`}>
+                    <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
+                  </span>
+                </div>
               </div>
             )}
 
@@ -144,7 +247,7 @@ function ManagerDashboardTabInner({
               <div className={`bg-red-50/50 rounded-xl border border-red-100 relative overflow-hidden ${isFullscreen ? "p-1 sm:p-2" : "p-2 sm:p-3"}`}>
                 <span className="text-[9px] sm:text-xs font-black text-red-900 uppercase tracking-wider block">Total Penjualan Tim</span>
                 <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className={`${isFullscreen ? "text-lg sm:text-2xl" : "text-xl sm:text-2xl"} font-black text-red-600`}>
+                  <span className={`${isFullscreen ? "text-lg sm:text-2xl" : "text-xl sm:text-2xl"} font-black ${style.accent.totalPenjualan}`}>
                     {Math.trunc(dashboardData?.totalPenjualan || 0).toLocaleString("id-ID")}
                   </span>
                   <span className="text-[10px] sm:text-xs font-bold text-slate-500">btl</span>
@@ -157,7 +260,7 @@ function ManagerDashboardTabInner({
               <div className={`bg-amber-50/50 rounded-xl border border-amber-100 relative overflow-hidden ${isFullscreen ? "p-1 sm:p-2" : "p-2 sm:p-3"}`}>
                 <span className="text-[9px] sm:text-xs font-black text-amber-900 uppercase tracking-wider block">Rata-Rata Tim</span>
                 <div className="flex items-baseline gap-1 mt-0.5">
-                  <span className={`${isFullscreen ? "text-lg sm:text-2xl" : "text-xl sm:text-2xl"} font-black text-amber-600`}>
+                  <span className={`${isFullscreen ? "text-lg sm:text-2xl" : "text-xl sm:text-2xl"} font-black ${style.accent.rataRataTim}`}>
                     {Math.trunc(dashboardData?.rataHarian || 0).toLocaleString("id-ID")}
                   </span>
                   <span className="text-[10px] sm:text-xs font-bold text-slate-500">btl/hr</span>
@@ -176,19 +279,19 @@ function ManagerDashboardTabInner({
               <div className="grid grid-cols-3 gap-1 sm:gap-2">
                 <div className={`bg-slate-50 rounded-xl text-center border border-slate-100 ${isFullscreen ? "p-1 sm:p-1.5" : "p-1.5 sm:p-3"}`}>
                   <span className="text-[8px] sm:text-[9.5px] font-bold text-slate-400 uppercase block">vs Target</span>
-                  <span className={`${isFullscreen ? "text-xs sm:text-base" : "text-base sm:text-xl"} font-black text-blue-600 mt-0.5 block`}>
+                  <span className={`${isFullscreen ? "text-xs sm:text-base" : "text-base sm:text-xl"} font-black ${style.accent.vsTarget} mt-0.5 block`}>
                     {Math.trunc(dashboardData?.vsTarget || 0)}%
                   </span>
                 </div>
                 <div className={`bg-slate-50 rounded-xl text-center border border-slate-100 ${isFullscreen ? "p-1 sm:p-1.5" : "p-1.5 sm:p-3"}`}>
                   <span className="text-[8px] sm:text-[9.5px] font-bold text-slate-400 uppercase block">vs Bulan Lalu</span>
-                  <span className={`${isFullscreen ? "text-xs sm:text-base" : "text-base sm:text-xl"} font-black text-purple-600 mt-0.5 block`}>
+                  <span className={`${isFullscreen ? "text-xs sm:text-base" : "text-base sm:text-xl"} font-black ${style.accent.vsBulanLalu} mt-0.5 block`}>
                     {Math.trunc(dashboardData?.vsBulanLalu || 0)}%
                   </span>
                 </div>
                 <div className={`bg-slate-50 rounded-xl text-center border border-slate-100 ${isFullscreen ? "p-1 sm:p-1.5" : "p-1.5 sm:p-3"}`}>
                   <span className="text-[8px] sm:text-[9.5px] font-bold text-slate-400 uppercase block">vs Tahun Lalu</span>
-                  <span className={`${isFullscreen ? "text-xs sm:text-base" : "text-base sm:text-xl"} font-black text-teal-600 mt-0.5 block`}>
+                  <span className={`${isFullscreen ? "text-xs sm:text-base" : "text-base sm:text-xl"} font-black ${style.accent.vsTahunLalu} mt-0.5 block`}>
                     {Math.trunc(dashboardData?.vsTahunLalu || 0)}%
                   </span>
                 </div>
@@ -215,8 +318,8 @@ function ManagerDashboardTabInner({
                 </div>
                 <div className={`bg-slate-50 rounded-xl text-center border border-slate-100 ${isFullscreen ? "p-1 sm:p-1.5" : "p-1.5 sm:p-3"}`}>
                   <span className="text-[8px] sm:text-[9.5px] font-black text-slate-400 uppercase block">BB Tim</span>
-                  <span className={`${isFullscreen ? "text-xs sm:text-sm" : "text-sm sm:text-base"} font-black text-rose-600 mt-0.5 block`}>
-                    {Math.trunc(((dashboardData?.bbTimRaw || 0) / ((dashboardData?.totalPenjualan || 0) + (dashboardData?.bbTimRaw || 0) || 1)) * 100)}%
+                  <span className={`${isFullscreen ? "text-xs sm:text-sm" : "text-sm sm:text-base"} font-black ${style.accent.bbTim} mt-0.5 block`}>
+                    {(((dashboardData?.bbTimRaw || 0) / ((dashboardData?.totalPenjualan || 0) + (dashboardData?.bbTimRaw || 0) || 1)) * 100).toFixed(1)}%
                   </span>
                 </div>
               </div>
@@ -251,14 +354,17 @@ function ManagerDashboardTabInner({
             {!isFullscreen && (
               <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2 sm:pb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-5 bg-indigo-600 rounded-sm" />
+                  <div className={`w-2.5 h-5 rounded-sm ${style.accent.accentBar}`} />
                   <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wider">
                     Komposisi & Performa Rata-Rata Produk
                   </h3>
                 </div>
-                <span className="text-[8px] font-bold text-slate-400 group-hover:text-indigo-600 bg-slate-100 group-hover:bg-indigo-50 px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1">
-                  <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <StyleToggleButton onClick={() => cycleCardStyle(1)} />
+                  <span className={`text-[8px] font-bold text-slate-400 ${style.accent.badgeLightText} bg-slate-100 ${style.accent.badgeLightBg} px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1`}>
+                    <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
+                  </span>
+                </div>
               </div>
             )}
 
@@ -274,6 +380,8 @@ function ManagerDashboardTabInner({
                   os={currentMonthTotal(dashboardData?.perYL || {}, "os")}
                   yt={currentMonthTotal(dashboardData?.perYL || {}, "yt")}
                   height={isFullscreen ? 170 : 220}
+                  chartType={style.variantIdx === 1 ? "bar" : "donut"}
+                  colors={FIXED_PRODUCT_COLORS}
                 />
               </div>
 
@@ -322,13 +430,20 @@ function ManagerDashboardTabInner({
                 <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wider">
                   Potensi Sektor Tim
                 </h3>
-                <span className="text-[8px] font-bold text-slate-400 group-hover:text-red-600 bg-slate-100 group-hover:bg-red-50 px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1">
-                  <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <StyleToggleButton onClick={() => cycleCardStyle(2)} />
+                  <span className={`text-[8px] font-bold text-slate-400 ${style.accent.badgeLightText} bg-slate-100 ${style.accent.badgeLightBg} px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1`}>
+                    <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
+                  </span>
+                </div>
               </div>
             )}
             <div className={isFullscreen ? "w-full h-[220px] sm:h-[280px]" : "w-full h-[220px] sm:h-[260px]"}>
-              <SektorTimChart data={calculateSektorTotals(dashboardData)} />
+              <SektorTimChart
+                data={calculateSektorTotals(dashboardData)}
+                chartType={style.variantIdx === 1 ? "donut" : "bar"}
+                colors={style.chartTheme.sektor}
+              />
             </div>
           </div>
         );
@@ -341,13 +456,18 @@ function ManagerDashboardTabInner({
                 <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wider">
                   Tren Penjualan Harian
                 </h3>
-                <span className="text-[8px] font-bold text-slate-400 group-hover:text-red-600 bg-slate-100 group-hover:bg-red-50 px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1">
-                  <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <StyleToggleButton onClick={() => cycleCardStyle(3)} />
+                  <span className={`text-[8px] font-bold text-slate-400 ${style.accent.badgeLightText} bg-slate-100 ${style.accent.badgeLightBg} px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1`}>
+                    <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
+                  </span>
+                </div>
               </div>
             )}
             <div className={isFullscreen ? "w-full h-[220px] sm:h-[280px]" : "w-full h-[220px] sm:h-[260px]"}>
               <TrenHarianChart
+                chartType={style.variantIdx === 1 ? "area" : "combo"}
+                colors={style.chartTheme.tren}
                 data={(dashboardData?.grafikHarian?.tanggal || []).map((t, idx, arr) => {
                   const currentDay = parseInt(t, 10) || 0;
                   const prevDay = idx > 0 ? (parseInt(arr[idx - 1], 10) || 0) : 0;
@@ -379,15 +499,21 @@ function ManagerDashboardTabInner({
                 <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wider">
                   Ranking Penjualan Antar YL
                 </h3>
-                <span className="text-[8px] font-bold text-slate-400 group-hover:text-red-600 bg-slate-100 group-hover:bg-red-50 px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1">
-                  <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <StyleToggleButton onClick={() => cycleCardStyle(4)} />
+                  <span className={`text-[8px] font-bold text-slate-400 ${style.accent.badgeLightText} bg-slate-100 ${style.accent.badgeLightBg} px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1`}>
+                    <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
+                  </span>
+                </div>
               </div>
             )}
             <div className={isFullscreen ? "w-full min-h-[280px] sm:min-h-[320px]" : "w-full min-h-[280px] sm:min-h-[320px]"}>
               <RankingYLChart
                 data={Object.values(dashboardData?.perYL || {}).map(y => ({ nama: cleanYlName(y.nama), akumulasi: y.akumulasi }))}
                 isCompact={isFullscreen}
+                rankingBaseColor={style.chartTheme.rankingBase}
+                podiumColors={style.chartTheme.rankingPodium}
+                chartType={style.variantIdx === 1 ? "vertical" : "horizontal"}
               />
             </div>
           </div>
@@ -401,13 +527,26 @@ function ManagerDashboardTabInner({
                 <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wider">
                   Target vs Actual per YL
                 </h3>
-                <span className="text-[8px] font-bold text-slate-400 group-hover:text-red-600 bg-slate-100 group-hover:bg-red-50 px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1">
-                  <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <StyleToggleButton onClick={() => cycleCardStyle(5)} />
+                  <span className={`text-[8px] font-bold text-slate-400 ${style.accent.badgeLightText} bg-slate-100 ${style.accent.badgeLightBg} px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1`}>
+                    <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
+                  </span>
+                </div>
               </div>
             )}
             <div className={isFullscreen ? "w-full h-[220px] sm:h-[280px]" : "w-full h-[220px] sm:h-[260px]"}>
-              <TargetVsActualChart data={Object.values(dashboardData?.perYL || {}).map(y => ({ nama: cleanYlName(y.nama), target: y.targetYL, actual: Math.trunc(y.rata2) }))} />
+              <TargetVsActualChart
+                data={Object.values(dashboardData?.perYL || {}).map(y => ({
+                  nama: cleanYlName(y.nama),
+                  target: y.targetYL,
+                  actual: Math.trunc(y.rata2),
+                  bulanLalu: y.bulanLaluYL,
+                  tahunLalu: y.tahunLaluYL,
+                }))}
+                chartType={style.variantIdx === 1 ? "line" : "groupedBar"}
+                colors={style.chartTheme.tva}
+              />
             </div>
           </div>
         );
@@ -416,10 +555,11 @@ function ManagerDashboardTabInner({
         return (
           <div className={`bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden text-slate-900 ${isFullscreen ? "w-full min-h-full border-0 shadow-none flex flex-col justify-between my-auto" : ""}`}>
             {!isFullscreen && (
-              <div className="p-2 sm:p-3 bg-red-950 text-white flex items-center justify-between shrink-0">
+              <div className={`p-2 sm:p-3 text-white flex items-center justify-between shrink-0 ${style.accent.headerDark}`}>
                 <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider">Kinerja Akumulatif & Rata-Rata YL</h3>
                 <div className="flex items-center gap-2">
-                  <span className="text-[8px] font-bold text-slate-400 group-hover:text-red-400 bg-red-900/40 px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1">
+                  <StyleToggleButton onClick={() => cycleCardStyle(6)} />
+                  <span className={`text-[8px] font-bold ${style.accent.badgeDarkText} ${style.accent.badgeDarkBg} px-1.5 py-0.5 rounded transition-all hidden sm:inline-flex items-center gap-1`}>
                     <Maximize2 className="w-2.5 h-2.5" /> 2x Layar Penuh
                   </span>
                   <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-900/50">Jember 1</span>
@@ -444,16 +584,16 @@ function ManagerDashboardTabInner({
                     const vsTgt = y.targetYL > 0 ? Math.trunc((y.rata2 / y.targetYL) * 100) : 0;
                     const vsBln = y.bulanLaluYL > 0 ? Math.trunc((y.rata2 / y.bulanLaluYL) * 100) : 0;
                     const vsThn = y.tahunLaluYL > 0 ? Math.trunc((y.rata2 / y.tahunLaluYL) * 100) : 0;
-                    const bbPct = (y.akumulasi + y.bbYL) > 0 ? Math.trunc((y.bbYL / (y.akumulasi + y.bbYL)) * 100) : 0;
+                    const bbPct = (y.akumulasi + y.bbYL) > 0 ? ((y.bbYL / (y.akumulasi + y.bbYL)) * 100).toFixed(1) : "0.0";
                     return (
                       <tr key={y.nama} className="hover:bg-slate-50 text-slate-800">
                         <td className={`truncate font-extrabold max-w-[100px] sm:max-w-[140px] ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{y.nama}</td>
-                        <td className={`text-right text-emerald-600 font-extrabold whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{y.akumulasi}</td>
-                        <td className={`text-right text-slate-900 font-black whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{Math.trunc(y.rata2)}</td>
-                        <td className={`text-right text-blue-600 whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{vsTgt}%</td>
-                        <td className={`text-right text-purple-600 whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{vsBln}%</td>
-                        <td className={`text-right text-teal-600 whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{vsThn}%</td>
-                        <td className={`text-right text-rose-600 whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{bbPct}%</td>
+                        <td className={`text-right ${style.accent.akm} font-extrabold whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{y.akumulasi}</td>
+                        <td className={`text-right ${style.accent.rata2Table} font-black whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{Math.trunc(y.rata2)}</td>
+                        <td className={`text-right ${style.accent.vsTgtTable} whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{vsTgt}%</td>
+                        <td className={`text-right ${style.accent.vsBlnTable} whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{vsBln}%</td>
+                        <td className={`text-right ${style.accent.vsThnTable} whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{vsThn}%</td>
+                        <td className={`text-right ${style.accent.bbTable} whitespace-nowrap ${isFullscreen ? "px-1 py-0.5 sm:px-1.5 sm:py-1 text-[9.5px] sm:text-xs" : "p-1.5 sm:p-3"}`}>{bbPct}%</td>
                       </tr>
                     );
                   })}
@@ -537,7 +677,7 @@ function ManagerDashboardTabInner({
       <div
         onDoubleClick={() => setFullscreenCardIndex(0)}
         onTouchEnd={() => handleCardTouchEnd(0)}
-        className="cursor-pointer transition-all hover:ring-2 hover:ring-red-500/40 rounded-2xl group select-none"
+        className={`cursor-pointer transition-all hover:ring-2 ${getCardStyle(0).accent.ring} rounded-2xl group select-none`}
         title="Ketuk 2x untuk Layar Penuh"
       >
         {renderCardContent(0)}
@@ -547,7 +687,7 @@ function ManagerDashboardTabInner({
       <div
         onDoubleClick={() => setFullscreenCardIndex(1)}
         onTouchEnd={() => handleCardTouchEnd(1)}
-        className="cursor-pointer transition-all hover:ring-2 hover:ring-indigo-500/40 rounded-2xl group select-none"
+        className={`cursor-pointer transition-all hover:ring-2 ${getCardStyle(1).accent.ring} rounded-2xl group select-none`}
         title="Ketuk 2x untuk Layar Penuh"
       >
         {renderCardContent(1)}
@@ -557,7 +697,7 @@ function ManagerDashboardTabInner({
       <div
         onDoubleClick={() => setFullscreenCardIndex(2)}
         onTouchEnd={() => handleCardTouchEnd(2)}
-        className="cursor-pointer transition-all hover:ring-2 hover:ring-indigo-500/40 rounded-2xl group select-none"
+        className={`cursor-pointer transition-all hover:ring-2 ${getCardStyle(2).accent.ring} rounded-2xl group select-none`}
         title="Ketuk 2x untuk Layar Penuh"
       >
         {renderCardContent(2)}
@@ -567,7 +707,7 @@ function ManagerDashboardTabInner({
       <div
         onDoubleClick={() => setFullscreenCardIndex(3)}
         onTouchEnd={() => handleCardTouchEnd(3)}
-        className="cursor-pointer transition-all hover:ring-2 hover:ring-indigo-500/40 rounded-2xl group select-none"
+        className={`cursor-pointer transition-all hover:ring-2 ${getCardStyle(3).accent.ring} rounded-2xl group select-none`}
         title="Ketuk 2x untuk Layar Penuh"
       >
         {renderCardContent(3)}
@@ -577,7 +717,7 @@ function ManagerDashboardTabInner({
       <div
         onDoubleClick={() => setFullscreenCardIndex(4)}
         onTouchEnd={() => handleCardTouchEnd(4)}
-        className="cursor-pointer transition-all hover:ring-2 hover:ring-indigo-500/40 rounded-2xl group select-none"
+        className={`cursor-pointer transition-all hover:ring-2 ${getCardStyle(4).accent.ring} rounded-2xl group select-none`}
         title="Ketuk 2x untuk Layar Penuh"
       >
         {renderCardContent(4)}
@@ -587,7 +727,7 @@ function ManagerDashboardTabInner({
       <div
         onDoubleClick={() => setFullscreenCardIndex(5)}
         onTouchEnd={() => handleCardTouchEnd(5)}
-        className="cursor-pointer transition-all hover:ring-2 hover:ring-indigo-500/40 rounded-2xl group select-none"
+        className={`cursor-pointer transition-all hover:ring-2 ${getCardStyle(5).accent.ring} rounded-2xl group select-none`}
         title="Ketuk 2x untuk Layar Penuh"
       >
         {renderCardContent(5)}
@@ -597,7 +737,7 @@ function ManagerDashboardTabInner({
       <div
         onDoubleClick={() => setFullscreenCardIndex(6)}
         onTouchEnd={() => handleCardTouchEnd(6)}
-        className="cursor-pointer transition-all hover:ring-2 hover:ring-red-500/40 rounded-2xl group select-none"
+        className={`cursor-pointer transition-all hover:ring-2 ${getCardStyle(6).accent.ring} rounded-2xl group select-none`}
         title="Ketuk 2x untuk Layar Penuh"
       >
         {renderCardContent(6)}

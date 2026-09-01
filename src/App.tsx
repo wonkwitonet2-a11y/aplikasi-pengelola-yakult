@@ -114,6 +114,56 @@ export default function App() {
   // System PIN dictionary (fetched from server or LocalStorage)
   const [activeManagerPin, setActiveManagerPin] = useState<string>(() => getStoredManagerPin());
   const [activeYlPins, setActiveYlPins] = useState<Record<string, string>>(() => getStoredYlPins());
+  
+  // FIX (1 Sep 2026): dulu globalMonth SELALU di-set ulang dari new Date() setiap kali
+  // App di-mount (setiap refresh/login ulang). Akibatnya begitu tanggal device berganti
+  // bulan (mis. 31 Agu -> 1 Sep), seluruh tampilan otomatis "lompat" ke bulan baru walau
+  // data bulan sebelumnya belum selesai/di-Finish — sehingga PLG PJL & Realisasi Potensi
+  // YL bulan lama terlihat hilang (padahal datanya masih ada, cuma tidak lagi diminta).
+  // Sekarang globalMonth disimpan di localStorage dan dipulihkan saat App dibuka lagi,
+  // jadi bulan yang sedang dilihat manajer TIDAK berubah sendiri hanya karena kalender
+  // device berganti. Bulan baru hanya aktif kalau user sendiri yang memilihnya lewat
+  // date-picker "Pilih Bulan Data Aktif" di header, atau lewat "Selesaikan & Arsipkan".
+  const [globalMonth, setGlobalMonth] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem("yakult_global_month");
+      if (saved && /^\d{4}-\d{2}$/.test(saved)) return saved;
+    } catch (e) {
+      // localStorage tidak tersedia (mis. private mode) — abaikan, pakai fallback di bawah.
+    }
+    return new Date().toISOString().substring(0, 7);
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("yakult_global_month", globalMonth);
+    } catch (e) {
+      // abaikan kalau localStorage penuh/diblokir; tidak fatal.
+    }
+  }, [globalMonth]);
+
+  // FIX (1 Sep 2026): globalMonth dulu murni localStorage per-device, sehingga
+  // HP Manager & HP tiap YL bisa menampilkan bulan aktif yang berbeda-beda
+  // (mis. HP Manager masih di Agustus krn dipilih manual, HP YL default ke
+  // tanggal kalender device-nya sendiri yaitu September yang datanya belum
+  // diisi -> YL merasa data "hilang" padahal cuma beda bulan yang ditampilkan).
+  // Sekarang bulan aktif disinkronkan lewat server (db.globalMonth):
+  // - updateGlobalMonth: dipakai Manager saat pilih bulan -> push ke server.
+  // - saat refreshAllData polling, ambil /api/getGlobalMonth & samakan semua
+  //   device (termasuk YL) ke bulan yang sama tanpa perlu memilih manual.
+  const updateGlobalMonth = async (month: string) => {
+    setGlobalMonth(month);
+    try {
+      await safeFetchJson("/api/saveGlobalMonth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ globalMonth: month })
+      });
+    } catch (e) {
+      // Offline/gagal kirim ke server - device ini tetap pakai bulan yang dipilih
+      // secara lokal, akan tersinkron lagi otomatis saat polling berikutnya berhasil.
+    }
+  };
 
   const AUTO_LOGOUT_SECONDS = 120; // 2 menit (dalam detik)
 
@@ -291,7 +341,7 @@ export default function App() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("bd_realisasi_updated", handleBdUpdated);
     };
-  }, [session, scriptUrl]);
+  }, [session, scriptUrl, globalMonth]);
 
   // Menyimpan JSON string hasil fetch terakhir per endpoint. Dipakai supaya
   // polling tiap 20 detik tidak memicu setState (dan render ulang ManagerView/
@@ -312,16 +362,32 @@ export default function App() {
     if (!isBackground) setLoading(true);
 
     try {
-      const [db, ev, mot, knt, pins, ylListData] = await Promise.all([
-        safeFetchJson("/api/getDashboardDP1"),
-        safeFetchJson("/api/getEvaluasi"),
+      const [db, ev, mot, knt, pins, ylListData, globalMonthData] = await Promise.all([
+        safeFetchJson(`/api/getDashboardDP1?month=${globalMonth}`),
+        safeFetchJson(`/api/getEvaluasi?month=${globalMonth}`),
         safeFetchJson("/api/getMotivasi"),
         safeFetchJson("/api/getKontes"),
         safeFetchJson("/api/getPins"),
-        safeFetchJson("/api/getYlList")
+        safeFetchJson("/api/getYlList"),
+        safeFetchJson("/api/getGlobalMonth")
       ]);
 
-      const activeMonth = new Date().toISOString().substring(0, 7) || "2026-07";
+      // Samakan bulan aktif device ini dengan bulan aktif di server (yang terakhir
+      // dipilih Manager) — supaya HP YL otomatis ikut bulan yang sama dgn Manager,
+      // tidak lagi default ke tanggal kalender device-nya sendiri.
+      if (globalMonthData && globalMonthData.globalMonth && /^\d{4}-\d{2}$/.test(globalMonthData.globalMonth)) {
+        if (globalMonthData.globalMonth !== globalMonth) {
+          setGlobalMonth(globalMonthData.globalMonth);
+          return; // data lain di bawah ini akan di-refetch otomatis lewat useEffect [globalMonth]
+        }
+      } else if (!isBackground) {
+        // Server belum pernah punya globalMonth tersimpan (mis. pertama kali dipakai
+        // setelah update ini) — inisialisasi dari bulan device ini (kemungkinan besar
+        // device Manager yang baru saja login) supaya YL punya acuan.
+        updateGlobalMonth(globalMonth);
+      }
+
+      const activeMonth = globalMonth || "2026-07";
       const fallbackDb = getFallbackDashboardData(activeMonth);
       const finalDb = db ? db : fallbackDb;
       setIfChanged("dashboard", finalDb, setDashboardData);
@@ -361,7 +427,12 @@ export default function App() {
 
       // Load specific YL records if role is YL
       if (session?.role === "yl" && activeName) {
-        const activeMonth = new Date().toISOString().substring(0, 7);
+        // FIX (1 Sep 2026): dulu activeMonth di sini SELALU new Date() (tanggal asli device),
+        // terlepas dari globalMonth. Akibatnya walau tab "Ringkasan" & selectedDate di YLView
+        // sudah ikut globalMonth (Agustus), transaksi mentah yang diambil dari server tetap
+        // transaksi bulan device (September, kosong) — jadi tab "Realisasi Potensi Sektor"
+        // (yang menghitung dari transactions ini) tetap kosong. Sekarang pakai globalMonth.
+        const activeMonth = globalMonth || new Date().toISOString().substring(0, 7);
         const mine = await safeFetchJson(`/api/getMine?nama=${encodeURIComponent(activeName)}&month=${encodeURIComponent(activeMonth)}`);
         if (mine) {
           if (mine.transactions) setIfChanged("myTransactions", mine.transactions, setTransactions);
@@ -579,6 +650,8 @@ export default function App() {
       <Suspense fallback={<ViewLoadingFallback />}>
         <ManagerView
           onLogout={handleLogout}
+          globalMonth={globalMonth}
+          setGlobalMonth={updateGlobalMonth}
           dashboardData={dashboardData}
           evaluasiData={evaluasiData}
           onRefresh={refreshAllData}
@@ -603,6 +676,8 @@ export default function App() {
         ylName={session.name}
         ylList={ylList}
         onLogout={handleLogout}
+          globalMonth={globalMonth}
+          setGlobalMonth={updateGlobalMonth}
         onRefresh={refreshAllData}
         isRefreshing={loading}
         transactions={transactions}

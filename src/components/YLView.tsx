@@ -38,6 +38,13 @@ interface YLViewProps {
   motivasiConfig: MotivasiConfig;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  // FIX (1 Sep 2026): App.tsx sudah mengirim globalMonth (bulan yang dipilih admin/manajer
+  // lewat date-picker header), tapi dulu prop ini tidak dideklarasikan di sini sama sekali
+  // sehingga otomatis dibuang React — akun YL tidak pernah tahu manajer sedang melihat
+  // bulan apa, dan selectedDate di bawah selalu balik ke tanggal asli device. Sekarang
+  // dideklarasikan supaya bisa disinkronkan (lihat useEffect dekat deklarasi selectedDate).
+  globalMonth?: string;
+  setGlobalMonth?: (month: string) => void;
 }
 
 export function calculateMasaKerja(tanggalMasuk: string | undefined) {
@@ -82,7 +89,8 @@ export function YLView({
   breakdownRealisasi = [],
   tanggalValid = [],
   motivasiConfig,
-  onToggleTheme
+  onToggleTheme,
+  globalMonth
 }: YLViewProps) {
   const [activeTab, setActiveTab] = useState<"beranda" | "input" | "ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus" | "seragam" | "product_knowledge">("beranda");
   useTabHistory(activeTab, setActiveTab, "beranda");
@@ -124,6 +132,25 @@ export function YLView({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   };
   const [selectedDate, setSelectedDate] = useState<string>(getTodayLocalString());
+
+  // FIX (1 Sep 2026): dulu selectedDate murni lokal ke YLView dan tidak pernah tahu-menahu
+  // soal globalMonth yang dipilih admin/manajer di dashboard — jadi walau admin sudah
+  // pindah ke "Agustus 2026", akun YL tetap menampilkan bulan sesuai tanggal device (mis.
+  // September) karena selectedDate tidak ikut berubah. Sekarang setiap globalMonth berubah,
+  // selectedDate ikut disesuaikan ke bulan yang sama (hari tetap dipertahankan kalau valid
+  // di bulan tsb, kalau tidak dipangkas ke hari terakhir bulan itu).
+  useEffect(() => {
+    if (!globalMonth || !/^\d{4}-\d{2}$/.test(globalMonth)) return;
+    setSelectedDate(prevDate => {
+      const currentDateMonth = prevDate.substring(0, 7);
+      if (currentDateMonth === globalMonth) return prevDate;
+      const day = parseInt(prevDate.substring(8, 10), 10) || 1;
+      const [y, m] = globalMonth.split("-").map(Number);
+      const lastDayOfTargetMonth = new Date(y, m, 0).getDate();
+      const safeDay = Math.min(day, lastDayOfTargetMonth);
+      return `${globalMonth}-${String(safeDay).padStart(2, "0")}`;
+    });
+  }, [globalMonth]);
 
   // YL AI Insight states
   const [ylAiInsight, setYlAiInsight] = useState<string>("");
@@ -1582,7 +1609,7 @@ export function YLView({
               </h2>
               <div className="space-y-3">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center text-xs sm:text-sm text-slate-800">
-                  <span className="font-bold text-slate-600">1. Kompensasi Harian (Akm)</span>
+                  <span className="font-bold text-slate-600">1. Laba Harian</span>
                   <span className="font-black text-slate-900">{formatRp(mKompensasiHarian)}</span>
                 </div>
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-center text-xs sm:text-sm text-slate-800">

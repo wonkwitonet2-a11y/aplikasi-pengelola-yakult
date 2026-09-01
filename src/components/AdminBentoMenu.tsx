@@ -2,7 +2,7 @@ import React from 'react';
 import {
   ClipboardCheck, Calculator, Store, CircleDollarSign, Shirt, PieChart,
   BookOpen, Link2, Trophy, Droplet, TrendingUp, Wallet, BarChart3, Users, Target, Activity
-, Globe } from 'lucide-react';
+, Globe, Archive } from 'lucide-react';
 import type { DashboardData } from '../types';
 
 interface AdminBentoMenuProps {
@@ -134,6 +134,7 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
           { id: "grafik", label: "Grafik Dasbor", icon: BarChart3, from: "from-emerald-500/20", to: "to-emerald-900/40", border: "border-emerald-500/20", iconBg: "bg-emerald-500/20 text-emerald-300" },
           { id: "lady", label: "Profil YL", icon: Users, from: "from-cyan-500/20", to: "to-cyan-900/40", border: "border-cyan-500/20", iconBg: "bg-cyan-500/20 text-cyan-300" },
           { id: "rata2_bulanan", label: "Rata-rata", icon: TrendingUp, from: "from-orange-500/20", to: "to-orange-900/40", border: "border-orange-500/20", iconBg: "bg-orange-500/20 text-orange-300" },
+          { id: "archive", label: "Arsip", icon: Archive, from: "from-fuchsia-500/20", to: "to-fuchsia-900/40", border: "border-fuchsia-500/20", iconBg: "bg-fuchsia-500/20 text-fuchsia-300" },
         ].map(item => {
           const Icon = item.icon;
           return (

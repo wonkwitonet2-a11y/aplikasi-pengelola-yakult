@@ -8,6 +8,7 @@ import { LhppRealisasiView } from "../LhppRealisasiView";
 import { PlgPjlView } from "../PlgPjlView";
 import { BreakdownGridRow } from "../BreakdownGridRow";
 import { TargetManagerRow } from "../TargetManagerRow";
+const SalesRecordTKU = React.lazy(() => import("../SalesRecordTKU"));
 import { GridSelectionToolbar } from "../GridSelectionToolbar";
 
 
@@ -576,6 +577,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                 { id: "bd_realisasi", label: "BD Realisasi", icon: "🧩" },
                 { id: "target", label: "Target", icon: "🎯" },
                 { id: "plg_pjl", label: "PLG & PJL", icon: "🏪" },
+                { id: "sales_record_tku", label: "Record TKU", icon: "📝" },
               ].map(t => (
                 <button
                   key={t.id}
@@ -864,6 +866,11 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                      </tbody>
                    </table>
                 </div>
+              )}
+              {activeTab === "sales_record_tku" && (
+                <React.Suspense fallback={<div className="p-8 text-center font-bold text-slate-500">Memuat...</div>}>
+                  <SalesRecordTKU key={selectedMonth} defaultYear={selectedMonth ? selectedMonth.split('-')[0] : undefined} defaultMonthIndex={selectedMonth ? parseInt(selectedMonth.split('-')[1], 10) - 1 : undefined} />
+                </React.Suspense>
               )}
            </div>
         </main>

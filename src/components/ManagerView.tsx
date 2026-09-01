@@ -7,7 +7,7 @@ import {
   TrendingUp, Globe,
   Award,
   Users,
-  Settings, BookOpen,
+  Settings, BookOpen, Archive,
   AlertCircle,
   Sparkles,
   Maximize2,
@@ -72,6 +72,8 @@ const names = [
 
 
 interface ManagerViewProps {
+  setGlobalMonth: (val: string) => void;
+  globalMonth: string;
   onLogout: () => void;
   dashboardData: DashboardData | null;
   evaluasiData: EvaluasiData | null;
@@ -92,7 +94,7 @@ import { ArchiveEditor } from "./archive/ArchiveEditor";
 import { OfficialLinksManager } from "./OfficialLinksManager";
 import { OfficialLinksViewer } from "./OfficialLinksViewer";
 
-
+const SalesRecordTKU = React.lazy(() => import("./SalesRecordTKU"));
 
 export const parseIndonesianNumber = (val: string | number): number => {
   if (val === "" || val === null || val === undefined) return 0;
@@ -116,6 +118,8 @@ export const parseIndonesianNumber = (val: string | number): number => {
 
 export function ManagerView({
   onLogout,
+  globalMonth,
+  setGlobalMonth,
   dashboardData,
   evaluasiData,
   onRefresh,
@@ -175,9 +179,9 @@ export function ManagerView({
   const [undoStack, setUndoStack] = useState<BreakdownGridMap[]>([]);
   const [redoStack, setRedoStack] = useState<BreakdownGridMap[]>([]);
 
-  const [selectedBreakdownMonth, setSelectedBreakdownMonth] = useState<string>(() => new Date().toISOString().substring(0, 7));
   const [breakdownDateRange] = useState<"1-10" | "11-20" | "21-31" | "1-31">("1-31");
     const [isBreakdownSaving, setIsBreakdownSaving] = useState<boolean>(false);
+    const [isSavingTarget, setIsSavingTarget] = useState<boolean>(false);
   const [breakdownMsg, setBreakdownMsg] = useState<string>("");
   const [isGridFullScreen, setIsGridFullScreen] = useState<boolean>(false);
   const jsonFileInputRef = useRef<HTMLInputElement>(null);
@@ -212,6 +216,18 @@ export function ManagerView({
     } else {
       setSbPinError("PIN Salah! Silakan periksa kembali PIN Anda.");
     }
+  };
+
+  // Kunci kembali panel Konfigurasi Cloud Supabase (link & API key). Sebelum
+  // ini tidak ada cara menutup panel selain reload halaman, jadi kalau HP
+  // dipinjamkan setelah PIN dibuka, URL & key Supabase tetap kelihatan.
+  const handleLockSbMenu = () => {
+    setIsSbUnlocked(false);
+    setSbPinInput("");
+    setSbPinError("");
+    setIsChangingSbPin(false);
+    setNewSbPinInput("");
+    setSbPinChangeMsg("");
   };
 
   const handleChangeSbPin = () => {
@@ -352,7 +368,7 @@ export function ManagerView({
         setHistoricalDataNotFound(false);
         setIsViewingHistoricalMonth(true);
         setHistoricalMonthLabel(label);
-        setSelectedBreakdownMonth(mKey);
+        setGlobalMonth(mKey);
         setArchiveStatusMsg(`✅ Data Bulan ${label} berhasil diambil dari Supabase! Semua menu sekarang menampilkan data bulan ini.`);
 
         if (snapshot.breakdownPlanMap) setBreakdownPlanMap(snapshot.breakdownPlanMap);
@@ -651,16 +667,16 @@ export function ManagerView({
     setIsSbSyncing(true);
     setSbMsg("⏳ Mengunduh data dari Supabase Database Cloud...");
     try {
-      const plan = await loadFromSupabase<BreakdownGridMap>(`bd_plan_${selectedBreakdownMonth}`);
+      const plan = await loadFromSupabase<BreakdownGridMap>(`bd_plan_${globalMonth}`);
       if (plan && Object.keys(plan).length > 0) {
         setBreakdownPlanMap(plan);
-        localStorage.setItem(`bd_plan_${selectedBreakdownMonth}`, JSON.stringify(plan));
+        localStorage.setItem(`bd_plan_${globalMonth}`, JSON.stringify(plan));
       }
 
-      const realisasi = await loadFromSupabase<BreakdownGridMap>(`bd_realisasi_${selectedBreakdownMonth}`);
+      const realisasi = await loadFromSupabase<BreakdownGridMap>(`bd_realisasi_${globalMonth}`);
       if (realisasi && Object.keys(realisasi).length > 0) {
         setBreakdownRealisasiMap(realisasi);
-        localStorage.setItem(`bd_realisasi_${selectedBreakdownMonth}`, JSON.stringify(realisasi));
+        localStorage.setItem(`bd_realisasi_${globalMonth}`, JSON.stringify(realisasi));
       }
 
       setSbMsg("✅ DATA BERHASIL DITARIK DARI SUPABASE CLOUD!");
@@ -1333,6 +1349,10 @@ export function ManagerView({
 
   // 20 YL List state
   const [newYlArea, setNewYlArea] = useState<string>("");
+
+  const [newYlNoHP, setNewYlNoHP] = useState("");
+  const [newYlAlamat, setNewYlAlamat] = useState("");
+
   const [newYlNama, setNewYlNama] = useState<string>("");
   const [newYlPin, setNewYlPin] = useState<string>("");
   const [newYlKode, setNewYlKode] = useState<string>("");
@@ -1633,8 +1653,8 @@ export function ManagerView({
   // Local-First: Load from LocalStorage instantly on month change or tab change
   useEffect(() => {
     try {
-      const localPlan = localStorage.getItem(`bd_plan_${selectedBreakdownMonth}`);
-      const localRealisasi = localStorage.getItem(`bd_realisasi_${selectedBreakdownMonth}`);
+      const localPlan = localStorage.getItem(`bd_plan_${globalMonth}`);
+      const localRealisasi = localStorage.getItem(`bd_realisasi_${globalMonth}`);
       if (localPlan) {
         const parsed = JSON.parse(localPlan);
         if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) {
@@ -1650,22 +1670,22 @@ export function ManagerView({
     } catch (e) {
       console.warn("Gagal membaca cache lokal breakdown:", e);
     }
-  }, [selectedBreakdownMonth]);
+  }, [globalMonth]);
 
   // Sync state to LocalStorage immediately whenever breakdown maps update
   useEffect(() => {
     try {
       if (Object.keys(breakdownPlanMap).length > 0) {
-        localStorage.setItem(`bd_plan_${selectedBreakdownMonth}`, JSON.stringify(breakdownPlanMap));
+        localStorage.setItem(`bd_plan_${globalMonth}`, JSON.stringify(breakdownPlanMap));
       }
       if (Object.keys(breakdownRealisasiMap).length > 0) {
-        localStorage.setItem(`bd_realisasi_${selectedBreakdownMonth}`, JSON.stringify(breakdownRealisasiMap));
+        localStorage.setItem(`bd_realisasi_${globalMonth}`, JSON.stringify(breakdownRealisasiMap));
         window.dispatchEvent(new Event("bd_realisasi_updated"));
       }
     } catch (e) {
       console.warn("Gagal menyimpan cache lokal breakdown:", e);
     }
-  }, [breakdownPlanMap, breakdownRealisasiMap, selectedBreakdownMonth]);
+  }, [breakdownPlanMap, breakdownRealisasiMap, globalMonth]);
 
   // Fetch Breakdown Plan & Realisasi from server & Supabase in background
   // Baca breakdown plan/realisasi HANYA dari server (satu sumber kebenaran).
@@ -1673,7 +1693,7 @@ export function ManagerView({
   // localStorage sebagai "cache" — ternyata itu yang bikin data lama bisa
   // muncul lagi setelah dihapus (reset), karena dua tempat itu tidak ikut
   // terhapus saat reset. Sekarang cukup satu jalur: server API.
-  const fetchBreakdownPlan = async (month: string = selectedBreakdownMonth) => {
+  const fetchBreakdownPlan = async (month: string = globalMonth) => {
     try {
       // Tampilkan data dari localStorage dulu sebagai fallback (mengembalikan data user yg sempat "hilang")
       const localPlan = localStorage.getItem(`bd_plan_${month}`);
@@ -1715,14 +1735,14 @@ export function ManagerView({
   };
 
   useEffect(() => {
-    fetchBreakdownPlan(selectedBreakdownMonth);
+    fetchBreakdownPlan(globalMonth);
     
     const handleLhppSaved = () => {
-      fetchBreakdownPlan(selectedBreakdownMonth);
+      fetchBreakdownPlan(globalMonth);
     };
     window.addEventListener("lhpp_saved", handleLhppSaved);
     return () => window.removeEventListener("lhpp_saved", handleLhppSaved);
-  }, [selectedBreakdownMonth]);
+  }, [globalMonth]);
 
   const breakdownPlanMapRef = useRef(breakdownPlanMap);
   const breakdownRealisasiMapRef = useRef(breakdownRealisasiMap);
@@ -1741,7 +1761,7 @@ export function ManagerView({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            month: selectedBreakdownMonth,
+            month: globalMonth,
             breakdownPlan: breakdownPlanMapRef.current,
             breakdownRealisasi: breakdownRealisasiMapRef.current
           }),
@@ -1749,7 +1769,7 @@ export function ManagerView({
         }).catch(() => {});
       }
     };
-  }, [selectedBreakdownMonth]);
+  }, [globalMonth]);
 
   // Auto-save Breakdown
   useEffect(() => {
@@ -1767,7 +1787,7 @@ export function ManagerView({
     setIsBreakdownSaving(true);
     try {
       const payloadStr = JSON.stringify({
-          month: selectedBreakdownMonth,
+          month: globalMonth,
           breakdownPlan: breakdownPlanMap,
           breakdownRealisasi: breakdownRealisasiMap
         });
@@ -1807,7 +1827,7 @@ export function ManagerView({
         app: "Yakult Lady Management System DP Jember 1",
         version: "2.0-Hybrid",
         exportedAt: new Date().toISOString(),
-        month: selectedBreakdownMonth,
+        month: globalMonth,
         breakdownPlan: breakdownPlanMap,
         breakdownRealisasi: breakdownRealisasiMap,
         ylList,
@@ -1820,7 +1840,7 @@ export function ManagerView({
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
       const downloadAnchor = document.createElement("a");
       downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `Backup_Yakult_Jember1_${selectedBreakdownMonth}_${new Date().toISOString().slice(0,10)}.json`);
+      downloadAnchor.setAttribute("download", `Backup_Yakult_Jember1_${globalMonth}_${new Date().toISOString().slice(0,10)}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
@@ -1847,10 +1867,10 @@ export function ManagerView({
           throw new Error("Format file JSON tidak valid.");
         }
 
-        let monthToUse = selectedBreakdownMonth;
+        let monthToUse = globalMonth;
         if (data.month) {
           monthToUse = data.month;
-          setSelectedBreakdownMonth(data.month);
+          setGlobalMonth(data.month);
         }
 
         if (data.breakdownPlan) {
@@ -1932,14 +1952,17 @@ export function ManagerView({
   useEffect(() => {
     const timer = setTimeout(() => {
       if (Object.keys(targetYLMap).length > 0) {
-        handleSaveSettingTargets();
+        handleSaveSettingTargets(true);
       }
     }, 1500);
     return () => clearTimeout(timer);
   }, [targetTKU, targetYLMap]);
 
-  // Handler: Save Setting Targets
-  const handleSaveSettingTargets = async () => {
+  // Handler: Save Setting Targets. silent=true dipakai oleh auto-save debounce
+  // di bawah, supaya alert() gagal tidak muncul berulang tiap kali user ngetik
+  // (alert bersifat blocking/modal, kalau dipasang di auto-save bisa bikin
+  // popup nyerocos tiap 1.5 detik kalau koneksi/backend lagi bermasalah).
+  const handleSaveSettingTargets = async (silent: boolean = false) => {
     if (isViewingHistoricalMonth && historicalDataSnapshot) {
       // Archive Mode: Upsert updated historicalDataSnapshot back to Supabase
       const mKey = selectedMonthlyArchive;
@@ -1953,13 +1976,18 @@ export function ManagerView({
         setCompSavedMsg(`🎉 Target Arsip Bulan ${label} berhasil disimpan ke Supabase!`);
         setTimeout(() => setCompSavedMsg(""), 4000);
       } catch (e: any) {
-        alert(`❌ Gagal menyimpan target arsip: ${e.message}`);
+        if (!silent) alert(`❌ Gagal menyimpan target arsip: ${e.message}`);
+        else console.error("[Auto-save arsip gagal]:", e.message);
       } finally {
         setIsSbSyncing(false);
       }
       return;
     }
 
+    // Sebelumnya tidak ada indikator loading & tidak ada alert kalau gagal,
+    // jadi kalau fetch gagal/lambat tombol ini kelihatan sama sekali tidak
+    // bereaksi (beda dengan tombol simpan lain yang punya spinner + alert).
+    if (!silent) setIsSavingTarget(true);
     try {
       const res = await safeFetchJson("/api/saveSettingTargets", {
         method: "POST",
@@ -1967,16 +1995,25 @@ export function ManagerView({
         body: JSON.stringify({
           targetTKU,
           targetYL: targetYLMap,
-          bulan: selectedBreakdownMonth || new Date().toISOString().substring(0, 7)
+          bulan: globalMonth || new Date().toISOString().substring(0, 7)
         })
       });
       if (res && res.ok) {
-        setCompSavedMsg("✅ Data Target & Kompensasi berhasil disimpan!");
-        setTimeout(() => setCompSavedMsg(""), 3000);
+        if (!silent) {
+          setCompSavedMsg("✅ Data Target & Kompensasi berhasil disimpan!");
+          setTimeout(() => setCompSavedMsg(""), 3000);
+        }
         if (onRefresh) await onRefresh();
+      } else if (!silent) {
+        alert("❌ Gagal menyimpan data target. Periksa koneksi internet, lalu coba lagi.");
+      } else {
+        console.error("[Auto-save target gagal]: response tidak ok");
       }
     } catch (e: any) {
       console.error("Gagal menyimpan data target: " + e.message);
+      if (!silent) alert(`❌ Gagal menyimpan data target: ${e.message || "terjadi kesalahan tak terduga"}`);
+    } finally {
+      if (!silent) setIsSavingTarget(false);
     }
   };
 
@@ -2113,7 +2150,7 @@ export function ManagerView({
       const res = await safeFetchJson("/api/resetDataTargeted", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: resetScope, currentMonth: selectedBreakdownMonth || "2026-07" })
+        body: JSON.stringify({ scope: resetScope, currentMonth: globalMonth || "2026-07" })
       });
       if (res && res.ok) {
         alert(res.message);
@@ -2126,7 +2163,7 @@ export function ManagerView({
            setBreakdownRealisasiMap({});
            setTargetYLMap({});
            setTargetTKU({ target: 0, bln_lalu: 0, thn_lalu: 0, target_yo: 0, target_om: 0, target_os: 0, target_yt: 0, bln_lalu_yo: 0, bln_lalu_om: 0, bln_lalu_os: 0, bln_lalu_yt: 0, thn_lalu_yo: 0, thn_lalu_om: 0, thn_lalu_os: 0, thn_lalu_yt: 0 });
-           fetchBreakdownPlan(selectedBreakdownMonth);
+           fetchBreakdownPlan(globalMonth);
         }
         
         if (onRefresh) onRefresh();
@@ -2432,15 +2469,15 @@ export function ManagerView({
             return bestVal === worstVal ? 1 : (worstVal - v) / (worstVal - bestVal!);
           };
         } else if (cat.type === 'target') {
-          const distances = validVals.map(v => Math.abs(v - (cat.target as number)));
+          const distances = validVals.map(v => Math.abs(v - ((cat as any).target as number)));
           const minDistance = distances.length > 0 ? Math.min(...distances) : 0;
           const maxDistance = distances.length > 0 ? Math.max(...distances) : 0;
           
-          isWinner = (v) => (!cat.requirePositive || v > 0) && Math.abs(v - (cat.target as number)) === minDistance;
-          isLoser = (v) => (!cat.requirePositive || v > 0) && Math.abs(v - (cat.target as number)) === maxDistance;
+          isWinner = (v) => (!cat.requirePositive || v > 0) && Math.abs(v - ((cat as any).target as number)) === minDistance;
+          isLoser = (v) => (!cat.requirePositive || v > 0) && Math.abs(v - ((cat as any).target as number)) === maxDistance;
           getScore = (v) => {
             if (cat.requirePositive && v === 0) return 0;
-            const d = Math.abs(v - (cat.target as number));
+            const d = Math.abs(v - ((cat as any).target as number));
             return minDistance === maxDistance ? 1 : (maxDistance - d) / (maxDistance - minDistance);
           };
         }
@@ -2540,6 +2577,13 @@ export function ManagerView({
 
     return { block1, block2, block3, block4, block5, block6, block7, block8 };
   }, [normalizedAnalisis]);
+
+  
+  const handleResetTargeted = () => {
+    if (window.confirm(`Yakin ingin mereset data (${resetScope === "all" ? "Semua Bulan" : "Bulan Ini"})? Aksi ini akan menghapus data PLG, PJL, LHPP, Target, dan Breakdown.`)) {
+      alert("Fitur Reset belum terimplementasi sepenuhnya di mock. Hubungi Admin.");
+    }
+  };
 
   const handleClearCache = async () => {
     const savedSbUrl = localStorage.getItem("supabase_url") || "";
@@ -2679,23 +2723,65 @@ export function ManagerView({
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-20 text-slate-800 dark:text-slate-100 transition-colors duration-200">
       {/* Dynamic Header */}
-      <header className="bg-gradient-to-r from-red-950 to-red-800 border-b-4 border-red-600 text-white p-4 sticky top-0 z-50 shadow-md">
-        <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="bg-red-600 text-white font-black px-2.5 py-1 text-lg rounded-lg shadow">Y</span>
-            <div>
-              <h1 className="text-base font-extrabold tracking-tight leading-none">
-                {(motivasiConfig?.tkuName || "DP JEMBER 1").toUpperCase()}
-              </h1>
-              <p className="text-[10px] text-red-200 mt-1 font-medium">Yakult Lady Management System Pro</p>
+      <header className="bg-gradient-to-r from-red-950 to-red-800 border-b-4 border-red-600 text-white p-3 sm:p-4 sticky top-0 z-50 shadow-md">
+        <div className="max-w-7xl mx-auto space-y-2">
+          {/* Baris 1: Logo + Judul (kiri) dan tombol aksi (kanan) — dibuat sependek mungkin */}
+          <div className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="bg-red-600 text-white font-black px-2.5 py-1 text-lg rounded-lg shadow shrink-0">Y</span>
+              <div className="min-w-0">
+                <h1 className="text-sm sm:text-base font-extrabold tracking-tight leading-tight truncate">
+                  {(motivasiConfig?.tkuName || "DP JEMBER 1").toUpperCase()}
+                </h1>
+                <p className="text-[10px] text-red-200 leading-tight truncate">Yakult Lady Management System Pro</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => onRefresh && onRefresh()}
+                className="bg-black/20 hover:bg-black/40 text-white font-extrabold text-xs px-3 py-2 rounded-xl border border-white/20 shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 backdrop-blur-sm"
+                title="Refresh Data"
+              >
+                <RefreshCw className={`w-5 h-5 text-white ${isRefreshing ? "animate-spin" : ""}`} />
+              </button>
+              <button
+                onClick={() => {
+                  if (activeTab !== "dashboard") {
+                    setActiveTab("dashboard");
+                  } else {
+                    setIsNavMenuOpen(!isNavMenuOpen);
+                  }
+                }}
+                className="flex bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-2.5 sm:px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer items-center gap-1.5"
+                title={activeTab !== "dashboard" ? "Kembali ke Dasbor" : "Buka Menu Navigasi (Garis Tiga)"}
+              >
+                {activeTab !== "dashboard" ? (
+                  <>
+                    <Home className="w-5 h-5 text-white" />
+                    <span className="hidden sm:inline font-extrabold">Dasbor</span>
+                  </>
+                ) : (
+                  <>
+                    <Menu className="w-5 h-5 text-white" />
+                    <span className="hidden sm:inline font-extrabold">Menu ☰</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={onLogout}
+                className="bg-slate-900/80 hover:bg-slate-950 text-slate-100 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-all cursor-pointer shadow-sm"
+              >
+                Keluar
+              </button>
             </div>
           </div>
-          
-          <div className="flex items-center gap-2">
-            {/* Indicator viewing archive + Kembali ke Data Live */}
+
+          {/* Baris 2: khusus bulan aktif / indikator arsip — dipisah dari baris judul supaya rapi & tidak wrap */}
+          <div className="flex flex-row items-center justify-end sm:justify-start gap-2">
             {isViewingHistoricalMonth && (
-              <div className="flex items-center gap-1.5 bg-indigo-900/90 text-indigo-100 border border-indigo-400 px-2.5 py-1.5 rounded-xl text-xs font-bold shadow animate-pulse mr-1">
-                <span className="hidden sm:inline">📅 Arsip: {historicalMonthLabel || selectedMonthlyArchive}</span>
+              <div className="flex items-center gap-1.5 bg-indigo-900/90 text-indigo-100 border border-indigo-400 px-2.5 py-1.5 rounded-xl text-xs font-bold shadow animate-pulse">
+                <span>📅 Arsip: {historicalMonthLabel || selectedMonthlyArchive}</span>
                 <button
                   onClick={handleResetToLiveData}
                   className="bg-red-600 hover:bg-red-500 text-white font-extrabold text-[11px] px-2.5 py-1 rounded-lg shadow cursor-pointer transition-all border border-red-400 flex items-center gap-1"
@@ -2706,42 +2792,19 @@ export function ManagerView({
               </div>
             )}
 
-            <button
-              onClick={() => onRefresh && onRefresh()}
-              className="bg-black/20 hover:bg-black/40 text-white font-extrabold text-xs px-3 py-2 rounded-xl border border-white/20 shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5 backdrop-blur-sm"
-              title="Refresh Data"
-            >
-              <RefreshCw className={`w-5 h-5 text-white ${isRefreshing ? "animate-spin" : ""}`} />
-            </button>
-            <button
-              onClick={() => {
-                if (activeTab !== "dashboard") {
-                  setActiveTab("dashboard");
-                } else {
-                  setIsNavMenuOpen(!isNavMenuOpen);
-                }
-              }}
-              className="flex bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-2.5 sm:px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer items-center gap-1.5"
-              title={activeTab !== "dashboard" ? "Kembali ke Dasbor" : "Buka Menu Navigasi (Garis Tiga)"}
-            >
-              {activeTab !== "dashboard" ? (
-                <>
-                  <Home className="w-5 h-5 text-white" />
-                  <span className="hidden sm:inline font-extrabold">Dasbor</span>
-                </>
-              ) : (
-                <>
-                  <Menu className="w-5 h-5 text-white" />
-                  <span className="hidden sm:inline font-extrabold">Menu ☰</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={onLogout}
-              className="bg-slate-900/80 hover:bg-slate-950 text-slate-100 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-all cursor-pointer shadow-sm"
-            >
-              Keluar
-            </button>
+            {!isViewingHistoricalMonth && (
+              <div className="flex items-center bg-black/20 rounded-xl px-2 py-1.5 border border-white/20 shadow-md">
+                <input
+                  type="month"
+                  value={globalMonth}
+                  onChange={(e) => {
+                    if (setGlobalMonth) setGlobalMonth(e.target.value);
+                  }}
+                  className="bg-transparent text-white font-bold text-xs outline-none cursor-pointer [color-scheme:dark]"
+                  title="Pilih Bulan Data Aktif"
+                />
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -2789,6 +2852,7 @@ export function ManagerView({
                                 { id: "tautan", icon: Globe, label: "Tautan", color: "bg-indigo-600", text: "text-indigo-600", light: "bg-indigo-50" },
                 { id: "seragam", icon: Grid3X3, label: "Seragam", color: "bg-purple-500", text: "text-purple-500", light: "bg-purple-50" },
                 { id: "product_knowledge", icon: BookOpen, label: "Edukasi", color: "bg-rose-500", text: "text-rose-500", light: "bg-rose-50" },
+                { id: "archive", icon: Archive, label: "Arsip", color: "bg-fuchsia-600", text: "text-fuchsia-600", light: "bg-fuchsia-50" },
               ].map((item) => {
                 const isActive = activeTab === item.id || (item.id === "lhpp_realisasi" && activeTab === "input_realisasi");
                 const Icon = item.icon;
@@ -2936,6 +3000,8 @@ export function ManagerView({
         {activeTab === "rata2_bulanan" && (
           <Rata2BulananTab ylList={ylList} />
         )}
+
+        {/* Tab Sales Record TKU */}
 
         {/* Tab Evaluasi */}
         {activeTab === "evaluasi" && (
@@ -3444,9 +3510,9 @@ export function ManagerView({
                     <span className="text-[10.5px] font-bold text-slate-600">Bulan:</span>
                     <input
                       type="month"
-                      value={selectedBreakdownMonth}
+                      value={globalMonth}
                       onChange={(e) => {
-                        setSelectedBreakdownMonth(e.target.value);
+                        setGlobalMonth(e.target.value);
                         fetchBreakdownPlan(e.target.value);
                       }}
                       className="p-1 text-xs font-bold bg-slate-50 rounded-lg border border-slate-200 text-slate-800 outline-none"
@@ -3795,11 +3861,21 @@ export function ManagerView({
                   </div>
                 </div>
                 <button
-                  onClick={handleSaveSettingTargets}
-                  className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+                  onClick={() => handleSaveSettingTargets(false)}
+                  disabled={isSavingTarget}
+                  className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
                 >
-                  <span>💾</span>
-                  <span>Simpan All Target & Kompensasi</span>
+                  {isSavingTarget ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Menyimpan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>💾</span>
+                      <span>Simpan All Target & Kompensasi</span>
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -4104,8 +4180,235 @@ export function ManagerView({
         {activeTab === "tautan" && <OfficialLinksViewer isAdmin={true} onBack={() => { setActiveTab("dashboard"); setIsNavMenuOpen(false); }} />}
 
         {/* Tab Pengaturan & Cloud Supabase */}
+        {/* Tab Arsip */}
+        {activeTab === "archive" && (
+          <div className="space-y-4">
+            {/* Archive Editor Feature */}
+            <div className="bg-white rounded-2xl p-4 border border-indigo-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-indigo-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                📂 Archive Editor (Edit Data Masa Lalu)
+              </h2>
+              <p className="text-[10px] text-slate-500 font-medium">
+                Masuk ke lingkungan terisolasi untuk melihat dan merevisi data arsip bulan-bulan sebelumnya yang tersimpan di Supabase tanpa mempengaruhi bulan berjalan.
+              </p>
+              <button
+                onClick={() => setShowArchiveEditor(true)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-2"
+              >
+                🛠️ Buka Archive Editor
+              </button>
+            </div>
+
+            {/* 2. Finish & Archive Month */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                  📦 Selesaikan & Arsipkan Bulan Berjalan
+                </h2>
+                {/* Month Picker for Archive */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600">Pilih Bulan Arsip:</span>
+                  <input
+                    type="month"
+                    value={selectedMonthlyArchive}
+                    onChange={(e) => setSelectedMonthlyArchive(e.target.value)}
+                    className="p-1.5 text-xs font-bold bg-slate-50 rounded-xl border border-slate-200 text-slate-800 outline-none"
+                  />
+                </div>
+              </div>
+
+              {archivedMonthsList.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-[10.5px] font-bold text-slate-600">📂 Daftar Bulan Tersimpan di Supabase:</span>
+                  <select
+                    value={archivedMonthsList.includes(selectedMonthlyArchive) ? selectedMonthlyArchive : ""}
+                    onChange={(e) => {
+                      if (e.target.value) setSelectedMonthlyArchive(e.target.value);
+                    }}
+                    className="p-1.5 text-xs font-bold bg-white rounded-lg border border-slate-300 text-slate-800 outline-none cursor-pointer"
+                  >
+                    <option value="" disabled>-- Pilih Bulan Tersimpan --</option>
+                    {archivedMonthsList.map((m) => (
+                      <option key={m} value={m}>
+                        {getIndonesianMonthLabel(m)} ({m})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <p className="text-[10.5px] text-slate-500 font-medium">
+                Mengunci dan mengarsipkan seluruh rekapitulasi data bulan <strong className="text-indigo-900 font-black">{getIndonesianMonthLabel(selectedMonthlyArchive) || selectedMonthlyArchive} ({selectedMonthlyArchive})</strong> ke Supabase secara permanen.
+              </p>
+
+              {archiveStatusMsg && (
+                <p className="text-xs font-bold text-indigo-600 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 leading-relaxed">
+                  {archiveStatusMsg}
+                </p>
+              )}
+
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
+                <button
+                  onClick={handleFinishAndArchiveMonth}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
+                >
+                  🔒 Selesaikan & Arsipkan Data Bulan Ini ({selectedMonthlyArchive})
+                </button>
+                <button
+                  onClick={() => handleFetchMonthFromSupabase(selectedMonthlyArchive)}
+                  disabled={isSbSyncing}
+                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  📂 Ambil Data Arsip Bulan Ini dari Supabase
+                </button>
+                <button
+                  onClick={handleUpdateArchiveMonth}
+                  disabled={isSbSyncing}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                  title="Ambil data live terbaru untuk bulan ini lalu timpa/perbarui arsip di Supabase"
+                >
+                  🔄 Perbarui / Refresh Arsip Bulan Ini
+                </button>
+                {isViewingHistoricalMonth && (
+                  <button
+                    onClick={handleResetToLiveData}
+                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 shrink-0"
+                  >
+                    🔄 Kembali ke Data Live
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab === "setting" && (
           <div className="space-y-4">
+            {/* 0. Konfigurasi Cloud Supabase (dikunci PIN) */}
+            <div className="bg-white rounded-2xl p-4 border border-cyan-200 shadow-sm space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-xs font-black text-cyan-900 uppercase tracking-wider border-l-4 border-cyan-600 pl-2">
+                  ☁️ Konfigurasi Cloud Supabase
+                </h2>
+                {isSbUnlocked && (
+                  <button
+                    onClick={handleLockSbMenu}
+                    className="text-[10px] font-extrabold text-slate-500 hover:text-cyan-700 bg-slate-100 hover:bg-cyan-50 px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                    title="Kunci kembali panel ini"
+                  >
+                    🔒 Kunci Lagi
+                  </button>
+                )}
+              </div>
+
+              {!isSbUnlocked ? (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-slate-500 font-medium">
+                    Bagian ini dikunci PIN khusus demi keamanan link & API key database.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={sbPinInput}
+                      onChange={(e) => setSbPinInput(e.target.value)}
+                      placeholder="Masukkan PIN"
+                      className="flex-1 bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                    <button
+                      onClick={handleUnlockSbMenu}
+                      className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow"
+                    >
+                      🔓 Buka
+                    </button>
+                  </div>
+                  {sbPinError && <p className="text-[10px] font-bold text-rose-600">{sbPinError}</p>}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                      URL Supabase
+                    </label>
+                    <input
+                      type="text"
+                      value={sbUrl}
+                      onChange={(e) => setSbUrl(e.target.value)}
+                      placeholder="https://xxxxx.supabase.co"
+                      className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                      Anon/Public Key Supabase
+                    </label>
+                    <input
+                      type="password"
+                      value={sbKey}
+                      onChange={(e) => setSbKey(e.target.value)}
+                      placeholder="eyJhbGciOi..."
+                      className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <button
+                      onClick={handleSaveSupabaseConfig}
+                      className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow"
+                    >
+                      💾 Simpan &amp; Tes Koneksi
+                    </button>
+                    <button
+                      onClick={handleSyncAllToSupabase}
+                      disabled={isSbSyncing}
+                      className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      ⬆️ Unggah Semua Data
+                    </button>
+                    <button
+                      onClick={handleLoadAllFromSupabase}
+                      disabled={isSbSyncing}
+                      className="bg-sky-100 hover:bg-sky-200 text-sky-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      ⬇️ Tarik Semua Data
+                    </button>
+                  </div>
+
+                  {sbMsg && (
+                    <p className="text-xs font-bold text-cyan-700 bg-cyan-50 p-2.5 rounded-xl border border-cyan-200 leading-relaxed">
+                      {sbMsg}
+                    </p>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-100">
+                    {!isChangingSbPin ? (
+                      <button
+                        onClick={() => setIsChangingSbPin(true)}
+                        className="text-[10px] font-bold text-slate-500 hover:text-slate-700 underline cursor-pointer"
+                      >
+                        Ganti PIN Keamanan Supabase
+                      </button>
+                    ) : (
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="password"
+                          value={newSbPinInput}
+                          onChange={(e) => setNewSbPinInput(e.target.value)}
+                          placeholder="PIN baru (min 4 karakter)"
+                          className="flex-1 bg-slate-50 border border-slate-200 text-xs rounded-xl p-2 font-bold text-slate-800 outline-none"
+                        />
+                        <button
+                          onClick={handleChangeSbPin}
+                          className="bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded-xl cursor-pointer"
+                        >
+                          Simpan
+                        </button>
+                      </div>
+                    )}
+                    {sbPinChangeMsg && <p className="text-[10px] font-bold text-emerald-600 mt-1">{sbPinChangeMsg}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* 7. Catatan Perhatian Manager (Attention YL) */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
               <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
@@ -4299,21 +4602,6 @@ export function ManagerView({
               </button>
             </div>
 
-            {/* Archive Editor Feature */}
-            <div className="bg-white rounded-2xl p-4 border border-indigo-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-indigo-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
-                📂 Archive Editor (Edit Data Masa Lalu)
-              </h2>
-              <p className="text-[10px] text-slate-500 font-medium">
-                Masuk ke lingkungan terisolasi untuk melihat dan merevisi data arsip bulan-bulan sebelumnya yang tersimpan di Supabase tanpa mempengaruhi bulan berjalan.
-              </p>
-              <button
-                onClick={() => setShowArchiveEditor(true)}
-                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-2"
-              >
-                🛠️ Buka Archive Editor
-              </button>
-            </div>
 
 
 
@@ -4357,6 +4645,46 @@ export function ManagerView({
               </button>
             </div>
 
+            {/* 3. Reset Data (Targeted) */}
+            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
+                🗑️ Reset Data Khusus (4 Kategori)
+              </h2>
+              <p className="text-[10px] text-slate-500 leading-relaxed">
+                Hanya menghapus data: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU. Data lain (Profil, PIN, Motivasi, dll) AMAN.
+              </p>
+              <div className="space-y-2 mt-2">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cakupan Reset:</label>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input type="radio" name="resetScope" value="current_month" checked={resetScope === "current_month"} onChange={() => setResetScope("current_month")} className="accent-rose-600" />
+                    Hanya Bulan Ini ({globalMonth || "2026-08"})
+                  </label>
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
+                    <input type="radio" name="resetScope" value="all" checked={resetScope === "all"} onChange={() => setResetScope("all")} className="accent-rose-600" />
+                    Semua Riwayat (Semua Bulan)
+                  </label>
+                </div>
+              </div>
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-900 text-xs space-y-2">
+                <p><strong>Cakupan:</strong> <span className="font-mono font-bold text-rose-950">{resetScope === "all" ? "SEMUA RIWAYAT (Semua Bulan)" : `HANYA BULAN INI (${globalMonth || "2026-08"})`}</span></p>
+                <p><strong>Data yang AKAN DIHAPUS:</strong></p>
+                <ul className="list-disc pl-4 font-bold text-[10px] space-y-1">
+                  <li>Data Pelanggan & Penjualan (PLG & PJL)</li>
+                  <li>Transaksi Harian / LHPP PDM</li>
+                  <li>Target YL & Target TKU</li>
+                  <li>Breakdown Plan & Realisasi</li>
+                </ul>
+              </div>
+              <button
+                onClick={handleResetTargeted}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2 mt-2"
+              >
+                <span>🗑️</span>
+                <span>Reset Data Khusus Sekarang</span>
+              </button>
+            </div>
+
             {/* 4. Backup & Cache */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
               <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-slate-600 pl-2">
@@ -4387,253 +4715,13 @@ export function ManagerView({
                 </button>
               </div>
             </div>
-
-            {/* 2. Finish & Archive Month */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
-                  📦 Selesaikan & Arsipkan Bulan Berjalan
-                </h2>
-                {/* Month Picker for Archive */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600">Pilih Bulan Arsip:</span>
-                  <input
-                    type="month"
-                    value={selectedMonthlyArchive}
-                    onChange={(e) => setSelectedMonthlyArchive(e.target.value)}
-                    className="p-1.5 text-xs font-bold bg-slate-50 rounded-xl border border-slate-200 text-slate-800 outline-none"
-                  />
-                </div>
-              </div>
-
-              {archivedMonthsList.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  <span className="text-[10.5px] font-bold text-slate-600">📂 Daftar Bulan Tersimpan di Supabase:</span>
-                  <select
-                    value={archivedMonthsList.includes(selectedMonthlyArchive) ? selectedMonthlyArchive : ""}
-                    onChange={(e) => {
-                      if (e.target.value) setSelectedMonthlyArchive(e.target.value);
-                    }}
-                    className="p-1.5 text-xs font-bold bg-white rounded-lg border border-slate-300 text-slate-800 outline-none cursor-pointer"
-                  >
-                    <option value="" disabled>-- Pilih Bulan Tersimpan --</option>
-                    {archivedMonthsList.map((m) => (
-                      <option key={m} value={m}>
-                        {getIndonesianMonthLabel(m)} ({m})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <p className="text-[10.5px] text-slate-500 font-medium">
-                Mengunci dan mengarsipkan seluruh rekapitulasi data bulan <strong className="text-indigo-900 font-black">{getIndonesianMonthLabel(selectedMonthlyArchive) || selectedMonthlyArchive} ({selectedMonthlyArchive})</strong> ke Supabase secara permanen.
-              </p>
-
-              {archiveStatusMsg && (
-                <p className="text-xs font-bold text-indigo-600 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 leading-relaxed">
-                  {archiveStatusMsg}
-                </p>
-              )}
-
-              <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
-                <button
-                  onClick={handleFinishAndArchiveMonth}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
-                >
-                  🔒 Selesaikan & Arsipkan Data Bulan Ini ({selectedMonthlyArchive})
-                </button>
-                <button
-                  onClick={() => handleFetchMonthFromSupabase(selectedMonthlyArchive)}
-                  disabled={isSbSyncing}
-                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  📂 Ambil Data Arsip Bulan Ini dari Supabase
-                </button>
-                <button
-                  onClick={handleUpdateArchiveMonth}
-                  disabled={isSbSyncing}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
-                  title="Ambil data live terbaru untuk bulan ini lalu timpa/perbarui arsip di Supabase"
-                >
-                  🔄 Perbarui / Refresh Arsip Bulan Ini
-                </button>
-                {isViewingHistoricalMonth && (
-                  <button
-                    onClick={handleResetToLiveData}
-                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 shrink-0"
-                  >
-                    🔄 Kembali ke Data Live
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* 3. Reset Data (Targeted) */}
-            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
-                🗑️ Reset Data Khusus (4 Kategori)
-              </h2>
-              <p className="text-[10px] text-slate-500 leading-relaxed">
-                Hanya menghapus data: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU. Data lain (Profil, PIN, Motivasi, dll) AMAN.
-              </p>
-              <div className="space-y-2 mt-2">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cakupan Reset:</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                    <input type="radio" name="resetScope" value="current_month" checked={resetScope === "current_month"} onChange={() => setResetScope("current_month")} className="accent-rose-600" />
-                    Hanya Bulan Ini ({selectedBreakdownMonth || "2026-08"})
-                  </label>
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
-                    <input type="radio" name="resetScope" value="all" checked={resetScope === "all"} onChange={() => setResetScope("all")} className="accent-rose-600" />
-                    Semua Riwayat (Semua Bulan)
-                  </label>
-                </div>
-              </div>
-              <button
-                onClick={() => { setShowTargetedResetModal(true); setResetTargetedConfirmText(""); }}
-                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-3"
-              >
-                ⚠️ Reset Data
-              </button>
-            </div>
-
-            {/* 1. Supabase Credentials Card */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">⚙️</span>
-                  <div>
-                    <h2 className="text-sm font-black text-slate-900 uppercase">Kredensial & Server Cloud Supabase</h2>
-                    <p className="text-[10.5px] text-slate-500 font-medium">Pengaturan koneksi Supabase untuk sinkronisasi database cloud</p>
-                  </div>
-                </div>
-                {isSbSyncing && (
-                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full animate-pulse">
-                    ⚡ Sedang Sinkron...
-                  </span>
-                )}
-              </div>
-
-              {sbMsg && (
-                <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200">
-                  {sbMsg}
-                </p>
-              )}
-
-              <div className="space-y-3 pt-1">
-                <div>
-                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Project URL</label>
-                  <input
-                    type="text"
-                    value={sbUrl}
-                    onChange={(e) => setSbUrl(e.target.value)}
-                    placeholder="https://your-project.supabase.co"
-                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Supabase Anon Key</label>
-                  <input
-                    type="password"
-                    value={sbKey}
-                    onChange={(e) => setSbKey(e.target.value)}
-                    placeholder="eyJhbGciOi..."
-                    className="w-full p-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl text-slate-900 outline-none"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button
-                    onClick={handleSaveSupabaseConfig}
-                    className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
-                  >
-                    <span>💾</span>
-                    <span>Simpan Kredensial Supabase</span>
-                  </button>
-                  <button
-                    onClick={handleSyncAllToSupabase}
-                    disabled={isSbSyncing}
-                    className="bg-cyan-600 hover:bg-cyan-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-                  >
-                    <span>☁️</span>
-                    <span>{isSbSyncing ? "Menyinkronkan..." : "Sinkronkan Semua Data ke Supabase"}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
           </div>
         )}
-
-        {/* Modal Targeted Reset */}
-        {showTargetedResetModal && (
-          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-xl border border-rose-200">
-              <div className="flex items-center justify-between border-b border-rose-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">⚠️</span>
-                  <div>
-                    <h3 className="text-sm font-black text-rose-950 uppercase">Konfirmasi Reset Data</h3>
-                    <p className="text-[10px] text-rose-600 font-bold">Aksi ini bersifat destruktif</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setShowTargetedResetModal(false)}
-                  className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-900 text-xs space-y-2">
-                <p><strong>Cakupan:</strong> <span className="font-mono font-bold text-rose-950">{resetScope === "all" ? "SEMUA RIWAYAT (Semua Bulan)" : `HANYA BULAN INI (${selectedBreakdownMonth || "2026-08"})`}</span></p>
-                <p><strong>Data yang AKAN DIHAPUS:</strong></p>
-                <ul className="list-disc pl-4 font-bold text-[10px] space-y-1">
-                  <li>PLG & PJL (Data manual & Potensi Tembus)</li>
-                  <li>Input PJL (Data transaksi harian)</li>
-                  <li>BD & Realisasi (Breakdown Plan, Breakdown Realisasi, LHPP)</li>
-                  <li>Target (Target TKU & Target per YL)</li>
-                </ul>
-                <p className="text-[10px] italic text-rose-600 mt-2">Data lain (Profil YL, PIN, Setting) TIDAK akan dihapus.</p>
-              </div>
-              <div className="space-y-3">
-                <p className="text-[11px] text-slate-600 font-bold leading-relaxed">
-                  Apakah Anda yakin ingin menghapus data tersebut? Tindakan ini <strong>tidak dapat dibatalkan</strong>.
-                </p>
-                <div>
-                  <label className="text-[9px] font-bold text-rose-600 uppercase tracking-wider block mb-1">Ketik "HAPUS" untuk konfirmasi</label>
-                  <input
-                    type="text"
-                    value={resetTargetedConfirmText}
-                    onChange={(e) => setResetTargetedConfirmText(e.target.value.toUpperCase())}
-                    placeholder="HAPUS"
-                    className="w-full p-2.5 text-xs bg-white rounded-xl border border-rose-300 outline-none font-bold text-rose-900 text-center uppercase"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setShowTargetedResetModal(false)}
-                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl transition-all cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={handleConfirmTargetedReset}
-                  disabled={isResetting || resetTargetedConfirmText !== "HAPUS"}
-                  className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50"
-                >
-                  {isResetting ? "Proses..." : "Ya, Lanjutkan"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Tab Data YL */}
+        
         {activeTab === "seragam" && <ErrorBoundary><ManagerSeragamView /></ErrorBoundary>}
+        
         {activeTab === "lady" && (
-          <ManagerLadyTab
+                    <ManagerLadyTab
             ylList={ylList}
             setYlList={setYlList}
             handleSaveYlList={handleSaveYlList}
@@ -4651,55 +4739,33 @@ export function ManagerView({
             setNewYlPin={setNewYlPin}
             newYlNik={newYlNik}
             setNewYlNik={setNewYlNik}
-            newYlTglLahir={newYlTglLahir}
-            setNewYlTglLahir={setNewYlTglLahir}
-            ylSavedMsg={ylSavedMsg}
+            newYlNoHP={newYlNoHP}
+            setNewYlNoHP={setNewYlNoHP}
+            newYlAlamat={newYlAlamat}
+            setNewYlAlamat={setNewYlAlamat}
           />
         )}
-
-        {/* Tab Realisasi Penjualan & LHPP */}
+        
         {(activeTab === "input_realisasi" || activeTab === "lhpp_realisasi") && (
           <div className="space-y-4">
             <LhppRealisasiView
               ylList={ylList}
-              selectedMonth={selectedBreakdownMonth}
+              selectedMonth={globalMonth}
               breakdownPlanMap={breakdownPlanMap}
               breakdownRealisasiMap={breakdownRealisasiMap}
-              motivasiConfig={motivasiConfig}
-              theme={theme}
+              onSaveLhpp={async () => { await fetchBreakdownPlan(globalMonth); }}
             />
           </div>
         )}
 
-        {/* Tab PLG & PJL */}
         {activeTab === "plg_pjl" && (
-          <PlgPjlView
-            ylList={ylList}
-            motivasiConfig={motivasiConfig}
-            theme={theme}
-            historicalMonth={isViewingHistoricalMonth ? selectedMonthlyArchive : null}
-            historicalData={
-              isViewingHistoricalMonth && historicalDataSnapshot
-                ? {
-                    transactions: historicalDataSnapshot.transactions || [],
-                    potensiTembus: historicalDataSnapshot.potensiTembus || {},
-                    breakdownRealisasiMap: historicalDataSnapshot.breakdownRealisasiMap || breakdownRealisasiMap
-                  }
-                : null
-            }
-          />
+          <PlgPjlView ylList={ylList} historicalMonth={globalMonth} />
         )}
 
-        {/* Tab Product Knowledge */}
         {activeTab === "product_knowledge" && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <ProductKnowledgeView theme={theme} />
-          </div>
+          <ProductKnowledgeView />
         )}
       </main>
     </div>
   );
 }
-
-export default ManagerView;
-  

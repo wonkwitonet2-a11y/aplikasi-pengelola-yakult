@@ -6,6 +6,9 @@ export interface YlItem {
   tanggalMasuk?: string;
   status: string;
   tanggalDaftar?: string;
+  tanggalResign?: string;
+  nik?: string;
+  tglLahir?: string;
 }
 
 export const INITIAL_YL_LIST: YlItem[] = [

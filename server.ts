@@ -47,10 +47,33 @@ const SUPABASE_URL = formatSupabaseUrlServer(process.env.SUPABASE_URL || "");
 const SUPABASE_SERVICE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || "").trim();
 const SUPABASE_DB_KEY = "main_db";
 
+// PENTING: fetch bawaan tidak punya timeout sama sekali. Kalau project
+// Supabase yang ditunjuk tidak bisa dihubungi (project lama/salah region,
+// dihapus, dsb), request bisa menggantung lama tanpa pernah gagal —
+// akibatnya tombol Simpan di frontend cuma muter-muter tanpa henti karena
+// response dari server juga tidak pernah datang. Fetch custom ini memaksa
+// setiap panggilan ke Supabase gagal (throw) dalam waktu maksimal 15 detik,
+// supaya error-nya cepat kelihatan (dan bisa ditangkap oleh try/catch yang
+// sudah ada di persistToSupabase/loadDataFromSupabase).
+function supabaseFetchWithTimeout(timeoutMs: number = 15000) {
+  return (input: RequestInfo | URL, init?: RequestInit) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(input, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+  };
+}
+
+function createSupabaseClient(url: string, key: string) {
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    global: { fetch: supabaseFetchWithTimeout(15000) as any }
+  });
+}
+
 let supabase: ReturnType<typeof createClient> | null = null;
 if (isValidHttpUrlServer(SUPABASE_URL) && SUPABASE_SERVICE_KEY) {
   try {
-    supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+    supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
   } catch (e: any) {
     console.warn("[Supabase] Gagal inisialisasi Supabase client di server:", e?.message || e);
     supabase = null;
@@ -519,17 +542,27 @@ async function saveData(data: any) {
   cachedDb = data;
   dashboardCacheDirty = true;
 
-  // Debounce penulisan ke disk lokal
-  if (writeTimeout) clearTimeout(writeTimeout);
-  writeTimeout = setTimeout(() => {
-    safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
-  }, 500);
+  // Tulis ke disk lokal (berguna untuk dev/Termux; di Netlify filesystem
+  // read-only jadi safeWriteFile akan diam-diam skip, tidak masalah).
+  safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
 
-  // Debounce dan simpan ke Supabase di background tanpa memblokir HTTP response
+  // PENTING: harus di-await, BUKAN dijadwalkan lewat setTimeout.
+  // Sebelumnya penyimpanan ke Supabase ditunda 1000ms lewat setTimeout agar
+  // "tidak memblokir HTTP response" — tapi di Netlify Functions (dan platform
+  // serverless lain), begitu res.json() terkirim, container/Lambda langsung
+  // dibekukan. setTimeout yang belum sempat jalan itu TIDAK PERNAH tereksekusi,
+  // jadi perubahan (mis. Simpan Target) kelihatan sukses di UI tapi sebenarnya
+  // tidak pernah benar-benar tersimpan ke Supabase — hilang lagi begitu ada
+  // cold start / dibuka dari device lain. Meng-await di sini memastikan data
+  // benar-benar tersimpan sebelum function selesai, dengan konsekuensi request
+  // sedikit lebih lama (menunggu round-trip ke Supabase).
+  if (writeTimeout) clearTimeout(writeTimeout);
   if (supabaseWriteTimeout) clearTimeout(supabaseWriteTimeout);
-  supabaseWriteTimeout = setTimeout(() => {
-    persistToSupabase(cachedDb).catch(err => console.error("[Supabase background save error]:", err));
-  }, 1000);
+  try {
+    await persistToSupabase(cachedDb);
+  } catch (err) {
+    console.error("[Supabase save error]:", err);
+  }
 }
 
 // PROXY FUNCTION DISABLED TO PREVENT SPREADSHEET CONFLICTS AND DATA LOSS
@@ -572,7 +605,10 @@ function getRealisasiAccumulation(db: any, month: string) {
 // changes (saveData() flips dashboardCacheDirty), we memoize the result
 // instead of recomputing it from scratch on every poll (every 20s per
 // connected device).
-function getCachedDashboardDP1(db: any) {
+function getCachedDashboardDP1(db: any, requestedMonth?: string) {
+  if (requestedMonth) {
+    return calculateDashboardDP1(db, requestedMonth);
+  }
   if (dashboardCacheDirty || !dashboardDP1Cache) {
     dashboardDP1Cache = calculateDashboardDP1(db);
     dashboardCacheDirty = false;
@@ -580,15 +616,15 @@ function getCachedDashboardDP1(db: any) {
   return dashboardDP1Cache;
 }
 
-function calculateDashboardDP1(db: any) {
+function calculateDashboardDP1(db: any, requestedMonth?: string) {
   const txs = db.transactions || [];
   const targetYL = db.targetYL || {};
 
   // Dynamically determine current active month from latest transactions or current date
   const latestTxDate = txs.length > 0 ? txs[txs.length - 1].tanggal : new Date().toISOString().split("T")[0];
-  const currentMonth = latestTxDate.substring(0, 7);
+  const currentMonth = requestedMonth || latestTxDate.substring(0, 7);
   let currentMonthTxs = txs.filter((t: any) => t.tanggal.startsWith(currentMonth));
-  if (currentMonthTxs.length === 0 && txs.length > 0) {
+  if (currentMonthTxs.length === 0 && txs.length > 0 && !requestedMonth) {
     currentMonthTxs = txs;
   }
 
@@ -846,15 +882,26 @@ app.post("/api/saveSupabaseConfig", async (req, res) => {
   const cleanUrl = formatSupabaseUrlServer(url || "");
   const cleanKey = (key || "").trim();
   db.supabaseConfig = { url: cleanUrl, key: cleanKey };
-  await saveData(db);
 
-  if (cleanUrl && cleanKey && !supabase) {
+  // PENTING: client Supabase harus dibuat ULANG setiap kali config berubah,
+  // bukan cuma waktu belum ada client sama sekali (bug lama: kondisi
+  // `!supabase` bikin project LAMA tetap dipakai selamanya kalau URL/Key
+  // diganti ke project BARU — semua Simpan diam-diam tetap nembak ke
+  // project lama). lastSavedDb & isPersisting juga direset supaya baseline
+  // perbandingan tidak nyangkut dari project sebelumnya.
+  if (cleanUrl && cleanKey) {
     try {
-      supabase = createClient(cleanUrl, cleanKey, { auth: { persistSession: false } });
+      supabase = createSupabaseClient(cleanUrl, cleanKey);
+      lastSavedDb = {};
     } catch (e) {
       console.warn("[Supabase] Gagal inisialisasi dari config:", e);
+      supabase = null;
     }
+  } else {
+    supabase = null;
   }
+
+  await saveData(db);
 
   res.json({ ok: true, url: cleanUrl, key: cleanKey });
 });
@@ -1348,6 +1395,25 @@ ${ylSpecificData}
   }
 });
 
+// Bulan Aktif Global (disinkronkan ke SEMUA device — Manager & semua YL), supaya
+// bulan yang ditampilkan tidak lagi tergantung localStorage/tanggal kalender tiap HP
+// masing-masing (bug lama: HP Manager & HP YL bisa menampilkan bulan berbeda).
+app.get("/api/getGlobalMonth", (req, res) => {
+  const db = loadData();
+  res.json({ globalMonth: db.globalMonth || null });
+});
+
+app.post("/api/saveGlobalMonth", async (req, res) => {
+  const { globalMonth } = req.body || {};
+  if (!globalMonth || !/^\d{4}-\d{2}$/.test(globalMonth)) {
+    return res.status(400).json({ ok: false, error: "Format bulan tidak valid (harus YYYY-MM)" });
+  }
+  const db = loadData();
+  db.globalMonth = globalMonth;
+  await saveData(db);
+  res.json({ ok: true, globalMonth: db.globalMonth });
+});
+
 // 3. Floating Banner Motivasi
 app.get("/api/getMotivasi", async (req, res) => {
   const db = loadData();
@@ -1767,7 +1833,26 @@ app.post("/api/saveYlList", async (req, res) => {
       }
     });
 
-    db.ylList = ylList;
+    // Merge per-area instead of blind replace: kalau client mengirim field kosong/undefined
+    // (mis. nik/tglLahir/kodeYl/tanggalMasuk) padahal data lama di server sudah punya nilainya,
+    // pertahankan nilai lama supaya profil YL yang sudah tersimpan tidak hilang gara-gara
+    // client memakai versi state yang "basi"/tidak lengkap (fallback INITIAL_YL_LIST dsb).
+    const PRESERVE_IF_EMPTY_FIELDS = ["nik", "tglLahir", "kodeYl", "tanggalMasuk", "tanggalDaftar", "tanggalResign", "foto"];
+    const mergedYlList = ylList.map((newY: any) => {
+      const oldY = oldList.find((o: any) => String(o.area) === String(newY.area));
+      if (!oldY) return newY;
+      const merged = { ...newY };
+      PRESERVE_IF_EMPTY_FIELDS.forEach(field => {
+        const newVal = newY[field];
+        const isEmpty = newVal === undefined || newVal === null || newVal === "";
+        if (isEmpty && oldY[field] !== undefined && oldY[field] !== null && oldY[field] !== "") {
+          merged[field] = oldY[field];
+        }
+      });
+      return merged;
+    });
+
+    db.ylList = mergedYlList;
 
     // Apply name changes across all database objects
     nameChanges.forEach(({ area, oldNama, newNama }) => {
@@ -2234,9 +2319,10 @@ app.post("/api/saveTargetYL", async (req, res) => {
 
 // 6. Evaluasi Harian
 app.get("/api/getEvaluasi", async (req, res) => {
+  const { month } = req.query;
   const db = loadData();
-  const dashboard = getCachedDashboardDP1(db);
-  const currentMonth = new Date().toISOString().substring(0, 7);
+  const currentMonth = (month as string) || new Date().toISOString().substring(0, 7);
+  const dashboard = getCachedDashboardDP1(db, currentMonth);
   const ylList = db.ylList || INITIAL_YL_LIST;
   const names = ylList.map((y: any) => y.nama);
   
@@ -2953,8 +3039,9 @@ app.get("/api/getTarget", async (req, res) => {
 
 // 8. General Dashboard DP1 (Main statistics card source)
 app.get("/api/getDashboardDP1", async (req, res) => {
+  const { month } = req.query;
   const db = loadData();
-  res.json(getCachedDashboardDP1(db));
+  res.json(getCachedDashboardDP1(db, month as string | undefined));
 });
 
 // 9. Gemini AI Evaluation - Deeper, structured and highly Jember 1 specific
