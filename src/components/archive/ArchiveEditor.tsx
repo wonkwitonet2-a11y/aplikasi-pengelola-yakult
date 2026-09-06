@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Lock, Save, ArrowLeft, RefreshCw, AlertTriangle, FileBox, Calculator, PenTool, CheckCircle, Plus } from "lucide-react";
-import { loadFromSupabase, saveToSupabase } from "../../lib/supabaseClient";
+import { Lock, Save, ArrowLeft, RefreshCw, AlertTriangle, FileBox, Calculator, PenTool, CheckCircle, Plus, Trash2 } from "lucide-react";
+import { loadFromSupabase, saveToSupabase, deleteFromSupabase } from "../../lib/supabaseClient";
 import { cleanYlName } from "../../types";
 
 import { ManagerDashboardTab } from "../ManagerDashboardTab";
@@ -410,6 +410,38 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
      }
   };
 
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  const executeDeleteFromSupabase = async () => {
+     if (!selectedMonth) return;
+
+     setShowDeleteModal(false);
+     setSaveMsg(`⏳ Menghapus arsip ${selectedMonth} dari Supabase...`);
+     setLoading(true);
+     try {
+       const res = await deleteFromSupabase(`monthly_archive_${selectedMonth}`);
+       if (!res.success) throw new Error(res.error || "Gagal menghapus");
+
+       const updatedList = archiveList.filter(m => m !== selectedMonth);
+       await saveToSupabase("monthly_archive_list", updatedList);
+       setArchiveList(updatedList);
+       setSelectedMonth(updatedList[0] || "");
+       setSnapshot(null);
+       setSaveMsg("🗑️ Arsip berhasil dihapus permanen dari Supabase!");
+       setTimeout(() => setSaveMsg(""), 4000);
+     } catch (e: any) {
+       setSaveMsg("❌ Gagal menghapus: " + (e?.message || e));
+       setTimeout(() => setSaveMsg(""), 4000);
+     } finally {
+       setLoading(false);
+     }
+  };
+
+  const handleDeleteFromSupabase = () => {
+     if (!selectedMonth) return;
+     setShowDeleteModal(true);
+  };
+
   
   const [gridSelection, setGridSelection] = useState(null);
   const [isGridDragging, setIsGridDragging] = useState(false);
@@ -549,6 +581,10 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                <button onClick={handleSaveToSupabase} disabled={!snapshot} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-xl text-xs font-bold shadow-lg">
                  <Save className="w-4 h-4" />
                  SIMPAN ARSIP
+               </button>
+               <button onClick={handleDeleteFromSupabase} disabled={!selectedMonth || loading} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 px-3.5 py-2 rounded-xl text-xs font-bold shadow-lg disabled:opacity-50" title="Hapus arsip bulan ini dari Supabase">
+                 <Trash2 className="w-4 h-4" />
+                 HAPUS ARSIP
                </button>
             </div>
          </div>
@@ -874,6 +910,51 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
               )}
            </div>
         </main>
+      )}
+
+      {/* Modal Konfirmasi Hapus Arsip Supabase */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-200 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 text-2xl shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 leading-tight">Konfirmasi Hapus Arsip Cloud</h3>
+                <p className="text-xs text-rose-600 font-bold">Database Supabase Permanen</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-950 space-y-2">
+              <p>
+                Apakah Anda yakin ingin <strong>MENGHAPUS PERMANEN</strong> seluruh arsip data bulan:
+              </p>
+              <div className="text-center py-2 px-3 bg-white rounded-lg border border-rose-300 font-mono font-black text-sm text-rose-700">
+                📅 BULAN {selectedMonth}
+              </div>
+              <p className="text-[11px] text-rose-800 leading-relaxed">
+                ⚠️ Tindakan ini akan menghapus snapshot arsip bulan tersebut langsung dari cloud database Supabase. Tindakan ini <strong>tidak dapat dibatalkan</strong>!
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                onClick={executeDeleteFromSupabase}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus Permanen</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

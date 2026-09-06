@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Save, Search, Plus, Trash2, ArrowLeft, ArrowRight, ChevronDown, ChevronRight, ClipboardCheck, Download, X } from 'lucide-react';
 import { saveToSupabase, loadFromSupabase } from '../lib/supabaseClient';
+import { lookupPreviousYearData, getPreviousYearDataSync } from '../lib/historicalArchiveLookup';
 import { cleanYlName } from '../types';
 
-const SEED_DATA_2026 = {
+export const SEED_DATA_2026 = {
   "tahun": 2026,
   "tku": "DP JEMBER 1",
   "cabang": "JEMBER",
@@ -315,43 +316,30 @@ export default function SalesRecordTKU({ defaultYear, defaultMonthIndex }: { def
 
   const handleFetchRata2TahunLalu = async () => {
     try {
-      const prevYearStr = String(parseInt(selectedYear) - 1);
-      const ymStr = `${prevYearStr}-${String(selectedMonthIndex + 1).padStart(2, '0')}`;
-      let parsed = null;
-      
-      const localData = localStorage.getItem(`rata2_bulanan_${ymStr}`);
-      if (localData) {
-        parsed = JSON.parse(localData);
-      } else {
-        const res = await loadFromSupabase(`rata2_bulanan_${ymStr}`);
-        if (res && (res as any).rows) {
-          parsed = res;
-        }
-      }
-      
-      if (parsed && parsed.rows) {
-        let totalSum = 0;
-        parsed.rows.forEach((r: any) => {
-          totalSum += (parseFloat(r.totalRata2) || 0);
-        });
-        
-        // Update edit data
+      const res = await lookupPreviousYearData(selectedYear, selectedMonthIndex);
+      if (res && res.found && res.ratarataPenjualanTahunLalu > 0) {
         setEditData((prev: any) => {
           const newD = JSON.parse(JSON.stringify(prev));
-          newD.bulanan[activeMonthKey].ratarataPenjualanTahunLalu = Math.round(totalSum);
-          
-          // Recompute dependants
           const md = newD.bulanan[activeMonthKey];
-          if (md.ratarataPenjualanTahunLalu > 0) {
+          md.ratarataPenjualanTahunLalu = res.ratarataPenjualanTahunLalu;
+          md.salesPerYLTahunLalu = res.salesPerYLTahunLalu;
+          if (res.ratarataYOTahunLalu) md.ratarataYOTahunLalu = res.ratarataYOTahunLalu;
+          if (res.ratarataOMTahunLalu) md.ratarataOMTahunLalu = res.ratarataOMTahunLalu;
+          if (res.ratarataOSTahunLalu) md.ratarataOSTahunLalu = res.ratarataOSTahunLalu;
+          if (res.ratarataYTTahunLalu) md.ratarataYTTahunLalu = res.ratarataYTTahunLalu;
+          
+          if (md.ratarataPenjualanYL > 0 && md.ratarataPenjualanTahunLalu > 0) {
             md.persenTahunLalu = Number(((md.ratarataPenjualanYL / md.ratarataPenjualanTahunLalu) * 100).toFixed(1));
           }
-          
+          if (md.salesPerYL && md.salesPerYLTahunLalu) {
+            md.salesSelisih = md.salesPerYL - md.salesPerYLTahunLalu;
+          }
           return newD;
         });
-        
-        alert(`Berhasil menarik total Rata2 Tahun Lalu: ${Math.round(totalSum)}`);
+
+        alert(`✅ Berhasil menarik data Tahun Lalu (${res.sourceDescription}):\n• Rata-rata Penjualan: ${res.ratarataPenjualanTahunLalu} btl/hari\n• S/YL: ${res.salesPerYLTahunLalu} btl/hari\n• AKM Penjualan: ${res.akmPenjualanTahunLalu.toLocaleString('id-ID')} btl`);
       } else {
-        alert(`Data Rata-Rata Bulanan untuk ${ymStr} tidak ditemukan.`);
+        alert(`Data arsip tahun lalu untuk bulan ${MONTH_LABELS[selectedMonthIndex]} (${selectedYear}) tidak ditemukan.`);
       }
     } catch (e) {
       console.error(e);

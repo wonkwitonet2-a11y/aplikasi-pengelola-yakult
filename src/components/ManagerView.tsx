@@ -30,7 +30,10 @@ import {
   X,
   Layers,
   Calendar,
-  RefreshCw
+  RefreshCw,
+  BarChart3,
+  Pin,
+  ArrowLeft
 } from "lucide-react";
 import { Rata2BulananTab } from "./Rata2BulananTab";
 import { PlgPjlView } from "./PlgPjlView";
@@ -47,7 +50,7 @@ import ManagerSeragamView from "./ManagerSeragamView";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
 import { getFallbackEvaluasiData } from "../lib/fallbackData";
-import { getSupabaseCredentials, resetSupabaseClient, saveToSupabase, loadFromSupabase, testSupabaseConnection } from "../lib/supabaseClient";
+import { getSupabaseCredentials, resetSupabaseClient, saveToSupabase, loadFromSupabase, deleteFromSupabase, testSupabaseConnection } from "../lib/supabaseClient";
 import {
   RankingYLChart,
   KomposisiProdukChart,
@@ -95,6 +98,7 @@ import { OfficialLinksManager } from "./OfficialLinksManager";
 import { OfficialLinksViewer } from "./OfficialLinksViewer";
 
 const SalesRecordTKU = React.lazy(() => import("./SalesRecordTKU"));
+const PresentasiView = React.lazy(() => import("./PresentasiView"));
 
 export const parseIndonesianNumber = (val: string | number): number => {
   if (val === "" || val === null || val === undefined) return 0;
@@ -132,7 +136,7 @@ export function ManagerView({
   theme,
   onToggleTheme
 }: ManagerViewProps) {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "grafik" | "rata2_bulanan" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "seragam" | "product_knowledge" | "setting">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "grafik" | "rata2_bulanan" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "seragam" | "product_knowledge" | "presentasi" | "setting" | "tautan" | "archive" | "attention">("dashboard");
   useTabHistory(activeTab, setActiveTab, "dashboard");
 
   const [isNavMenuOpen, setIsNavMenuOpen] = useState<boolean>(false);
@@ -525,6 +529,53 @@ export function ManagerView({
     } catch (e: any) {
       setArchiveStatusMsg(`❌ Gagal memperbarui arsip bulan ${label}: ${e.message || "Periksa koneksi Supabase"}`);
       alert(`❌ Gagal memperbarui: ${e.message || "Periksa koneksi Supabase"}`);
+    } finally {
+      setIsSbSyncing(false);
+    }
+  };
+
+  const handleDeleteArchiveFromSupabase = (targetMonth: string) => {
+    if (!targetMonth) {
+      setArchiveStatusMsg("⚠️ Pilih bulan arsip yang ingin dihapus terlebih dahulu.");
+      return;
+    }
+    setMonthToDeleteFromSupabase(targetMonth);
+  };
+
+  const handleExecuteDeleteArchiveFromSupabase = async () => {
+    if (!monthToDeleteFromSupabase) return;
+    const targetMonth = monthToDeleteFromSupabase;
+    const label = getIndonesianMonthLabel(targetMonth) || targetMonth;
+
+    setIsSbSyncing(true);
+    setArchiveStatusMsg(`⏳ Menghapus arsip bulan ${label} dari Supabase...`);
+    try {
+      // 1. Hapus key monthly_archive_YYYY-MM dari Supabase
+      const res = await deleteFromSupabase(`monthly_archive_${targetMonth}`);
+      if (!res.success) {
+        throw new Error(res.error || "Gagal menghapus arsip dari Supabase");
+      }
+
+      // 2. Perbarui daftar monthly_archive_list di Supabase
+      let currentList = await loadFromSupabase<string[]>("monthly_archive_list");
+      if (Array.isArray(currentList)) {
+        currentList = currentList.filter(m => m !== targetMonth);
+        await saveToSupabase("monthly_archive_list", currentList);
+        setArchivedMonthsList(currentList);
+        if (selectedMonthlyArchive === targetMonth) {
+          setSelectedMonthlyArchive(currentList[currentList.length - 1] || globalMonth || new Date().toISOString().substring(0, 7));
+        }
+      }
+
+      // 3. Jika sedang melihat arsip bulan yang baru dihapus, kembalikan ke live
+      if (isViewingHistoricalMonth && (historicalMonthLabel === label || historicalMonthLabel === targetMonth)) {
+        handleResetToLiveData();
+      }
+
+      setMonthToDeleteFromSupabase(null);
+      setArchiveStatusMsg(`🗑️ Berhasil menghapus arsip Bulan ${label} (${targetMonth}) secara permanen dari Supabase.`);
+    } catch (e: any) {
+      setArchiveStatusMsg(`❌ Gagal menghapus arsip bulan ${label}: ${e.message || "Periksa koneksi Supabase"}`);
     } finally {
       setIsSbSyncing(false);
     }
@@ -1380,13 +1431,15 @@ export function ManagerView({
   });
   const [compSavedMsg, setCompSavedMsg] = useState<string>("");
 
-  // Reset Data 3 Bulan state
-  
+  // Reset Data state
   const [resetScope, setResetScope] = useState<"current_month" | "all">("current_month");
+  const [resetSelectedMonth, setResetSelectedMonth] = useState<string>(() => globalMonth || new Date().toISOString().substring(0, 7));
   const [showTargetedResetModal, setShowTargetedResetModal] = useState<boolean>(false);
-  const [resetTargetedConfirmText, setResetTargetedConfirmText] = useState<string>("");
-
   const [isResetting, setIsResetting] = useState<boolean>(false);
+  const [resetSuccessMsg, setResetSuccessMsg] = useState<string>("");
+
+  // Supabase Delete Archive Modal state
+  const [monthToDeleteFromSupabase, setMonthToDeleteFromSupabase] = useState<string | null>(null);
 
   // Manager Realisasi Input state
 
@@ -1642,13 +1695,58 @@ export function ManagerView({
         setCompConfig(res.config);
       }
     });
-    safeFetchJson("/api/getSettingTargets").then(res => {
-      if (res) {
-        if (res.targetTKU) setTargetTKU(res.targetTKU);
-        if (res.targetYL) setTargetYLMap(res.targetYL);
-      }
-    });
   }, []);
+
+  // Target TKU & Target YL synchronization per globalMonth
+  useEffect(() => {
+    if (!globalMonth) return;
+
+    // 1. Restore from localStorage for instant display
+    try {
+      const cachedTku = localStorage.getItem(`target_tku_${globalMonth}`);
+      if (cachedTku) {
+        const parsed = JSON.parse(cachedTku);
+        if (parsed && typeof parsed === "object") setTargetTKU(parsed);
+      }
+      const cachedYl = localStorage.getItem(`target_yl_${globalMonth}`);
+      if (cachedYl) {
+        const parsed = JSON.parse(cachedYl);
+        if (parsed && typeof parsed === "object") setTargetYLMap(parsed);
+      }
+    } catch (e) {}
+
+    // 2. Fetch from server for the specific month
+    safeFetchJson(`/api/getSettingTargets?bulan=${globalMonth}`).then(res => {
+      if (res) {
+        if (res.targetTKU) {
+          setTargetTKU(res.targetTKU);
+          try {
+            localStorage.setItem(`target_tku_${globalMonth}`, JSON.stringify(res.targetTKU));
+          } catch (e) {}
+        }
+        if (res.targetYL) {
+          setTargetYLMap(res.targetYL);
+          try {
+            localStorage.setItem(`target_yl_${globalMonth}`, JSON.stringify(res.targetYL));
+          } catch (e) {}
+        }
+      }
+    }).catch(err => {
+      console.warn("Gagal mengambil data target bulan:", globalMonth, err);
+    });
+  }, [globalMonth]);
+
+  // Sync targets to localStorage whenever they change
+  useEffect(() => {
+    try {
+      if (targetTKU && globalMonth) {
+        localStorage.setItem(`target_tku_${globalMonth}`, JSON.stringify(targetTKU));
+      }
+      if (targetYLMap && Object.keys(targetYLMap).length > 0 && globalMonth) {
+        localStorage.setItem(`target_yl_${globalMonth}`, JSON.stringify(targetYLMap));
+      }
+    } catch (e) {}
+  }, [targetTKU, targetYLMap, globalMonth]);
 
   // Local-First: Load from LocalStorage instantly on month change or tab change
   useEffect(() => {
@@ -1821,8 +1919,19 @@ export function ManagerView({
   };
 
   // Export full JSON Backup file
-  const handleExportBackupJson = () => {
+  const handleExportBackupJson = async () => {
     try {
+      setBreakdownMsg("⏳ Menyiapkan file cadangan (backup JSON)...");
+      let serverDb: any = null;
+      try {
+        const res = await safeFetchJson("/api/getData");
+        if (res && typeof res === "object") {
+          serverDb = res;
+        }
+      } catch (e) {
+        console.warn("Could not fetch server DB for backup:", e);
+      }
+
       const backupData = {
         app: "Yakult Lady Management System DP Jember 1",
         version: "2.0-Hybrid",
@@ -1834,19 +1943,24 @@ export function ManagerView({
         targetTKU,
         targetYL: targetYLMap,
         motivasiConfig,
-        kontesConfig
+        kontesConfig,
+        serverDatabase: serverDb
       };
 
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
       const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `Backup_Yakult_Jember1_${globalMonth}_${new Date().toISOString().slice(0,10)}.json`);
+      downloadAnchor.href = url;
+      downloadAnchor.download = `Backup_Yakult_Jember1_${globalMonth}_${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
 
       setBreakdownMsg("✅ Backup file JSON berhasil diunduh!");
       setTimeout(() => setBreakdownMsg(""), 3500);
+      alert("✅ Backup Data JSON berhasil diunduh!");
     } catch (e: any) {
       alert("Gagal mengekspor backup JSON: " + e.message);
     }
@@ -1881,9 +1995,27 @@ export function ManagerView({
           setBreakdownRealisasiMap(data.breakdownRealisasi);
           localStorage.setItem(`bd_realisasi_${monthToUse}`, JSON.stringify(data.breakdownRealisasi));
         }
+        if (data.targetTKU) {
+          setTargetTKU(data.targetTKU);
+          localStorage.setItem(`target_tku_${monthToUse}`, JSON.stringify(data.targetTKU));
+        }
+        if (data.targetYL) {
+          setTargetYLMap(data.targetYL);
+          localStorage.setItem(`target_yl_${monthToUse}`, JSON.stringify(data.targetYL));
+        }
+        if (data.ylList && Array.isArray(data.ylList)) {
+          setYlList(data.ylList);
+        }
 
-        // Send to server
-        fetch("/api/saveBreakdownPlan", {
+        // Send to server import endpoint
+        await safeFetchJson("/api/importBackup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+
+        // Also save target & breakdown specifically
+        safeFetchJson("/api/saveBreakdownPlan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1892,6 +2024,18 @@ export function ManagerView({
             breakdownRealisasi: data.breakdownRealisasi || breakdownRealisasiMap
           })
         }).catch(() => {});
+
+        if (data.targetTKU || data.targetYL) {
+          safeFetchJson("/api/saveSettingTargets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              targetTKU: data.targetTKU || targetTKU,
+              targetYL: data.targetYL || targetYLMap,
+              bulan: monthToUse
+            })
+          }).catch(() => {});
+        }
 
         if (onRefresh) await onRefresh();
 
@@ -2138,45 +2282,6 @@ export function ManagerView({
       alert("Error: " + e.message);
     }
   };
-
-  // Handler: Open Reset 3 Bulan Preview
-  const handleConfirmTargetedReset = async () => {
-    if (resetTargetedConfirmText !== "HAPUS") {
-      alert("Silakan ketik HAPUS untuk konfirmasi.");
-      return;
-    }
-    setIsResetting(true);
-    try {
-      const res = await safeFetchJson("/api/resetDataTargeted", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: resetScope, currentMonth: globalMonth || "2026-07" })
-      });
-      if (res && res.ok) {
-        alert(res.message);
-        setShowTargetedResetModal(false);
-        setResetTargetedConfirmText("");
-        
-        // CLEAR LOCAL STATE agar tampilan langsung kosong sebelum fetch ulang dari server
-        if (resetScope === "all" || resetScope === "current_month") {
-           setBreakdownPlanMap({});
-           setBreakdownRealisasiMap({});
-           setTargetYLMap({});
-           setTargetTKU({ target: 0, bln_lalu: 0, thn_lalu: 0, target_yo: 0, target_om: 0, target_os: 0, target_yt: 0, bln_lalu_yo: 0, bln_lalu_om: 0, bln_lalu_os: 0, bln_lalu_yt: 0, thn_lalu_yo: 0, thn_lalu_om: 0, thn_lalu_os: 0, thn_lalu_yt: 0 });
-           fetchBreakdownPlan(globalMonth);
-        }
-        
-        if (onRefresh) onRefresh();
-      } else {
-        alert("Gagal mereset data: " + (res?.error || "Unknown error"));
-      }
-    } catch (e: any) {
-      alert("Error: " + e.message);
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
 
   // Settings PIN dropdown state
   const [pinTargetDropdown, setPinTargetDropdown] = useState<string>("manager");
@@ -2580,8 +2685,42 @@ export function ManagerView({
 
   
   const handleResetTargeted = () => {
-    if (window.confirm(`Yakin ingin mereset data (${resetScope === "all" ? "Semua Bulan" : "Bulan Ini"})? Aksi ini akan menghapus data PLG, PJL, LHPP, Target, dan Breakdown.`)) {
-      alert("Fitur Reset belum terimplementasi sepenuhnya di mock. Hubungi Admin.");
+    setResetSuccessMsg("");
+    setShowTargetedResetModal(true);
+  };
+
+  const handleExecuteResetTargeted = async () => {
+    const targetMonthLabel = resetScope === "all" ? "SEMUA RIWAYAT (Semua Bulan)" : `BULAN ${resetSelectedMonth} (${getIndonesianMonthLabel(resetSelectedMonth) || resetSelectedMonth})`;
+
+    setIsResetting(true);
+    try {
+      const res = await safeFetchJson("/api/resetDataTargeted", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope: resetScope, currentMonth: resetSelectedMonth })
+      });
+
+      if (res && res.ok) {
+        // Kosongkan state lokal jika bulan yang direset adalah bulan yang sedang aktif
+        if (resetScope === "all" || resetSelectedMonth === globalMonth) {
+          setBreakdownPlanMap({});
+          setBreakdownRealisasiMap({});
+          setTargetYLMap({});
+          setTargetTKU({ target: 0, bln_lalu: 0, thn_lalu: 0, target_yo: 0, target_om: 0, target_os: 0, target_yt: 0, bln_lalu_yo: 0, bln_lalu_om: 0, bln_lalu_os: 0, bln_lalu_yt: 0, thn_lalu_yo: 0, thn_lalu_om: 0, thn_lalu_os: 0, thn_lalu_yt: 0 });
+          fetchBreakdownPlan(globalMonth);
+        }
+
+        if (onRefresh) await onRefresh();
+        setShowTargetedResetModal(false);
+        setResetSuccessMsg(`✅ RESET DATA BERHASIL! Data aktif untuk ${targetMonthLabel} telah berhasil dikosongkan. Data arsip di Supabase tetap aman.`);
+        setTimeout(() => setResetSuccessMsg(""), 8000);
+      } else {
+        setResetSuccessMsg("❌ Gagal mereset data: " + (res?.error || "Terjadi kesalahan"));
+      }
+    } catch (e: any) {
+      setResetSuccessMsg("❌ Error reset data: " + e.message);
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -2679,7 +2818,8 @@ export function ManagerView({
 
   const handleDownloadExcel = async () => {
     try {
-      const res = await fetch("/api/exportRealisasi");
+      setBreakdownMsg("📊 Mengunduh Laporan Excel PLG PJL...");
+      const res = await fetch(`/api/exportRealisasi?month=${globalMonth || ""}`);
       if (!res.ok) throw new Error("Gagal mengunduh file Excel");
       
       const blob = await res.blob();
@@ -2688,9 +2828,9 @@ export function ManagerView({
       a.href = url;
       
       const contentDisposition = res.headers.get('Content-Disposition');
-      let filename = `Laporan_Realisasi_DP1_${new Date().toISOString().replace(/[:.]/g, "-")}.xlsx`;
+      let filename = `Laporan_PLG_PJL_DP1_${globalMonth || new Date().toISOString().slice(0, 10)}.xlsx`;
       if (contentDisposition) {
-        const match = contentDisposition.match(/filename="([^"]+)"/);
+        const match = contentDisposition.match(/filename="?([^";]+)"?/);
         if (match) filename = match[1];
       }
       
@@ -2698,9 +2838,13 @@ export function ManagerView({
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(url);
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+
+      setBreakdownMsg("✅ File Excel PLG PJL (.xlsx) berhasil diunduh!");
+      setTimeout(() => setBreakdownMsg(""), 3500);
+      alert(`✅ File Excel Laporan PLG PJL (Sheet: plg pjl(laporan Dp 1)) bulan ${globalMonth || "ini"} berhasil diunduh!`);
     } catch (e: any) {
-      alert("Error: " + e.message);
+      alert("Error unduh Excel: " + e.message);
     }
   };
 
@@ -2813,7 +2957,7 @@ export function ManagerView({
       {isNavMenuOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex flex-col justify-end sm:justify-center sm:items-center animate-fade-in" onClick={() => setIsNavMenuOpen(false)}>
           <div 
-            className="w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-slide-up sm:animate-scale-in"
+            className="w-full sm:max-w-lg landscape:max-w-xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-slide-up sm:animate-scale-in"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Grabber handle for mobile */}
@@ -2821,7 +2965,7 @@ export function ManagerView({
               <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full"></div>
             </div>
             
-            <div className="px-5 pb-3 pt-2 sm:pt-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+            <div className="px-5 pb-3 pt-2 sm:pt-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
                   Menu Aplikasi
@@ -2838,8 +2982,8 @@ export function ManagerView({
               </button>
             </div>
 
-            {/* Grid Icon Menu */}
-            <div className="p-5 grid grid-cols-4 gap-y-6 gap-x-2 bg-slate-50/50 dark:bg-slate-900">
+            {/* Grid Icon Menu - Compact 4 to 5 Columns */}
+            <div className="p-3 sm:p-4 grid grid-cols-4 sm:grid-cols-5 landscape:grid-cols-5 gap-y-3.5 gap-x-1 sm:gap-x-2 bg-slate-50/50 dark:bg-slate-900 max-h-[70vh] sm:max-h-[80vh] overflow-y-auto">
               {[
                 { id: "dashboard", icon: TrendingUp, label: "Dasbor", color: "bg-red-500", text: "text-red-500", light: "bg-red-50" },
                 { id: "lhpp_realisasi", icon: FileSpreadsheet, label: "LHPP", color: "bg-emerald-500", text: "text-emerald-500", light: "bg-emerald-50" },
@@ -2847,11 +2991,14 @@ export function ManagerView({
                 { id: "target_kompensasi", icon: Target, label: "Target", color: "bg-sky-500", text: "text-sky-500", light: "bg-sky-50" },
                 { id: "evaluasi", icon: Award, label: "Evaluasi", color: "bg-yellow-500", text: "text-yellow-600", light: "bg-yellow-50" },
                 { id: "rata2_bulanan", icon: Calendar, label: "Rata-rata", color: "bg-teal-500", text: "text-teal-500", light: "bg-teal-50" },
+                { id: "presentasi", icon: BarChart3, label: "Presentasi", color: "bg-orange-500", text: "text-orange-500", light: "bg-orange-50" },
                 { id: "plg_pjl", icon: PieChart, label: "Pelanggan", color: "bg-cyan-500", text: "text-cyan-500", light: "bg-cyan-50" },
                 { id: "lady", icon: Users, label: "Profil YL", color: "bg-indigo-500", text: "text-indigo-500", light: "bg-indigo-50" },
-                                { id: "tautan", icon: Globe, label: "Tautan", color: "bg-indigo-600", text: "text-indigo-600", light: "bg-indigo-50" },
+                { id: "tautan", icon: Globe, label: "Link", color: "bg-indigo-600", text: "text-indigo-600", light: "bg-indigo-50" },
+                { id: "attention", icon: Pin, label: "Attention", color: "bg-violet-600", text: "text-violet-600", light: "bg-violet-50" },
+                { id: "ai_chat", icon: Sparkles, label: "Tanya AI", color: "bg-rose-600", text: "text-rose-600", light: "bg-rose-50" },
                 { id: "seragam", icon: Grid3X3, label: "Seragam", color: "bg-purple-500", text: "text-purple-500", light: "bg-purple-50" },
-                { id: "product_knowledge", icon: BookOpen, label: "Edukasi", color: "bg-rose-500", text: "text-rose-500", light: "bg-rose-50" },
+                { id: "product_knowledge", icon: BookOpen, label: "Product Knowledge", color: "bg-rose-500", text: "text-rose-500", light: "bg-rose-50" },
                 { id: "archive", icon: Archive, label: "Arsip", color: "bg-fuchsia-600", text: "text-fuchsia-600", light: "bg-fuchsia-50" },
               ].map((item) => {
                 const isActive = activeTab === item.id || (item.id === "lhpp_realisasi" && activeTab === "input_realisasi");
@@ -2859,18 +3006,25 @@ export function ManagerView({
                 return (
                   <button
                     key={item.id}
-                    onClick={() => { setActiveTab(item.id as any); setIsNavMenuOpen(false); }}
-                    className="flex flex-col items-center gap-2 group cursor-pointer"
+                    onClick={() => {
+                      if (item.id === "ai_chat") {
+                        window.dispatchEvent(new CustomEvent("open-ai-chat"));
+                      } else {
+                        setActiveTab(item.id as any);
+                      }
+                      setIsNavMenuOpen(false);
+                    }}
+                    className="flex flex-col items-center gap-1.5 group cursor-pointer py-1"
                   >
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 shadow-sm ${
+                    <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center transition-all duration-200 shadow-xs ${
                       isActive 
                         ? `${item.color} text-white shadow-md scale-105` 
-                        : `bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ${item.text} group-hover:scale-105 group-hover:shadow-md`
+                        : `bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ${item.text} group-hover:scale-105 group-hover:shadow-sm`
                     }`}>
-                      <Icon className={`w-6 h-6 ${isActive ? "text-white" : ""}`} strokeWidth={isActive ? 2.5 : 2} />
+                      <Icon className={`w-5 h-5 ${isActive ? "text-white" : ""}`} strokeWidth={isActive ? 2.5 : 2} />
                     </div>
-                    <span className={`text-[10px] font-bold text-center leading-tight ${
-                      isActive ? "text-slate-900 dark:text-white" : "text-slate-500 dark:text-slate-400"
+                    <span className={`text-[9.5px] sm:text-[10px] font-bold text-center leading-tight truncate w-full px-0.5 ${
+                      isActive ? "text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400"
                     }`}>
                       {item.label}
                     </span>
@@ -3002,6 +3156,15 @@ export function ManagerView({
         )}
 
         {/* Tab Sales Record TKU */}
+
+        {/* Tab Presentasi */}
+        {activeTab === "presentasi" && (
+          <ErrorBoundary>
+            <React.Suspense fallback={<div className="py-16 text-center text-slate-400 text-sm font-bold">Memuat Presentasi...</div>}>
+              <PresentasiView />
+            </React.Suspense>
+          </ErrorBoundary>
+        )}
 
         {/* Tab Evaluasi */}
         {activeTab === "evaluasi" && (
@@ -3891,10 +4054,10 @@ export function ManagerView({
                     <tr>
                       <th className="p-2 border-b border-slate-200">Baris Target / Realisasi</th>
                       <th className="p-2 border-b border-slate-200 text-center font-extrabold text-blue-700 bg-blue-50/50">Total</th>
-                      <th className="p-2 border-b border-slate-200 text-center">Yakult (YO)</th>
-                      <th className="p-2 border-b border-slate-200 text-center">Light (OM)</th>
-                      <th className="p-2 border-b border-slate-200 text-center">Yakult (OS)</th>
-                      <th className="p-2 border-b border-slate-200 text-center">Light (YT)</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Original (YO)</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Original Mangga (OM)</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Original Stroberi (OS)</th>
+                      <th className="p-2 border-b border-slate-200 text-center">Yakult Light (YT)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 font-mono">
@@ -4207,7 +4370,7 @@ export function ManagerView({
                 </h2>
                 {/* Month Picker for Archive */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-600">Pilih Bulan Arsip:</span>
+                  <span className="text-xs font-bold text-slate-600">Pilih Bulan:</span>
                   <input
                     type="month"
                     value={selectedMonthlyArchive}
@@ -4250,16 +4413,17 @@ export function ManagerView({
               <div className="flex flex-col sm:flex-row flex-wrap gap-2 pt-1">
                 <button
                   onClick={handleFinishAndArchiveMonth}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2"
+                  disabled={isSbSyncing}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  🔒 Selesaikan & Arsipkan Data Bulan Ini ({selectedMonthlyArchive})
+                  🔒 Selesaikan & Arsipkan Data ({selectedMonthlyArchive})
                 </button>
                 <button
                   onClick={() => handleFetchMonthFromSupabase(selectedMonthlyArchive)}
                   disabled={isSbSyncing}
                   className="bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  📂 Ambil Data Arsip Bulan Ini dari Supabase
+                  📂 Buka Arsip dari Supabase
                 </button>
                 <button
                   onClick={handleUpdateArchiveMonth}
@@ -4267,20 +4431,208 @@ export function ManagerView({
                   className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
                   title="Ambil data live terbaru untuk bulan ini lalu timpa/perbarui arsip di Supabase"
                 >
-                  🔄 Perbarui / Refresh Arsip Bulan Ini
+                  🔄 Perbarui Arsip di Supabase
+                </button>
+                <button
+                  onClick={() => handleDeleteArchiveFromSupabase(selectedMonthlyArchive)}
+                  disabled={isSbSyncing}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
+                  title="Hapus permanen arsip bulan terpilih dari database Supabase"
+                >
+                  🗑️ Hapus Arsip Bulan Ini dari Supabase
                 </button>
                 {isViewingHistoricalMonth && (
                   <button
                     onClick={handleResetToLiveData}
-                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 shrink-0"
+                    className="bg-slate-700 hover:bg-slate-800 text-white font-extrabold text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 shrink-0"
                   >
                     🔄 Kembali ke Data Live
                   </button>
                 )}
               </div>
             </div>
+
+            {/* 3. Kelola / Hapus Arsip Supabase */}
+            <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
+                🗑️ Kelola & Hapus Arsip Cloud di Supabase
+              </h2>
+              <p className="text-[10.5px] text-slate-500 font-medium leading-relaxed">
+                Di sini Anda dapat mengelola dan menghapus data arsip yang tersimpan di cloud Supabase. (Penghapusan data di menu Setting tidak menghapus arsip Supabase; hanya di menu ini Anda dapat menghapus arsip Supabase).
+              </p>
+
+              {archivedMonthsList.length === 0 ? (
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-center text-xs text-slate-500 font-bold">
+                  Belum ada bulan arsip yang tersimpan di database Supabase.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                    {archivedMonthsList.map((m) => (
+                      <div key={m} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-black text-slate-800">{getIndonesianMonthLabel(m) || m}</div>
+                          <div className="text-[10px] font-mono text-slate-500">{m}</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => {
+                              setSelectedMonthlyArchive(m);
+                              handleFetchMonthFromSupabase(m);
+                            }}
+                            className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] px-2 py-1.5 rounded-lg border border-indigo-200 transition-all cursor-pointer"
+                            title="Buka data arsip bulan ini"
+                          >
+                            Buka
+                          </button>
+                          <button
+                            onClick={() => handleDeleteArchiveFromSupabase(m)}
+                            disabled={isSbSyncing}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] px-2 py-1.5 rounded-lg border border-rose-200 transition-all cursor-pointer disabled:opacity-50"
+                            title="Hapus arsip ini dari Supabase"
+                          >
+                            🗑️ Hapus
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
+
+        {/* Tab Attention Manager (Catatan Perhatian YL) */}
+        {activeTab === "attention" && (
+          <div className="space-y-4 max-w-4xl mx-auto pb-10">
+            {/* Top Bar Header */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setActiveTab("dashboard")}
+                  className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Kembali</span>
+                </button>
+                <div>
+                  <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                    <Pin className="w-4 h-4 text-violet-600" />
+                    <span>Catatan Perhatian Manager (Attention YL)</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Pesan atau arahan khusus yang tampil langsung di dashboard YL sesuai area.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Input & Form Card */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+                  Pilih Sasaran YL
+                </label>
+                <select
+                  value={attentionArea}
+                  onChange={(e) => {
+                    const area = e.target.value;
+                    setAttentionArea(area);
+                    setAttentionText(area === "all" ? "" : (attentionMap[area] || ""));
+                  }}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs rounded-xl p-3 font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="all">🌐 Semua YL (Broadcast ke seluruh Lady)</option>
+                  {ylList.map((y: any) => (
+                    <option key={y.area} value={y.area}>
+                      Area {y.area} - {y.nama}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+                  Pesan Attention / Instruksi Khusus
+                </label>
+                <textarea
+                  rows={4}
+                  value={attentionText}
+                  onChange={(e) => setAttentionText(e.target.value)}
+                  placeholder="Ketik catatan, instruksi, atau perhatian khusus untuk YL..."
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs rounded-xl p-3 font-medium text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+                />
+              </div>
+
+              {attentionSavedMsg && (
+                <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Catatan Attention berhasil disimpan dan diperbarui di sistem!</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  onClick={handleSaveAttention}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-2 active:scale-95"
+                >
+                  <span>💾</span>
+                  <span>Simpan Catatan Attention</span>
+                </button>
+                {attentionText && (
+                  <button
+                    onClick={() => setAttentionText("")}
+                    className="text-xs font-bold text-slate-500 hover:text-red-500 px-3 py-1.5 transition-colors cursor-pointer"
+                  >
+                    Bersihkan Kolom
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Status Attention Per Area Overview */}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+              <h3 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
+                Daftar Catatan Perhatian Aktif Saat Ini
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {ylList.map((y: any) => {
+                  const note = attentionMap[y.area];
+                  return (
+                    <div
+                      key={y.area}
+                      onClick={() => {
+                        setAttentionArea(y.area);
+                        setAttentionText(note || "");
+                      }}
+                      className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                        note 
+                          ? "bg-amber-50/70 dark:bg-amber-950/30 border-amber-300 dark:border-amber-800/60 hover:border-amber-400" 
+                          : "bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/60 hover:border-slate-300"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-black text-slate-900 dark:text-white">
+                          Area {y.area} - {y.nama}
+                        </span>
+                        <span className={`text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                          note ? "bg-amber-200 dark:bg-amber-800 text-amber-900 dark:text-amber-100" : "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
+                        }`}>
+                          {note ? "Ada Catatan" : "Kosong"}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 line-clamp-2 italic">
+                        {note || "Belum ada catatan khusus."}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === "setting" && (
           <div className="space-y-4">
             {/* 0. Konfigurasi Cloud Supabase (dikunci PIN) */}
@@ -4409,66 +4761,6 @@ export function ManagerView({
               )}
             </div>
 
-            {/* 7. Catatan Perhatian Manager (Attention YL) */}
-            <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <h2 className="text-xs font-black text-slate-900 uppercase tracking-wider border-l-4 border-indigo-600 pl-2">
-                📌 Catatan Perhatian Manager (Attention YL)
-              </h2>
-              <p className="text-xs text-slate-500">
-                Pesan atau arahan khusus ini akan ditampilkan secara eksklusif di dashboard YL sesuai area yang dipilih.
-              </p>
-
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
-                    Pilih Area YL
-                  </label>
-                  <select
-                    value={attentionArea}
-                    onChange={(e) => {
-                      const area = e.target.value;
-                      setAttentionArea(area);
-                      setAttentionText(area === "all" ? "" : (attentionMap[area] || ""));
-                    }}
-                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                  >
-                    <option value="all">🌐 Semua YL (Kirim ke semua)</option>
-                    {ylList.map((y: any) => (
-                      <option key={y.area} value={y.area}>
-                        Area {y.area} - {y.nama}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
-                    Pesan Attention / Catatan Khusus
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={attentionText}
-                    onChange={(e) => setAttentionText(e.target.value)}
-                    placeholder="Ketik catatan atau instruksi khusus untuk YL di area ini..."
-                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded-xl p-2.5 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 leading-relaxed"
-                  />
-                </div>
-
-                {attentionSavedMsg && (
-                  <p className="text-xs font-bold text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                    Catatan Attention berhasil disimpan!
-                  </p>
-                )}
-
-                <button
-                  onClick={handleSaveAttention}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
-                >
-                  <span>💾</span>
-                  <span>Simpan Catatan Attention</span>
-                </button>
-              </div>
-            </div>
             {/* 6. Kelola Kalimat Motivasi Harian (YL) */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
@@ -4648,27 +4940,51 @@ export function ManagerView({
             {/* 3. Reset Data (Targeted) */}
             <div className="bg-white rounded-2xl p-4 border border-rose-100 shadow-sm space-y-3">
               <h2 className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-2 border-l-4 border-rose-600 pl-2">
-                🗑️ Reset Data Khusus (4 Kategori)
+                🗑️ Reset Data Kerja Aktif (4 Kategori)
               </h2>
-              <p className="text-[10px] text-slate-500 leading-relaxed">
-                Hanya menghapus data: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU. Data lain (Profil, PIN, Motivasi, dll) AMAN.
+              <p className="text-[10.5px] text-slate-500 leading-relaxed font-medium">
+                Hanya menghapus data aktif kerja: PLG & PJL, Input PJL Harian, BD & Realisasi (termasuk LHPP), dan Target YL/TKU pada bulan yang dipilih. Data master profil, PIN, Motivasi, Seragam tetap AMAN.
               </p>
-              <div className="space-y-2 mt-2">
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Cakupan Reset:</label>
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-emerald-900 text-xs flex items-start gap-2">
+                <span className="text-base">🛡️</span>
+                <div className="text-[10.5px] leading-relaxed">
+                  <strong className="text-emerald-950 font-bold block mb-0.5">Arsip di Supabase Tetap Aman:</strong>
+                  Reset data di sini <u>TIDAK AKAN</u> menghapus arsip bulanan yang tersimpan di Supabase. Untuk mengelola atau menghapus data arsip di Supabase, silakan buka menu <span className="font-bold text-indigo-700 bg-white px-1.5 py-0.5 rounded border border-indigo-200">Arsip</span>.
+                </div>
+              </div>
+
+              <div className="space-y-3 mt-2">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Pilih Cakupan Reset:</label>
                 <div className="flex flex-col gap-2">
                   <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
                     <input type="radio" name="resetScope" value="current_month" checked={resetScope === "current_month"} onChange={() => setResetScope("current_month")} className="accent-rose-600" />
-                    Hanya Bulan Ini ({globalMonth || "2026-08"})
+                    <span>Hanya Bulan Tertentu</span>
                   </label>
+
+                  {resetScope === "current_month" && (
+                    <div className="ml-6 flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                      <span className="text-xs font-bold text-slate-600">Pilih Bulan:</span>
+                      <input
+                        type="month"
+                        value={resetSelectedMonth}
+                        onChange={(e) => setResetSelectedMonth(e.target.value)}
+                        className="p-1.5 text-xs font-bold bg-white rounded-lg border border-slate-300 text-slate-800 outline-none cursor-pointer"
+                      />
+                      <span className="text-[10px] text-slate-500 font-medium">({getIndonesianMonthLabel(resetSelectedMonth) || resetSelectedMonth})</span>
+                    </div>
+                  )}
+
                   <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer">
                     <input type="radio" name="resetScope" value="all" checked={resetScope === "all"} onChange={() => setResetScope("all")} className="accent-rose-600" />
-                    Semua Riwayat (Semua Bulan)
+                    <span>Semua Riwayat (Semua Bulan)</span>
                   </label>
                 </div>
               </div>
+
               <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-900 text-xs space-y-2">
-                <p><strong>Cakupan:</strong> <span className="font-mono font-bold text-rose-950">{resetScope === "all" ? "SEMUA RIWAYAT (Semua Bulan)" : `HANYA BULAN INI (${globalMonth || "2026-08"})`}</span></p>
-                <p><strong>Data yang AKAN DIHAPUS:</strong></p>
+                <p><strong>Cakupan yang akan direset:</strong> <span className="font-mono font-bold text-rose-950">{resetScope === "all" ? "SEMUA RIWAYAT BULAN" : `BULAN ${resetSelectedMonth} (${getIndonesianMonthLabel(resetSelectedMonth)})`}</span></p>
+                <p><strong>Data aktif yang AKAN DIKOSONGKAN:</strong></p>
                 <ul className="list-disc pl-4 font-bold text-[10px] space-y-1">
                   <li>Data Pelanggan & Penjualan (PLG & PJL)</li>
                   <li>Transaksi Harian / LHPP PDM</li>
@@ -4676,12 +4992,20 @@ export function ManagerView({
                   <li>Breakdown Plan & Realisasi</li>
                 </ul>
               </div>
+
+              {resetSuccessMsg && (
+                <div className={`p-3 rounded-xl border text-xs font-bold ${resetSuccessMsg.startsWith('✅') ? 'bg-emerald-50 border-emerald-300 text-emerald-900' : 'bg-rose-50 border-rose-300 text-rose-900'}`}>
+                  {resetSuccessMsg}
+                </div>
+              )}
+
               <button
                 onClick={handleResetTargeted}
-                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2 mt-2"
+                disabled={isResetting}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all shadow cursor-pointer flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
               >
                 <span>🗑️</span>
-                <span>Reset Data Khusus Sekarang</span>
+                <span>{isResetting ? "Sedang Mereset Data..." : `Reset Data ${resetScope === "all" ? "Semua Bulan" : `Bulan ${resetSelectedMonth}`} Sekarang`}</span>
               </button>
             </div>
 
@@ -4704,8 +5028,9 @@ export function ManagerView({
                 <button
                   onClick={handleDownloadExcel}
                   className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1"
+                  title={`Unduh Laporan PLG PJL (Laporan DP 1) Bulan ${globalMonth}`}
                 >
-                  📊 Simpan ke Excel Manual (.xlsx)
+                  📊 Unduh Excel PLG PJL (Laporan DP 1)
                 </button>
                 <button
                   onClick={handleClearCache}
@@ -4766,6 +5091,114 @@ export function ManagerView({
           <ProductKnowledgeView />
         )}
       </main>
+
+      {/* 1. In-App Modal: Konfirmasi Reset Data Kerja Aktif */}
+      {showTargetedResetModal && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-rose-200 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 text-2xl shrink-0">
+                🗑️
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 leading-tight">Konfirmasi Reset Data Kerja Aktif</h3>
+                <p className="text-xs text-rose-600 font-bold">Pengosongan Data Transaksi & Target</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-xs text-rose-950 space-y-2.5">
+              <p className="font-bold text-slate-800">
+                Apakah Anda yakin ingin mengosongkan data kerja aktif untuk:
+              </p>
+              <div className="text-center py-2.5 px-3 bg-white rounded-xl border border-rose-300 font-mono font-black text-sm text-rose-700 shadow-sm">
+                📅 {resetScope === "all" ? "SEMUA RIWAYAT (Semua Bulan)" : `BULAN ${resetSelectedMonth} (${getIndonesianMonthLabel(resetSelectedMonth) || resetSelectedMonth})`}
+              </div>
+
+              <div className="text-[11px] text-slate-700 space-y-1">
+                <p className="font-bold text-rose-900">Data yang AKAN DIKOSONGKAN:</p>
+                <ul className="list-disc pl-4 space-y-0.5 text-slate-600 font-medium">
+                  <li>Data Pelanggan & Penjualan (PLG & PJL)</li>
+                  <li>Transaksi Harian / LHPP PDM</li>
+                  <li>Target YL & Target TKU</li>
+                  <li>Breakdown Plan & Realisasi</li>
+                </ul>
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-[11px] text-emerald-900 font-medium flex items-start gap-2">
+                <span className="text-sm">🛡️</span>
+                <span>
+                  <strong className="text-emerald-950 font-bold">Arsip Supabase Aman:</strong> Data arsip bulanan yang tersimpan di cloud Supabase <u>TIDAK AKAN</u> terhapus.
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={() => setShowTargetedResetModal(false)}
+                disabled={isResetting}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleExecuteResetTargeted}
+                disabled={isResetting}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <span>🗑️</span>
+                <span>{isResetting ? "Mereset..." : "Ya, Reset Data Sekarang"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. In-App Modal: Konfirmasi Hapus Permanen Arsip Supabase */}
+      {monthToDeleteFromSupabase && (
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-200 space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 flex items-center justify-center text-rose-600 text-2xl shrink-0">
+                ⚠️
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 leading-tight">Hapus Arsip Cloud Supabase</h3>
+                <p className="text-xs text-rose-600 font-bold">Tindakan Permanen & Tidak Dapat Dibatalkan</p>
+              </div>
+            </div>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-xs text-rose-950 space-y-2.5">
+              <p className="font-bold text-slate-800">
+                Apakah Anda yakin ingin <strong>MENGHAPUS PERMANEN</strong> arsip data bulan berikut dari cloud database Supabase?
+              </p>
+              <div className="text-center py-2.5 px-3 bg-white rounded-xl border border-rose-300 font-mono font-black text-sm text-rose-700 shadow-sm">
+                📅 BULAN {monthToDeleteFromSupabase} ({getIndonesianMonthLabel(monthToDeleteFromSupabase) || monthToDeleteFromSupabase})
+              </div>
+              <p className="text-[11px] text-rose-800 leading-relaxed font-medium">
+                ⚠️ Snapshot rekapitulasi data arsip bulan ini akan dihapus selamanya dari Supabase.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={() => setMonthToDeleteFromSupabase(null)}
+                disabled={isSbSyncing}
+                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleExecuteDeleteArchiveFromSupabase}
+                disabled={isSbSyncing}
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <span>🗑️</span>
+                <span>{isSbSyncing ? "Menghapus..." : "Ya, Hapus Permanen"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   ClipboardPaste
 } from "lucide-react";
 import { loadFromSupabase, saveToSupabase, deleteFromSupabase } from "../lib/supabaseClient";
+import { getPreviousYearDataSync } from "../lib/historicalArchiveLookup";
 
 export interface Rata2Row {
   area: string;
@@ -69,6 +70,18 @@ const INITIAL_SAMPLES: Record<string, Rata2Row[]> = {
     { area: "209", nama: "Titis", total: 8215, yo: 192.26, om: 58.06, os: 0, yt: 14.68, totalRata2: 265.00 },
     { area: "210", nama: "Eni", total: 7800, yo: 204.19, om: 37.42, os: 0, yt: 10.00, totalRata2: 251.61 }
   ],
+  "2025-08": [
+    { area: "201", nama: "Gusrina", total: 11315, yo: 335.50, om: 22.80, os: 0, yt: 7.50, totalRata2: 365.80 },
+    { area: "202", nama: "Dewi A", total: 14630, yo: 398.20, om: 53.10, os: 0, yt: 19.50, totalRata2: 470.80 },
+    { area: "203", nama: "Gusrini", total: 16180, yo: 458.00, om: 43.50, os: 0, yt: 20.10, totalRata2: 521.60 },
+    { area: "204", nama: "Umi Maisaroh", total: 13950, yo: 368.50, om: 56.00, os: 0, yt: 27.50, totalRata2: 452.00 },
+    { area: "205", nama: "Suyik", total: 7900, yo: 205.00, om: 37.00, os: 0, yt: 13.00, totalRata2: 255.00 },
+    { area: "206", nama: "Ria R. Wulan", total: 11750, yo: 301.50, om: 58.50, os: 0, yt: 20.20, totalRata2: 380.20 },
+    { area: "207", nama: "Endang", total: 10780, yo: 275.00, om: 58.00, os: 0, yt: 15.30, totalRata2: 348.30 },
+    { area: "208", nama: "Wakiah", total: 10120, yo: 258.00, om: 54.20, os: 0, yt: 13.80, totalRata2: 326.00 },
+    { area: "209", nama: "Titis", total: 8450, yo: 198.00, om: 58.50, os: 0, yt: 14.80, totalRata2: 271.30 },
+    { area: "210", nama: "Eni", total: 8020, yo: 210.00, om: 38.00, os: 0, yt: 10.20, totalRata2: 258.20 }
+  ],
   "2026-01": [
     { area: "201", nama: "Gusrina", total: 9895, yo: 281.45, om: 20.97, os: 0, yt: 16.77, totalRata2: 319.19 },
     { area: "202", nama: "Dewi A", total: 13100, yo: 379.84, om: 25.81, os: 0, yt: 16.94, totalRata2: 422.58 },
@@ -92,7 +105,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
   const [selectedMonth, setSelectedMonth] = useState<string>("01");
   const [activeYearMonth, setActiveYearMonth] = useState<string>("2025-01");
 
-  const [savedMonthsList, setSavedMonthsList] = useState<string[]>(["2025-07", "2026-01"]);
+  const [savedMonthsList, setSavedMonthsList] = useState<string[]>(["2025-07", "2025-08", "2026-01"]);
   const [currentData, setCurrentData] = useState<MonthlyRata2Data | null>(null);
   
   const [isEditing, setIsEditing] = useState<boolean>(false);
@@ -225,7 +238,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
       try {
         const sbIndex = await loadFromSupabase<string[]>("rata2_bulanan_index");
         if (Array.isArray(sbIndex) && sbIndex.length > 0) {
-          const merged = Array.from(new Set([...localIndex, ...sbIndex, "2025-07", "2026-01"])).sort().reverse();
+          const merged = Array.from(new Set([...localIndex, ...sbIndex, "2025-07", "2025-08", "2026-01"])).sort().reverse();
           setSavedMonthsList(merged);
           if (merged.length > 0) {
             const [y, m] = merged[0].split("-");
@@ -237,7 +250,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
         }
       } catch (e) {}
 
-      const merged = Array.from(new Set([...localIndex, "2025-07", "2026-01"])).sort().reverse();
+      const merged = Array.from(new Set([...localIndex, "2025-07", "2025-08", "2026-01"])).sort().reverse();
       setSavedMonthsList(merged);
       if (merged.length > 0) {
         const [y, m] = merged[0].split("-");
@@ -454,6 +467,19 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
 
   const activeLabel = `${MONTH_NAMES[parseInt(selectedMonth, 10) - 1]} ${selectedYear}`;
 
+  // Perbandingan Vs Tahun Lalu: cari data arsip tahun sebelumnya untuk bulan yang sama.
+  // Otomatis fallback ke monthly_archive -> rata2_bulanan -> sales_record_tku -> baseline
+  // historis 2025, jadi tetap muncul walau bulan ini belum ada di record TKU tahun berjalan.
+  const vsTahunLalu = useMemo(() => {
+    const monthIdx = parseInt(selectedMonth, 10) - 1;
+    const prev = getPreviousYearDataSync(selectedYear, monthIdx);
+    if (!prev.found || !prev.ratarataPenjualanTahunLalu) return null;
+    const persen = totals.totalRata2 > 0
+      ? Number(((totals.totalRata2 / prev.ratarataPenjualanTahunLalu) * 100).toFixed(1))
+      : null;
+    return { ...prev, persen };
+  }, [selectedYear, selectedMonth, totals.totalRata2]);
+
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Header Panel */}
@@ -570,6 +596,16 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
             <p className="text-[10px] text-emerald-200 mt-0.5">
               Tabel Rekapitulasi Rata-Rata Penjualan Per Yakult Lady ({activeLabel})
             </p>
+            {vsTahunLalu && (
+              <p className="text-[10px] text-emerald-300 mt-1 flex items-center gap-1.5">
+                <span className="bg-emerald-700/60 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
+                  vs Tahun Lalu: {vsTahunLalu.persen !== null ? `${vsTahunLalu.persen}%` : "-"}
+                </span>
+                <span className="text-emerald-400/80">
+                  ({vsTahunLalu.sourceDescription}: {vsTahunLalu.ratarataPenjualanTahunLalu.toLocaleString("id-ID")} btl/hari)
+                </span>
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

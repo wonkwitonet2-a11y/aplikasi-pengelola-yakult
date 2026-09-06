@@ -1110,198 +1110,178 @@ export function YLView({
               </div>
 
               {/* Bio Data Board */}
-              <div className="flex-1 bg-white dark:bg-slate-900 rounded-[32px] p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-center relative overflow-hidden">
+              <div className="flex-1 bg-white dark:bg-slate-900 rounded-[28px] sm:rounded-[32px] p-3.5 sm:p-4 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-center relative overflow-hidden">
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h2 className="text-sm sm:text-lg font-black text-slate-900 dark:text-white leading-tight">{cleanYlName(ylName)}</h2>
-                      <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider block mt-0.5">{currentYlInfo.area || ylName.substring(0, 3)} • {currentYlInfo.kodeYl || "-"}</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-tight truncate">{cleanYlName(ylName)}</h2>
+                      <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider block mt-0.5">
+                        {currentYlInfo.area || ylName.substring(0, 3)} • {currentYlInfo.kodeYl || "-"}
+                      </span>
+                      {/* Gelar / Tier Badge dipindah ke card Bio */}
+                      <div className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-lg text-[9.5px] sm:text-[10px] font-extrabold mt-1">
+                        <span>🌟</span>
+                        <span>{calculateMasaKerja(currentYlInfo.tanggalMasuk).title}</span>
+                      </div>
                     </div>
-                    <div className="bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400 text-[9px] sm:text-[10px] font-bold px-2 py-1 rounded-xl text-center">
-                      Masa Kerja<br/>
-                      <span className="text-xs">{(() => { const mk = calculateMasaKerja(currentYlInfo.tanggalMasuk); return mk.text; })()}</span>
+                    <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-300 text-[9px] sm:text-[10px] font-bold px-2 py-1 rounded-xl text-center shrink-0">
+                      <span className="text-[8px] uppercase tracking-wider block text-rose-500 font-extrabold">Masa Kerja</span>
+                      <span className="text-xs font-black">{calculateMasaKerja(currentYlInfo.tanggalMasuk).text}</span>
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Tanggal Masuk</span>
-                      <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{currentYlInfo.tanggalMasuk || "-"}</span>
+                  <div className="grid grid-cols-2 gap-1.5 mt-0.5">
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-1.5 rounded-xl">
+                      <span className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider block">Tanggal Masuk</span>
+                      <span className="text-[11px] sm:text-xs font-bold text-slate-800 dark:text-slate-200">{currentYlInfo.tanggalMasuk || "-"}</span>
                     </div>
-                    <div className="bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">NIK</span>
-                      <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">{currentYlInfo.nik || "-"}</span>
+                    <div className="bg-slate-50 dark:bg-slate-800/50 p-1.5 rounded-xl">
+                      <span className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider block">NIK</span>
+                      <span className="text-[11px] sm:text-xs font-bold text-slate-800 dark:text-slate-200">{currentYlInfo.nik || "-"}</span>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Title Board / Birthday Message */}
-            <div className="flex flex-col gap-2">
-              <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex items-center justify-center text-center">
-                <p className="text-slate-700 dark:text-slate-300 font-bold text-[11px] sm:text-sm flex items-center gap-2 uppercase tracking-wider">
-                  🌟 Gelar: <span className="text-rose-600 dark:text-rose-400 font-black">{(() => { const mk = calculateMasaKerja(currentYlInfo.tanggalMasuk); return mk.title; })()}</span>
+            {/* Card Rekapitulasi Mini Kinerja YL (Pengganti Card Tier) */}
+            <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 flex flex-col gap-2">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></div>
+                  <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                    Kinerja Bulan Ini
+                  </span>
+                </div>
+                <div className="text-[11px] sm:text-xs font-bold text-slate-600 dark:text-slate-300">
+                  Rata-rata: <span className="font-black text-red-600 dark:text-red-400">{Math.round(mRata2).toLocaleString("id-ID")}</span> <span className="text-[9.5px] font-normal text-slate-400">btl/hr</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 text-center">
+                {/* 1. vs Target */}
+                <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2 border border-slate-200/70 dark:border-slate-700/60 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[9px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block tracking-wider">vs Target</span>
+                    <p className={`text-xs sm:text-sm font-black mt-0.5 ${
+                      targetVal > 0 && mRata2 >= targetVal ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
+                    }`}>
+                      {targetVal > 0 ? `${((mRata2 / targetVal) * 100).toFixed(1)}%` : "-"}
+                    </p>
+                  </div>
+                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/50 leading-tight">
+                    <span className="block font-medium">Tgt: {Math.round(targetVal)}</span>
+                    <span className={`font-bold ${mRata2 >= targetVal ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                      {targetVal > 0 ? `${mRata2 >= targetVal ? "+" : ""}${Math.round(mRata2 - targetVal)}` : "-"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. vs Bulan Lalu */}
+                <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2 border border-slate-200/70 dark:border-slate-700/60 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[9px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block tracking-wider">vs Bln Lalu</span>
+                    <p className={`text-xs sm:text-sm font-black mt-0.5 ${
+                      blnLaluVal > 0 && mRata2 >= blnLaluVal ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-300"
+                    }`}>
+                      {blnLaluVal > 0 ? `${((mRata2 / blnLaluVal) * 100).toFixed(1)}%` : "-"}
+                    </p>
+                  </div>
+                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/50 leading-tight">
+                    <span className="block font-medium">Lalu: {Math.round(blnLaluVal)}</span>
+                    <span className={`font-bold ${mRata2 >= blnLaluVal ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                      {blnLaluVal > 0 ? `${mRata2 >= blnLaluVal ? "+" : ""}${Math.round(mRata2 - blnLaluVal)}` : "-"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. vs Tahun Lalu */}
+                <div className="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2 border border-slate-200/70 dark:border-slate-700/60 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[9px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block tracking-wider">vs Thn Lalu</span>
+                    <p className={`text-xs sm:text-sm font-black mt-0.5 ${
+                      thnLaluVal > 0 && mRata2 >= thnLaluVal ? "text-emerald-600 dark:text-emerald-400" : "text-slate-700 dark:text-slate-300"
+                    }`}>
+                      {thnLaluVal > 0 ? `${((mRata2 / thnLaluVal) * 100).toFixed(1)}%` : "-"}
+                    </p>
+                  </div>
+                  <div className="text-[9.5px] text-slate-500 dark:text-slate-400 mt-1 pt-1 border-t border-slate-200/60 dark:border-slate-700/50 leading-tight">
+                    <span className="block font-medium">Th Lalu: {Math.round(thnLaluVal)}</span>
+                    <span className={`font-bold ${mRata2 >= thnLaluVal ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                      {thnLaluVal > 0 ? `${mRata2 >= thnLaluVal ? "+" : ""}${Math.round(mRata2 - thnLaluVal)}` : "-"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Birthday Message */}
+            {isBirthday && (
+              <div className="bg-gradient-to-r from-rose-400 via-pink-500 to-rose-500 p-4 rounded-2xl shadow-md flex items-center justify-center text-center animate-pulse border-2 border-rose-300 mt-1">
+                <p className="text-white font-black text-sm sm:text-base leading-snug">
+                  🎉 Selamat Ulang Tahun Ibu {cleanYlName(ylName)}! 🎂<br/>
+                  <span className="text-[10px] sm:text-xs font-semibold opacity-90 block mt-1 leading-tight">Kami keluarga besar Yakult mengucapkan selamat ulang tahun. Semoga selalu diberikan kesehatan, kebahagiaan, dan makin sukses bersama Yakult. Amin.</span>
                 </p>
               </div>
+            )}
 
-              {isBirthday && (
-                <div className="bg-gradient-to-r from-rose-400 via-pink-500 to-rose-500 p-4 rounded-2xl shadow-md flex items-center justify-center text-center animate-pulse border-2 border-rose-300 mt-1">
-                  <p className="text-white font-black text-sm sm:text-base leading-snug">
-                    🎉 Selamat Ulang Tahun Ibu {cleanYlName(ylName)}! 🎂<br/>
-                    <span className="text-[10px] sm:text-xs font-semibold opacity-90 block mt-1 leading-tight">Kami keluarga besar Yakult mengucapkan selamat ulang tahun. Semoga selalu diberikan kesehatan, kebahagiaan, dan makin sukses bersama Yakult. Amin.</span>
+            {/* Menu Grid - Compact 4 to 5 Columns Responsive */}
+            <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-5 landscape:grid-cols-5 gap-2 sm:gap-2.5">
+              {[
+                { id: "input", icon: "📝", label: "Entry Penjualan", color: "bg-red-50 dark:bg-red-950/30 text-red-600" },
+                { id: "ringkasan", icon: "✨", label: "Ringkasan", color: "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600" },
+                { id: "breakdown", icon: "📊", label: "Breakdown dan Realisasi", color: "bg-amber-50 dark:bg-amber-950/30 text-amber-600" },
+                { id: "realisasi_potensi", icon: "🎯", label: "Realisasi Potensi", color: "bg-sky-50 dark:bg-sky-950/30 text-sky-600" },
+                { id: "potensi_tembus", icon: "🚀", label: "Potensi Tembus", color: "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600" },
+                { id: "seragam", icon: "👗", label: "Seragam", color: "bg-purple-50 dark:bg-purple-950/30 text-purple-600" },
+                { id: "product_knowledge", icon: "📚", label: "Product Knowledge", color: "bg-rose-50 dark:bg-rose-950/30 text-rose-600" },
+                { id: "tautan", icon: "🔗", label: "Link", color: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300" },
+                { id: "ai_chat", icon: "🤖", label: "Tanya AI", color: "bg-violet-50 dark:bg-violet-950/30 text-violet-600" },
+              ].map((btn) => (
+                <button
+                  key={btn.id}
+                  onClick={() => {
+                    if (btn.id === "ai_chat") {
+                      window.dispatchEvent(new CustomEvent("open-ai-chat"));
+                    } else {
+                      setActiveTab(btn.id as any);
+                    }
+                  }}
+                  className="bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md transition-all active:scale-95 group text-center flex flex-col items-center justify-center gap-1.5 min-h-[76px] sm:min-h-[82px] cursor-pointer"
+                >
+                  <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl ${btn.color} flex items-center justify-center text-lg sm:text-xl group-hover:scale-110 transition-transform`}>
+                    {btn.icon}
+                  </div>
+                  <h3 className="font-extrabold text-slate-800 dark:text-slate-200 text-[10px] sm:text-[11px] leading-tight text-center line-clamp-2 w-full px-0.5">
+                    {btn.label}
+                  </h3>
+                </button>
+              ))}
+            </div>
+
+            {/* Papan Catatan Perhatian Manager */}
+            <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 rounded-2xl p-3 sm:p-4 border border-amber-300 dark:border-amber-700/50 shadow-xs flex flex-col justify-between">
+              <div className="flex items-center gap-1.5 border-b border-amber-200 dark:border-amber-800/60 pb-1.5 mb-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 animate-bounce shrink-0" />
+                <h2 className="text-[10px] sm:text-xs font-black text-amber-950 dark:text-amber-100 uppercase tracking-wider">
+                  Perhatian
+                </h2>
+              </div>
+              <div className="overflow-y-auto pr-1 flex-1 max-h-24">
+                {motYlLines.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {motYlLines.map((line, idx) => (
+                      <li key={idx} className="text-[10px] sm:text-xs font-bold text-amber-900 dark:text-amber-200 leading-snug flex items-start gap-1">
+                        <span className="text-amber-500 dark:text-amber-400 mt-0.5">•</span>
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[10px] sm:text-xs font-semibold text-amber-700/60 dark:text-amber-400/60 italic text-center py-2">
+                    Belum ada catatan khusus.
                   </p>
-                </div>
-              )}
-            </div>
-
-            {/* Main Action Grid - Made Smaller */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setActiveTab("input")}
-                className="bg-rose-50 dark:bg-rose-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-rose-200 dark:border-rose-800 hover:border-rose-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="w-8 h-8 rounded-xl bg-red-100 text-red-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <span className="text-lg">📝</span>
-                  </div>
-                  
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Entry Penjualan</h3>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("ringkasan")}
-                className="bg-emerald-50 dark:bg-emerald-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-emerald-200 dark:border-emerald-800 hover:border-emerald-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Ringkasan Hari Ini</h3>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("breakdown")}
-                className="bg-amber-50 dark:bg-amber-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-amber-200 dark:border-amber-800 hover:border-amber-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <span className="text-lg">📊</span>
-                  </div>
-                  
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Breakdown</h3>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("realisasi_potensi")}
-                className="bg-sky-50 dark:bg-sky-900/20 p-3 sm:p-4 rounded-[20px] shadow-sm border border-sky-200 dark:border-sky-800 hover:border-sky-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="w-8 h-8 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <span className="text-lg">🎯</span>
-                  </div>
-                  
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Realisasi & Potensi</h3>
-                </div>
-              </button>
-            </div>
-
-            {/* Bottom Row: Potensi Tembus (Left) & Papan Attention (Right) */}
-            <div className="grid grid-cols-2 gap-2 mt-2">
-
-              <button
-                onClick={() => setActiveTab("seragam")}
-                className="bg-purple-50 dark:bg-purple-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-purple-200 dark:border-purple-800 hover:border-purple-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <span className="text-lg">👗</span>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Seragam</h3>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("potensi_tembus")}
-                className="bg-indigo-50 dark:bg-indigo-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-indigo-200 dark:border-indigo-800 hover:border-indigo-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <span className="text-lg">🚀</span>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Potensi Tembus</h3>
-                  
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("product_knowledge")}
-                className="col-span-1 bg-rose-50 dark:bg-rose-900/20 p-3 sm:p-4 rounded-[24px] shadow-sm border border-rose-200 dark:border-rose-800 hover:border-rose-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <span className="text-lg">📚</span>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Product Knowledge</h3>
-                </div>
-              </button>
-
-
-                            <button
-                onClick={() => setActiveTab("tautan")}
-                className="col-span-1 bg-slate-100 dark:bg-slate-800 p-3 sm:p-4 rounded-[24px] shadow-sm border border-slate-300 dark:border-slate-700 hover:border-slate-400 hover:shadow-md transition-all active:scale-95 group text-left flex flex-col justify-between h-20"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <span className="text-lg">🔗</span>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">Tautan</h3>
-                </div>
-              </button>
-              
-              <div className="col-span-2 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/40 dark:to-orange-900/40 rounded-[24px] p-3 sm:p-4 border border-amber-300 dark:border-amber-700/50 shadow-sm flex flex-col justify-between h-auto">
-                <div className="flex items-center gap-1.5 border-b border-amber-200 dark:border-amber-800/60 pb-1.5 mb-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 animate-bounce shrink-0" />
-                  <h2 className="text-[10px] sm:text-xs font-black text-amber-950 dark:text-amber-100 uppercase tracking-wider">
-                    Perhatian
-                  </h2>
-                </div>
-                <div className="overflow-y-auto pr-1 flex-1 max-h-24">
-                  {motYlLines.length > 0 ? (
-                    <ul className="space-y-1.5">
-                      {motYlLines.map((line, idx) => (
-                        <li key={idx} className="text-[10px] sm:text-xs font-bold text-amber-900 dark:text-amber-200 leading-snug flex items-start gap-1">
-                          <span className="text-amber-500 dark:text-amber-400 mt-0.5">•</span>
-                          <span>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-[10px] sm:text-xs font-semibold text-amber-700/60 dark:text-amber-400/60 italic text-center py-2">
-                      Belum ada catatan khusus.
-                    </p>
-                  )}
-                </div>
+                )}
               </div>
             </div>
 
@@ -1486,57 +1466,81 @@ export function YLView({
 
         {/* RINGKASAN TAB */}
         {activeTab === "ringkasan" && (
-          <div className="space-y-4">
-            {/* Target, Bulan Lalu, & Tahun Lalu Per YL Display Card */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-l-4 border-red-600 pl-3">
+          <div className="space-y-3.5">
+            {/* Target, Bulan Lalu, & Tahun Lalu Per YL Display Card - Ringkas & Pas Isi */}
+            <div className="bg-white rounded-2xl p-3 sm:p-3.5 border border-slate-200 shadow-xs space-y-2.5">
+              <div className="flex items-center justify-between border-l-4 border-red-600 pl-2.5">
                 <div>
-                  <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wider">
+                  <h2 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-wider">
                     Target, Bulan Lalu & Tahun Lalu
                   </h2>
-                  <p className="text-xs text-slate-500 font-bold uppercase mt-0.5">
-                    Patokan Rata-Rata Penjualan Ibu {cleanYlName(ylName)}
+                  <p className="text-[10px] sm:text-[11px] text-slate-500 font-semibold uppercase">
+                    Rata-Rata Saat Ini: <span className="text-slate-900 font-black">{Math.trunc(mRata2)} btl/hari</span>
                   </p>
                 </div>
-                <span className="text-xs font-black bg-red-50 text-red-700 px-3 py-1 rounded-lg border border-red-200">
+                <span className="text-[10px] sm:text-[11px] font-black bg-red-50 text-red-700 px-2.5 py-0.5 rounded-lg border border-red-200">
                   Area {ylName.substring(0, 3)}
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 text-center pt-1">
-                <div className="p-3.5 bg-red-50/90 rounded-2xl border border-red-200 shadow-sm flex flex-col justify-between">
+              <div className="grid grid-cols-3 gap-2 sm:gap-2.5 text-center pt-0.5">
+                {/* 1. Target Bulan Ini */}
+                <div className="p-2 sm:p-2.5 bg-red-50/70 rounded-xl border border-red-200 flex flex-col justify-between">
                   <div>
-                    <span className="text-xs font-extrabold text-red-900 uppercase block mb-1">Target Bulan Ini</span>
-                    <span className="text-2xl sm:text-4xl font-black text-red-700 block">{Math.round(targetVal).toLocaleString("id-ID")}</span>
-                    <span className="text-xs font-bold text-red-600/90 block mt-1">btl / hari</span>
+                    <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-red-900 block tracking-wider">Target Bulan Ini</span>
+                    <p className="text-base sm:text-xl font-black text-red-700 leading-tight mt-0.5">
+                      {Math.round(targetVal).toLocaleString("id-ID")}
+                      <span className="text-[9px] sm:text-[9.5px] font-bold text-red-600/80 block -mt-0.5">btl / hari</span>
+                    </p>
                   </div>
-                  <div className="mt-2.5 pt-2 border-t border-red-200/80">
-                    <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Target</span>
-                    <span className="text-sm sm:text-base font-black text-red-700">{getPctString(mRata2, targetVal)}</span>
+                  <div className="mt-1.5 pt-1.5 border-t border-red-200/80 leading-tight">
+                    <span className="text-[9px] text-slate-500 font-extrabold uppercase block">vs Target</span>
+                    <p className={`text-xs sm:text-sm font-black ${targetVal > 0 && mRata2 >= targetVal ? "text-emerald-700" : "text-amber-700"}`}>
+                      {getPctString(mRata2, targetVal)}
+                    </p>
+                    <p className={`text-[10px] sm:text-[11px] font-black mt-0.5 ${targetVal > 0 && mRata2 >= targetVal ? "text-emerald-700" : "text-amber-700"}`}>
+                      {targetVal > 0 ? `${mRata2 >= targetVal ? "+" : ""}${Math.round(mRata2 - targetVal)} btl` : "-"}
+                    </p>
                   </div>
                 </div>
 
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                {/* 2. Bulan Lalu */}
+                <div className="p-2 sm:p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
                   <div>
-                    <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Bulan Lalu</span>
-                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{Math.round(blnLaluVal).toLocaleString("id-ID")}</span>
-                    <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
+                    <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-slate-600 block tracking-wider">Bulan Lalu</span>
+                    <p className="text-base sm:text-xl font-black text-slate-800 leading-tight mt-0.5">
+                      {Math.round(blnLaluVal).toLocaleString("id-ID")}
+                      <span className="text-[9px] sm:text-[9.5px] font-bold text-slate-400 block -mt-0.5">btl / hari</span>
+                    </p>
                   </div>
-                  <div className="mt-2.5 pt-2 border-t border-slate-200">
-                    <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Bln Lalu</span>
-                    <span className="text-sm sm:text-base font-black text-slate-700">{getPctString(mRata2, blnLaluVal)}</span>
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 leading-tight">
+                    <span className="text-[9px] text-slate-500 font-extrabold uppercase block">vs Bln Lalu</span>
+                    <p className={`text-xs sm:text-sm font-black ${blnLaluVal > 0 && mRata2 >= blnLaluVal ? "text-emerald-700" : "text-rose-700"}`}>
+                      {getPctString(mRata2, blnLaluVal)}
+                    </p>
+                    <p className={`text-[10px] sm:text-[11px] font-black mt-0.5 ${blnLaluVal > 0 && mRata2 >= blnLaluVal ? "text-emerald-700" : "text-rose-700"}`}>
+                      {blnLaluVal > 0 ? `${mRata2 >= blnLaluVal ? "+" : ""}${Math.round(mRata2 - blnLaluVal)} btl` : "-"}
+                    </p>
                   </div>
                 </div>
 
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                {/* 3. Tahun Lalu */}
+                <div className="p-2 sm:p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
                   <div>
-                    <span className="text-xs font-extrabold text-slate-600 uppercase block mb-1">Tahun Lalu</span>
-                    <span className="text-2xl sm:text-4xl font-black text-slate-800 block">{Math.round(thnLaluVal).toLocaleString("id-ID")}</span>
-                    <span className="text-xs font-bold text-slate-500 block mt-1">btl / hari</span>
+                    <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-slate-600 block tracking-wider">Tahun Lalu</span>
+                    <p className="text-base sm:text-xl font-black text-slate-800 leading-tight mt-0.5">
+                      {Math.round(thnLaluVal).toLocaleString("id-ID")}
+                      <span className="text-[9px] sm:text-[9.5px] font-bold text-slate-400 block -mt-0.5">btl / hari</span>
+                    </p>
                   </div>
-                  <div className="mt-2.5 pt-2 border-t border-slate-200">
-                    <span className="text-[10px] text-slate-500 font-bold block uppercase">vs Thn Lalu</span>
-                    <span className="text-sm sm:text-base font-black text-slate-700">{getPctString(mRata2, thnLaluVal)}</span>
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 leading-tight">
+                    <span className="text-[9px] text-slate-500 font-extrabold uppercase block">vs Thn Lalu</span>
+                    <p className={`text-xs sm:text-sm font-black ${thnLaluVal > 0 && mRata2 >= thnLaluVal ? "text-emerald-700" : "text-rose-700"}`}>
+                      {getPctString(mRata2, thnLaluVal)}
+                    </p>
+                    <p className={`text-[10px] sm:text-[11px] font-black mt-0.5 ${thnLaluVal > 0 && mRata2 >= thnLaluVal ? "text-emerald-700" : "text-rose-700"}`}>
+                      {thnLaluVal > 0 ? `${mRata2 >= thnLaluVal ? "+" : ""}${Math.round(mRata2 - thnLaluVal)} btl` : "-"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1602,7 +1606,145 @@ export function YLView({
               </div>
             </div>
 
-            {/* Estimasi Kompensasi */}
+            {/* Akumulasi Realisasi Per Potensi Sektor & Persentase Matrix */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-l-4 border-indigo-600 pl-3">
+                <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wider">
+                  📊 Ringkasan Akumulasi Per Potensi
+                </h2>
+                <span className="text-xs font-mono bg-indigo-50 text-indigo-700 font-black px-2.5 py-1 rounded-lg border border-indigo-100">
+                  Total: {mRmh + mPsr + mSkh + mKtr + mTk + mIb} btl
+                </span>
+              </div>
+
+              {(() => {
+                const totalPot = mRmh + mPsr + mSkh + mKtr + mTk + mIb;
+                const getPct = (val: number) => totalPot > 0 ? String(Math.round((val / totalPot) * 100)) : "0";
+
+                const sectorList = [
+                  { key: "rmh", label: "Rumah", val: mRmh, pct: getPct(mRmh), bg: "bg-emerald-50 border-emerald-200 text-emerald-950", bar: "bg-emerald-500" },
+                  { key: "psr", label: "Pasar", val: mPsr, pct: getPct(mPsr), bg: "bg-amber-50 border-amber-200 text-amber-950", bar: "bg-amber-500" },
+                  { key: "skh", label: "Sekolah", val: mSkh, pct: getPct(mSkh), bg: "bg-pink-50 border-pink-200 text-pink-950", bar: "bg-pink-500" },
+                  { key: "ktr", label: "Kantor", val: mKtr, pct: getPct(mKtr), bg: "bg-purple-50 border-purple-200 text-purple-950", bar: "bg-purple-500" },
+                  { key: "tk", label: "Toko", val: mTk, pct: getPct(mTk), bg: "bg-teal-50 border-teal-200 text-teal-950", bar: "bg-teal-500" },
+                  { key: "ib", label: "IB (Instan Buyer)", val: mIb, pct: getPct(mIb), bg: "bg-indigo-50 border-indigo-200 text-indigo-950", bar: "bg-indigo-500" }
+                ];
+
+                return (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {sectorList.map(s => (
+                        <div key={s.key} className={`p-3 rounded-2xl border ${s.bg} space-y-1.5 shadow-sm`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black uppercase">{s.label}</span>
+                            <span className="text-xs font-black font-mono">{s.pct}%</span>
+                          </div>
+                          <span className="text-base sm:text-lg font-black font-mono block">{s.val} <span className="text-xs font-normal">btl</span></span>
+                          <div className="w-full bg-black/10 rounded-full h-2 overflow-hidden">
+                            <div className={`${s.bar} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(100, Number(s.pct))}%` }}></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Ratios & Comparisons */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-l-4 border-slate-500 pl-3">
+                <h2 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wider">
+                  Performa & Rasio Kunjungan
+                </h2>
+                <span className="text-[11px] font-bold text-slate-500 uppercase">PLG, RK, RA, & RB</span>
+              </div>
+
+              {/* Stat Card Jumlah PLG, RK, RA, dan RB */}
+              <div className="grid grid-cols-4 gap-2">
+                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
+                  <span className="text-[10px] text-slate-500 font-extrabold block uppercase">Jumlah PLG</span>
+                  <span className="text-base sm:text-xl font-black text-slate-800">{mPlg.toLocaleString("id-ID")}</span>
+                  <span className="text-[9px] text-slate-400 font-semibold block">Pelanggan</span>
+                </div>
+                <div className="bg-sky-50 p-2.5 rounded-xl border border-sky-200 text-center">
+                  <span className="text-[10px] text-sky-700 font-extrabold block uppercase">Jumlah RK</span>
+                  <span className="text-base sm:text-xl font-black text-sky-800">{mRk.toLocaleString("id-ID")}</span>
+                  <span className="text-[9px] text-sky-600/80 font-semibold block">Rencana Kunj.</span>
+                </div>
+                <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 text-center">
+                  <span className="text-[10px] text-indigo-700 font-extrabold block uppercase">Jumlah RA</span>
+                  <span className="text-base sm:text-xl font-black text-indigo-800">{mRa.toLocaleString("id-ID")}</span>
+                  <span className="text-[9px] text-indigo-600/80 font-semibold block">Realisasi Ada</span>
+                </div>
+                <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 text-center">
+                  <span className="text-[10px] text-emerald-700 font-extrabold block uppercase">Jumlah RB</span>
+                  <span className="text-base sm:text-xl font-black text-emerald-800">{mRb.toLocaleString("id-ID")}</span>
+                  <span className="text-[9px] text-emerald-600/80 font-semibold block">Realisasi Beli</span>
+                </div>
+              </div>
+
+              {/* Grid Rasio Persentase & Detail Jumlah */}
+              <div className="grid grid-cols-2 gap-2.5 text-center text-xs font-bold">
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RK vs PELANGGAN</span>
+                    <span className="text-base sm:text-xl font-black text-indigo-700">{getPctString(mRk, mPlg)}</span>
+                  </div>
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 text-[10px] sm:text-[11px] text-slate-600 font-bold">
+                    RK: <span className="font-black text-slate-900">{mRk}</span> / PLG: <span className="font-black text-slate-900">{mPlg}</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RA vs RK</span>
+                    <span className="text-base sm:text-xl font-black text-sky-700">{getPctString(mRa, mRk)}</span>
+                  </div>
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 text-[10px] sm:text-[11px] text-slate-600 font-bold">
+                    RA: <span className="font-black text-slate-900">{mRa}</span> / RK: <span className="font-black text-slate-900">{mRk}</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RB vs RA</span>
+                    <span className="text-base sm:text-xl font-black text-emerald-700">{getPctString(mRb, mRa)}</span>
+                  </div>
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 text-[10px] sm:text-[11px] text-slate-600 font-bold">
+                    RB: <span className="font-black text-slate-900">{mRb}</span> / RA: <span className="font-black text-slate-900">{mRa}</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RB vs PELANGGAN</span>
+                    <span className="text-base sm:text-xl font-black text-teal-700">{getPctString(mRb, mPlg)}</span>
+                  </div>
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 text-[10px] sm:text-[11px] text-slate-600 font-bold">
+                    RB: <span className="font-black text-slate-900">{mRb}</span> / PLG: <span className="font-black text-slate-900">{mPlg}</span>
+                  </div>
+                </div>
+
+                {/* Total PB */}
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
+                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">TOTAL PB</span>
+                  <span className="text-base sm:text-lg font-black text-rose-600">{mPb} btl</span>
+                </div>
+                {/* Total BB & % */}
+                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
+                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">TOTAL BB & %</span>
+                  <span className="text-base sm:text-lg font-black text-rose-600">{mBb} btl ({getPctString(mBb, mTotalSales)})</span>
+                </div>
+                {/* Total Sampah Botol */}
+                <div className="col-span-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
+                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">TOTAL SAMPAH BOTOL</span>
+                  <span className="text-base sm:text-lg font-black text-emerald-600">{mSampahBotol} btl</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Estimasi Kompensasi (Dipindah ke bawah di atas Analisa) */}
             <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
               <h2 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wider border-l-4 border-emerald-500 pl-3">
                 Rincian Estimasi Kompensasi
@@ -1653,91 +1795,6 @@ export function YLView({
                       <span className="text-emerald-700 font-black text-sm">{formatRp(mTotalTakeHome)}</span>
                     </div>
                   )}
-                </div>
-              </div>
-            </div>
-
-            {/* Akumulasi Realisasi Per Potensi Sektor & Persentase Matrix */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-l-4 border-indigo-600 pl-3">
-                <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wider">
-                  📊 Ringkasan Akumulasi Per Potensi
-                </h2>
-                <span className="text-xs font-mono bg-indigo-50 text-indigo-700 font-black px-2.5 py-1 rounded-lg border border-indigo-100">
-                  Total: {mRmh + mPsr + mSkh + mKtr + mTk + mIb} btl
-                </span>
-              </div>
-
-              {(() => {
-                const totalPot = mRmh + mPsr + mSkh + mKtr + mTk + mIb;
-                const getPct = (val: number) => totalPot > 0 ? String(Math.round((val / totalPot) * 100)) : "0";
-
-                const sectorList = [
-                  { key: "rmh", label: "Rumah", val: mRmh, pct: getPct(mRmh), bg: "bg-emerald-50 border-emerald-200 text-emerald-950", bar: "bg-emerald-500" },
-                  { key: "psr", label: "Pasar", val: mPsr, pct: getPct(mPsr), bg: "bg-amber-50 border-amber-200 text-amber-950", bar: "bg-amber-500" },
-                  { key: "skh", label: "Sekolah", val: mSkh, pct: getPct(mSkh), bg: "bg-pink-50 border-pink-200 text-pink-950", bar: "bg-pink-500" },
-                  { key: "ktr", label: "Kantor", val: mKtr, pct: getPct(mKtr), bg: "bg-purple-50 border-purple-200 text-purple-950", bar: "bg-purple-500" },
-                  { key: "tk", label: "Toko", val: mTk, pct: getPct(mTk), bg: "bg-teal-50 border-teal-200 text-teal-950", bar: "bg-teal-500" },
-                  { key: "ib", label: "IB (Instan Buyer)", val: mIb, pct: getPct(mIb), bg: "bg-indigo-50 border-indigo-200 text-indigo-950", bar: "bg-indigo-500" }
-                ];
-
-                return (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {sectorList.map(s => (
-                        <div key={s.key} className={`p-3 rounded-2xl border ${s.bg} space-y-1.5 shadow-sm`}>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-black uppercase">{s.label}</span>
-                            <span className="text-xs font-black font-mono">{s.pct}%</span>
-                          </div>
-                          <span className="text-base sm:text-lg font-black font-mono block">{s.val} <span className="text-xs font-normal">btl</span></span>
-                          <div className="w-full bg-black/10 rounded-full h-2 overflow-hidden">
-                            <div className={`${s.bar} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(100, Number(s.pct))}%` }}></div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* Ratios & Comparisons */}
-            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
-              <h2 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wider border-l-4 border-slate-500 pl-3">
-                Performa & Rasio Kunjungan
-              </h2>
-              <div className="grid grid-cols-2 gap-2.5 text-center text-xs font-bold">
-                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RK vs PELANGGAN</span>
-                  <span className="text-base sm:text-lg font-black">{getPctString(mRk, mPlg)}</span>
-                </div>
-                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RA vs RK</span>
-                  <span className="text-base sm:text-lg font-black">{getPctString(mRa, mRk)}</span>
-                </div>
-                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RB vs RA</span>
-                  <span className="text-base sm:text-lg font-black">{getPctString(mRb, mRa)}</span>
-                </div>
-                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">RB vs PELANGGAN</span>
-                  <span className="text-base sm:text-lg font-black">{getPctString(mRb, mPlg)}</span>
-                </div>
-                {/* Total PB */}
-                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">TOTAL PB</span>
-                  <span className="text-base sm:text-lg font-black text-rose-600">{mPb} btl</span>
-                </div>
-                {/* Total BB & % */}
-                <div className="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">TOTAL BB & %</span>
-                  <span className="text-base sm:text-lg font-black text-rose-600">{mBb} btl ({getPctString(mBb, mTotalSales)})</span>
-                </div>
-                {/* Total Sampah Botol */}
-                <div className="col-span-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200 text-slate-800">
-                  <span className="text-[10px] sm:text-xs text-slate-500 font-bold block mb-0.5">TOTAL SAMPAH BOTOL</span>
-                  <span className="text-base sm:text-lg font-black text-emerald-600">{mSampahBotol} btl</span>
                 </div>
               </div>
             </div>

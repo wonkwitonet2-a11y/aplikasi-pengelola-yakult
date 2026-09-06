@@ -9,7 +9,9 @@ import {
   Store,
   Award,
   PieChart,
-  TrendingUp
+  TrendingUp,
+  FileSpreadsheet,
+  Download
 } from "lucide-react";
 
 interface PlgPjlViewProps {
@@ -457,6 +459,36 @@ function PlgPjlViewInner({
     }
   };
 
+  const handleDownloadExcel = async () => {
+    try {
+      const activeMonth = historicalMonth || new Date().toISOString().substring(0, 7);
+      const res = await fetch(`/api/exportRealisasi?month=${encodeURIComponent(activeMonth)}`);
+      if (!res.ok) throw new Error("Gagal mengunduh file Excel");
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      
+      const contentDisposition = res.headers.get('Content-Disposition');
+      let filename = `Laporan_PLG_PJL_DP1_${activeMonth}.xlsx`;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^";]+)"?/);
+        if (match) filename = match[1];
+      }
+      
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+
+      alert(`✅ File Excel Laporan PLG PJL (Sheet: plg pjl(laporan Dp 1)) bulan ${activeMonth} berhasil diunduh!`);
+    } catch (e: any) {
+      alert("Error unduh Excel: " + e.message);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-12">
       {/* Top Header Card */}
@@ -476,13 +508,17 @@ function PlgPjlViewInner({
 
           <div className="flex flex-wrap items-center gap-3">
             <div className="bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 flex items-center gap-1.5">
-              
               <span className="text-cyan-700 font-black text-sm">📅 {pembagi} Hari</span>
             </div>
 
-            
-            
-
+            <button
+              onClick={handleDownloadExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+              title="Unduh Laporan Format Excel: plg pjl(laporan Dp 1)"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Unduh Excel PLG PJL</span>
+            </button>
           </div>
         </div>
 

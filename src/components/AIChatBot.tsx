@@ -20,6 +20,13 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
   const [isOpen, setIsOpen] = useState(false);
   const isDraggingRef = useRef(false);
 
+  // Listen for open-ai-chat event from menus
+  useEffect(() => {
+    const handleOpen = () => setIsOpen(true);
+    window.addEventListener("open-ai-chat", handleOpen);
+    return () => window.removeEventListener("open-ai-chat", handleOpen);
+  }, []);
+
   // Dynamic storage key for chat history based on user role and username
   const storageKey = `yakult_chat_history_${role}_${(userName || "user").trim().toLowerCase().replace(/\s+/g, "_")}`;
 
@@ -210,44 +217,6 @@ function AIChatBotInner({ role, userName, botName = "AI Jember 1 Pro" }: AIChatB
 
   return (
     <>
-      {/* Floating Toggle Button (Draggable) */}
-      <motion.div
-        drag={!isOpen}
-        dragMomentum={false}
-        dragElastic={0.05}
-        onDragStart={() => { isDraggingRef.current = true; }}
-        onDragEnd={() => {
-          setTimeout(() => { isDraggingRef.current = false; }, 100);
-        }}
-        className={`fixed bottom-24 right-4 z-[9999] touch-none cursor-grab active:cursor-grabbing ${isOpen ? "hidden" : ""}`}
-        id="ai-chatbot-toggle-btn-container"
-      >
-        <button
-          onClick={(e) => {
-            if (isDraggingRef.current) {
-              e.preventDefault();
-              e.stopPropagation();
-              return;
-            }
-            setIsOpen(prev => !prev);
-          }}
-          id="ai-chatbot-toggle-btn"
-          className={`p-3.5 rounded-full shadow-lg border text-white cursor-pointer transition-all duration-300 hover:scale-105 active:scale-95 flex items-center justify-center gap-1.5 touch-none ${
-            isOpen 
-              ? "bg-slate-800 border-slate-700 rotate-90" 
-              : "bg-gradient-to-r from-red-600 to-rose-700 border-rose-500 hover:shadow-rose-500/20"
-          }`}
-          title={`Tanya ${botName} (Bisa Digeser)`}
-        >
-          {isOpen ? <X className="w-5 h-5" /> : (
-            <div className="flex items-center gap-1.5 font-bold text-xs tracking-wider uppercase px-0.5">
-              <Sparkles className="w-4 h-4 animate-pulse text-yellow-300" />
-              <span>{botName}</span>
-            </div>
-          )}
-        </button>
-      </motion.div>
-
       {/* Expanded Chat Window (Draggable by Header) */}
       {isOpen && (
         <motion.div

@@ -2,7 +2,7 @@ import React from 'react';
 import {
   ClipboardCheck, Calculator, Store, CircleDollarSign, Shirt, PieChart,
   BookOpen, Link2, Trophy, Droplet, TrendingUp, Wallet, BarChart3, Users, Target, Activity
-, Globe, Archive } from 'lucide-react';
+, Globe, Archive, Sparkles, Pin } from 'lucide-react';
 import type { DashboardData } from '../types';
 
 interface AdminBentoMenuProps {
@@ -120,36 +120,45 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
       </div>
 
       {/* Bento Grid Menu */}
-      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 sm:gap-4 relative z-10">
+      <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-5 landscape:grid-cols-5 gap-2 sm:gap-3 relative z-10">
         {[
           { id: "evaluasi", label: "Evaluasi", icon: ClipboardCheck, from: "from-rose-500/20", to: "to-rose-900/40", border: "border-rose-500/20", iconBg: "bg-rose-500/20 text-rose-300" },
           { id: "input_realisasi", label: "Penjualan", icon: Calculator, from: "from-blue-500/20", to: "to-blue-900/40", border: "border-blue-500/20", iconBg: "bg-blue-500/20 text-blue-300" },
           { id: "product_knowledge", label: "Produk Knowledge", icon: Store, from: "from-purple-500/20", to: "to-purple-900/40", border: "border-purple-500/20", iconBg: "bg-purple-500/20 text-purple-300" },
-          { id: "target_kompensasi", label: "Target dan Kompensasi", icon: CircleDollarSign, from: "from-rose-500/20", to: "to-pink-900/40", border: "border-pink-500/20", iconBg: "bg-pink-500/20 text-pink-300" },
+          { id: "target_kompensasi", label: "Target & Kompensasi", icon: CircleDollarSign, from: "from-rose-500/20", to: "to-pink-900/40", border: "border-pink-500/20", iconBg: "bg-pink-500/20 text-pink-300" },
           { id: "seragam", label: "Seragam", icon: Shirt, from: "from-blue-500/20", to: "to-indigo-900/40", border: "border-indigo-500/20", iconBg: "bg-indigo-500/20 text-indigo-300" },
-          { id: "breakdown", label: "Breakdown dan Realisasi", icon: PieChart, from: "from-rose-500/20", to: "to-red-900/40", border: "border-red-500/20", iconBg: "bg-red-500/20 text-red-300" },
+          { id: "breakdown", label: "Breakdown & Realisasi", icon: PieChart, from: "from-rose-500/20", to: "to-red-900/40", border: "border-red-500/20", iconBg: "bg-red-500/20 text-red-300" },
           { id: "plg_pjl", label: "Pelanggan", icon: BookOpen, from: "from-amber-500/20", to: "to-amber-900/40", border: "border-amber-500/20", iconBg: "bg-amber-500/20 text-amber-300" },
           { id: "tautan", label: "Tautan", icon: Globe, from: "from-indigo-500/20", to: "to-indigo-900/40", border: "border-indigo-500/20", iconBg: "bg-indigo-500/20 text-indigo-300" },
+          { id: "attention", label: "Attention", icon: Pin, from: "from-violet-500/20", to: "to-violet-900/40", border: "border-violet-500/20", iconBg: "bg-violet-500/20 text-violet-300" },
+          { id: "ai_chat", label: "Tanya AI", icon: Sparkles, from: "from-rose-600/30", to: "to-red-900/50", border: "border-rose-500/30", iconBg: "bg-rose-500/30 text-yellow-300" },
           { id: "setting", label: "Pengaturan", icon: Link2, from: "from-purple-500/20", to: "to-fuchsia-900/40", border: "border-fuchsia-500/20", iconBg: "bg-fuchsia-500/20 text-fuchsia-300" },
           { id: "grafik", label: "Grafik Dasbor", icon: BarChart3, from: "from-emerald-500/20", to: "to-emerald-900/40", border: "border-emerald-500/20", iconBg: "bg-emerald-500/20 text-emerald-300" },
           { id: "lady", label: "Profil YL", icon: Users, from: "from-cyan-500/20", to: "to-cyan-900/40", border: "border-cyan-500/20", iconBg: "bg-cyan-500/20 text-cyan-300" },
           { id: "rata2_bulanan", label: "Rata-rata", icon: TrendingUp, from: "from-orange-500/20", to: "to-orange-900/40", border: "border-orange-500/20", iconBg: "bg-orange-500/20 text-orange-300" },
+          { id: "presentasi", label: "Presentasi", icon: BarChart3, from: "from-orange-500/20", to: "to-amber-900/40", border: "border-amber-500/20", iconBg: "bg-amber-500/20 text-amber-300" },
           { id: "archive", label: "Arsip", icon: Archive, from: "from-fuchsia-500/20", to: "to-fuchsia-900/40", border: "border-fuchsia-500/20", iconBg: "bg-fuchsia-500/20 text-fuchsia-300" },
         ].map(item => {
           const Icon = item.icon;
           return (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`flex flex-col items-center justify-center p-3 sm:p-5 rounded-[1.5rem] bg-gradient-to-br ${item.from} ${item.to} border ${item.border} aspect-square transition-all hover:scale-105 active:scale-95 shadow-xl relative overflow-hidden group cursor-pointer backdrop-blur-sm`}
+              onClick={() => {
+                if (item.id === "ai_chat") {
+                  window.dispatchEvent(new CustomEvent("open-ai-chat"));
+                } else {
+                  setActiveTab(item.id);
+                }
+              }}
+              className={`flex flex-col items-center justify-center p-2 sm:p-3 rounded-2xl bg-gradient-to-br ${item.from} ${item.to} border ${item.border} aspect-square transition-all hover:scale-105 active:scale-95 shadow-lg relative overflow-hidden group cursor-pointer backdrop-blur-sm`}
             >
               {/* Internal glow hover */}
               <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
               
-              <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full ${item.iconBg} flex items-center justify-center mb-3 shadow-inner border border-white/10 group-hover:scale-110 transition-transform`}>
-                <Icon className="w-6 h-6 sm:w-7 sm:h-7" strokeWidth={2} />
+              <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl ${item.iconBg} flex items-center justify-center mb-1.5 shadow-inner border border-white/10 group-hover:scale-110 transition-transform`}>
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5" strokeWidth={2} />
               </div>
-              <span className="text-[10px] sm:text-xs font-black text-slate-100 tracking-tight text-center leading-tight drop-shadow-sm">
+              <span className="text-[9px] sm:text-[10px] font-black text-slate-100 tracking-tight text-center leading-tight drop-shadow-sm line-clamp-2 px-0.5">
                 {item.label}
               </span>
             </button>

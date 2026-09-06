@@ -70,7 +70,7 @@ function createSupabaseClient(url: string, key: string) {
   });
 }
 
-let supabase: ReturnType<typeof createClient> | null = null;
+let supabase: any = null;
 if (isValidHttpUrlServer(SUPABASE_URL) && SUPABASE_SERVICE_KEY) {
   try {
     supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
@@ -679,7 +679,8 @@ function calculateDashboardDP1(db: any, requestedMonth?: string) {
     const areaRealisasi = realisasiAcc.perArea[area];
     const ylTotal = (areaRealisasi && areaRealisasi.total > 0) ? areaRealisasi.total : 0;
 
-    const tgtObj = (targetYL && (targetYL[`${area}_${currentMonth}`] || targetYL[area])) || {
+    const tgtObj = (db.targetYLByMonth?.[currentMonth]?.[area]) ||
+                   (targetYL && (targetYL[`${area}_${currentMonth}`] || targetYL[area])) || {
       target: ylItem?.target ?? 0,
       bln_lalu: ylItem?.bln_lalu ?? 0,
       thn_lalu: ylItem?.thn_lalu ?? 0
@@ -719,10 +720,11 @@ function calculateDashboardDP1(db: any, requestedMonth?: string) {
     thnLaluTotalSum += perYL[area].tahunLaluYL;
   });
 
-  if (db.targetTKU) {
-    if (db.targetTKU.target !== undefined && Number(db.targetTKU.target) >= 0 && (Number(db.targetTKU.target) > 0 || targetTotalSum === 0)) targetTotalSum = Number(db.targetTKU.target);
-    if (db.targetTKU.bln_lalu !== undefined && Number(db.targetTKU.bln_lalu) >= 0 && (Number(db.targetTKU.bln_lalu) > 0 || blnLaluTotalSum === 0)) blnLaluTotalSum = Number(db.targetTKU.bln_lalu);
-    if (db.targetTKU.thn_lalu !== undefined && Number(db.targetTKU.thn_lalu) >= 0 && (Number(db.targetTKU.thn_lalu) > 0 || thnLaluTotalSum === 0)) thnLaluTotalSum = Number(db.targetTKU.thn_lalu);
+  const tkuForMonth = (currentMonth && db.targetTKUByMonth && db.targetTKUByMonth[currentMonth]) || db.targetTKU;
+  if (tkuForMonth) {
+    if (tkuForMonth.target !== undefined && Number(tkuForMonth.target) >= 0 && (Number(tkuForMonth.target) > 0 || targetTotalSum === 0)) targetTotalSum = Number(tkuForMonth.target);
+    if (tkuForMonth.bln_lalu !== undefined && Number(tkuForMonth.bln_lalu) >= 0 && (Number(tkuForMonth.bln_lalu) > 0 || blnLaluTotalSum === 0)) blnLaluTotalSum = Number(tkuForMonth.bln_lalu);
+    if (tkuForMonth.thn_lalu !== undefined && Number(tkuForMonth.thn_lalu) >= 0 && (Number(tkuForMonth.thn_lalu) > 0 || thnLaluTotalSum === 0)) thnLaluTotalSum = Number(tkuForMonth.thn_lalu);
   }
 
   const rataHarian = teamTotalRata2;
@@ -1950,7 +1952,41 @@ app.get("/api/getSettingTargets", (req, res) => {
   if (bulan && typeof bulan === "string" && db.targetTKUByMonth && db.targetTKUByMonth[bulan]) {
     targetTKU = db.targetTKUByMonth[bulan];
   }
-  const targetYL = db.targetYL || {};
+
+  const targetYL: Record<string, any> = {};
+  if (bulan && typeof bulan === "string" && db.targetYLByMonth && db.targetYLByMonth[bulan]) {
+    Object.keys(db.targetYLByMonth[bulan]).forEach(k => {
+      const cleanArea = k.replace(/_202\d-\d{2}/g, "").trim();
+      targetYL[cleanArea] = db.targetYLByMonth[bulan][k];
+    });
+  } else if (db.targetYL) {
+    if (bulan && typeof bulan === "string") {
+      const hasSpecificKeys = Object.keys(db.targetYL).some(k => k.includes(`_${bulan}`));
+      if (hasSpecificKeys) {
+        Object.keys(db.targetYL).forEach(k => {
+          if (k.includes(`_${bulan}`)) {
+            const cleanArea = k.replace(/_202\d-\d{2}/g, "").trim();
+            targetYL[cleanArea] = db.targetYL[k];
+          }
+        });
+      } else {
+        Object.keys(db.targetYL).forEach(k => {
+          if (!k.includes("_202")) {
+            const cleanArea = k.replace(/_202\d-\d{2}/g, "").trim();
+            targetYL[cleanArea] = db.targetYL[k];
+          }
+        });
+      }
+    } else {
+      Object.keys(db.targetYL).forEach(k => {
+        if (!k.includes("_202")) {
+          const cleanArea = k.replace(/_202\d-\d{2}/g, "").trim();
+          targetYL[cleanArea] = db.targetYL[k];
+        }
+      });
+    }
+  }
+
   res.json({ targetTKU, targetYL });
 });
 
@@ -1961,19 +1997,65 @@ app.post("/api/saveSettingTargets", async (req, res) => {
     db.targetTKU = { ...(db.targetTKU || {}), ...targetTKU };
     if (bulan && typeof bulan === "string") {
       if (!db.targetTKUByMonth) db.targetTKUByMonth = {};
-      db.targetTKUByMonth[bulan] = { ...db.targetTKU };
+      db.targetTKUByMonth[bulan] = { ...targetTKU };
     }
   }
   if (targetYL) {
-    db.targetYL = { ...(db.targetYL || {}), ...targetYL };
+    if (!db.targetYL) db.targetYL = {};
+    if (!db.targetYLByMonth) db.targetYLByMonth = {};
+    
+    const cleanMonthMap: Record<string, any> = {};
+    Object.keys(targetYL).forEach(rawArea => {
+      const cleanArea = rawArea.replace(/_202\d-\d{2}/g, "").trim();
+      cleanMonthMap[cleanArea] = targetYL[rawArea];
+      db.targetYL[cleanArea] = targetYL[rawArea];
+      if (bulan && typeof bulan === "string") {
+        db.targetYL[`${cleanArea}_${bulan}`] = targetYL[rawArea];
+      }
+    });
+
     if (bulan && typeof bulan === "string") {
-      Object.keys(targetYL).forEach(area => {
-        db.targetYL[`${area}_${bulan}`] = targetYL[area];
-      });
+      db.targetYLByMonth[bulan] = cleanMonthMap;
     }
   }
   await saveData(db);
+
   res.json({ ok: true, targetTKU: db.targetTKU, targetYL: db.targetYL });
+});
+
+// Full Data Backup & Restore
+app.get("/api/getData", (req, res) => {
+  const db = loadData();
+  res.json(db);
+});
+
+app.post("/api/importBackup", async (req, res) => {
+  try {
+    const backup = req.body;
+    if (!backup || typeof backup !== "object") {
+      return res.status(400).json({ ok: false, error: "Format backup tidak valid" });
+    }
+    const db = loadData();
+    const serverDb = backup.serverDatabase || backup;
+    
+    if (serverDb.transactions) db.transactions = serverDb.transactions;
+    if (serverDb.ylList) db.ylList = serverDb.ylList;
+    if (serverDb.breakdownPlan) db.breakdownPlan = serverDb.breakdownPlan;
+    if (serverDb.breakdownRealisasi) db.breakdownRealisasi = serverDb.breakdownRealisasi;
+    if (serverDb.targetTKU) db.targetTKU = serverDb.targetTKU;
+    if (serverDb.targetTKUByMonth) db.targetTKUByMonth = serverDb.targetTKUByMonth;
+    if (serverDb.targetYL) db.targetYL = serverDb.targetYL;
+    if (serverDb.targetYLByMonth) db.targetYLByMonth = serverDb.targetYLByMonth;
+    if (serverDb.motivasiConfig) db.motivasiConfig = serverDb.motivasiConfig;
+    if (serverDb.kontesConfig) db.kontesConfig = serverDb.kontesConfig;
+    if (serverDb.plgPjlManual) db.plgPjlManual = serverDb.plgPjlManual;
+    if (serverDb.potensiTembus) db.potensiTembus = serverDb.potensiTembus;
+
+    await saveData(db);
+    res.json({ ok: true, message: "Backup berhasil direstore ke database" });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // Compensation Config
@@ -2751,46 +2833,24 @@ app.get("/api/getPotensiTembus", async (req, res) => {
 
 app.get("/api/exportRealisasi", async (req, res) => {
   try {
+    const { month } = req.query;
     const XLSX = await import("xlsx");
     const db = loadData();
     const wb = XLSX.utils.book_new();
 
-    // 1. Sheet "Realisasi Harian"
-    const txs = db.transactions || [];
-    const sheet1Data = txs.map((t: any) => ({
-      "Tanggal": t.tanggal,
-      "Area": t.area || "",
-      "Nama": t.nama || "",
-      "Rmh YO": t.rmh_yo || 0, "Rmh OM": t.rmh_om || 0, "Rmh OS": t.rmh_os || 0, "Rmh YT": t.rmh_yt || 0,
-      "Psr YO": t.psr_yo || 0, "Psr OM": t.psr_om || 0, "Psr OS": t.psr_os || 0, "Psr YT": t.psr_yt || 0,
-      "Skh YO": t.skh_yo || 0, "Skh OM": t.skh_om || 0, "Skh OS": t.skh_os || 0, "Skh YT": t.skh_yt || 0,
-      "Ktr YO": t.ktr_yo || 0, "Ktr OM": t.ktr_om || 0, "Ktr OS": t.ktr_os || 0, "Ktr YT": t.ktr_yt || 0,
-      "Tk YO": t.tk_yo || 0, "Tk OM": t.tk_om || 0, "Tk OS": t.tk_os || 0, "Tk YT": t.tk_yt || 0,
-      "Ib YO": t.ib_yo || 0, "Ib OM": t.ib_om || 0, "Ib OS": t.ib_os || 0, "Ib YT": t.ib_yt || 0,
-      "BB YO": t.bb_yo || 0, "BB OM": t.bb_om || 0, "BB OS": t.bb_os || 0, "BB YT": t.bb_yt || 0,
-      "PB Pagi": t.pb_p || 0,
-      "PB Sore": t.pb_s || 0,
-      "Plg APK": t.apk_plg || 0,
-      "Sampah Botol": t.apk_botol || 0,
-      "F. Plg": t.f_plg || 0,
-      "F. RK": t.f_rk || 0,
-      "F. RA": t.f_ra || 0,
-      "F. RB": t.f_rb || 0
-    }));
-    const ws1 = XLSX.utils.json_to_sheet(sheet1Data);
-    XLSX.utils.book_append_sheet(wb, ws1, "Realisasi Harian");
+    // 1. Tentukan bulan yang dipilih (spesifik bulan tertentu)
+    const selectedMonth = (month && typeof month === "string" && /^\d{4}-\d{2}$/.test(month))
+      ? month
+      : (new Date().toISOString().slice(0, 7));
 
-    // 2. Sheet "Laporan DP1"
-    
-    // Get breakdownRealisasi for latest month to get pembagi realisasi
-    let latestBRMonth = "";
-    if (db.breakdownRealisasi) {
-      const brMonths = Object.keys(db.breakdownRealisasi).sort();
-      if (brMonths.length > 0) {
-        latestBRMonth = brMonths[brMonths.length - 1];
-      }
-    }
-    const breakdownRealisasi = latestBRMonth ? db.breakdownRealisasi[latestBRMonth] : {};
+    // Filter transaksi HANYA untuk bulan yang dipilih (tidak mengambil semua bulan)
+    const allTxs = db.transactions || [];
+    const txs = allTxs.filter((t: any) => (t.tanggal || "").startsWith(selectedMonth));
+
+    // 2. Sheet Tunggal: "plg pjl(laporan Dp 1)" (Realisasi Harian ditiadakan sesuai permintaan user)
+    const breakdownRealisasi = (db.breakdownRealisasi && db.breakdownRealisasi[selectedMonth])
+      ? db.breakdownRealisasi[selectedMonth]
+      : {};
     
     let realisasiPembagi = "";
     const brKeys = Object.keys(breakdownRealisasi);
@@ -2804,24 +2864,48 @@ app.get("/api/exportRealisasi", async (req, res) => {
     aoa.push([]);
     aoa.push([]);
 
-    const uniqueYLs = new Map();
-    if (db.ylList) {
+    const cleanYlName = (fullName: string): string => {
+      if (!fullName) return "";
+      return fullName.replace(/^(\d+[\s\-_]+)/, "").trim();
+    };
+
+    // 1. Buat daftar canonical YL berdasarkan Area (201..210) agar tidak ada duplikasi nama
+    const ylMap = new Map<string, { area: string; nama: string }>();
+    if (db.ylList && Array.isArray(db.ylList)) {
       db.ylList.forEach((y: any) => {
-        if (y.status !== "Resign") {
-          uniqueYLs.set(y.nama, { area: y.area, nama: y.nama });
+        if (y.status !== "Resign" && y.area) {
+          const areaKey = String(y.area).trim();
+          const cleanName = cleanYlName(y.nama || "");
+          ylMap.set(areaKey, { area: areaKey, nama: cleanName });
         }
       });
     }
+
+    // Periksa apakah ada area di transaksi yang belum terdaftar di ylList
     txs.forEach((t: any) => {
-      if (t.nama && !uniqueYLs.has(t.nama)) {
-        uniqueYLs.set(t.nama, { area: t.area || "", nama: t.nama });
+      const areaKey = String(t.area || "").trim() || (t.nama ? (t.nama.match(/^(\d{3})/)?.[1] || "") : "");
+      if (areaKey && !ylMap.has(areaKey)) {
+        const cleanName = cleanYlName(t.nama || "");
+        ylMap.set(areaKey, { area: areaKey, nama: cleanName });
       }
     });
 
-    const yls = Array.from(uniqueYLs.values()).sort((a: any, b: any) => String(a.area).localeCompare(String(b.area)));
+    const yls = Array.from(ylMap.values()).sort((a, b) => a.area.localeCompare(b.area, undefined, { numeric: true }));
 
     const ylData = yls.map(yl => {
-      const myTxs = txs.filter((t: any) => t.nama === yl.nama);
+      const cleanTargetName = cleanYlName(yl.nama).toLowerCase();
+      // Filter SEMUA transaksi milik area ini (baik yang memakai nama murni maupun prefix "201 - ...")
+      const myTxs = txs.filter((t: any) => {
+        const tArea = String(t.area || "").trim();
+        const tNama = String(t.nama || "").trim();
+        const cleanTNama = cleanYlName(tNama).toLowerCase();
+
+        if (tArea && tArea === yl.area) return true;
+        if (tNama.startsWith(yl.area)) return true;
+        if (cleanTargetName && cleanTNama === cleanTargetName) return true;
+        return false;
+      });
+
       const data = {
         rmh_yo: 0, rmh_om: 0, rmh_os: 0, rmh_yt: 0,
         psr_yo: 0, psr_om: 0, psr_os: 0, psr_yt: 0,
@@ -2831,6 +2915,7 @@ app.get("/api/exportRealisasi", async (req, res) => {
         ib_yo: 0, ib_om: 0, ib_os: 0, ib_yt: 0,
         f_plg: 0, f_rb: 0, pb: 0
       };
+
       myTxs.forEach((t: any) => {
         data.rmh_yo += Number(t.rmh_yo) || 0; data.rmh_om += Number(t.rmh_om) || 0; data.rmh_os += Number(t.rmh_os) || 0; data.rmh_yt += Number(t.rmh_yt) || 0;
         data.psr_yo += Number(t.psr_yo) || 0; data.psr_om += Number(t.psr_om) || 0; data.psr_os += Number(t.psr_os) || 0; data.psr_yt += Number(t.psr_yt) || 0;
@@ -2848,32 +2933,78 @@ app.get("/api/exportRealisasi", async (req, res) => {
 
       let skhT = 0, skhTm = 0, ktrT = 0, ktrTm = 0, tkoT = 0, tkoTm = 0;
       if (db.potensiTembus) {
-        const months = Object.keys(db.potensiTembus).sort();
-        if (months.length > 0) {
-          const latestMonth = months[months.length - 1];
-          const monthData = db.potensiTembus[latestMonth] || {};
-          const cleanReq = (yl.nama || "").replace(/^\d+\s+/, "").trim().toLowerCase();
-          const matchKey = Object.keys(monthData).find(k => k.replace(/^\d+\s+/, "").trim().toLowerCase() === cleanReq);
-          const p = monthData[yl.nama] || (matchKey ? monthData[matchKey] : null);
-          if (p) {
-            skhT = Number(p.skhTotal) || 0; skhTm = Number(p.skhTembus) || 0;
-            ktrT = Number(p.kntrTotal) || 0; ktrTm = Number(p.kntrTembus) || 0;
-            tkoT = Number(p.tkoTotal) || 0; tkoTm = Number(p.tkoTembus) || 0;
-          } else if (db.plgPjlManual?.[yl.nama]) {
-            const plg = db.plgPjlManual[yl.nama];
-            skhT = Number(plg.skhTgt) || 0; ktrT = Number(plg.kntrTgt) || 0; tkoT = Number(plg.tkTgt) || 0;
-          }
+        const monthData = db.potensiTembus[selectedMonth] || db.potensiTembus[Object.keys(db.potensiTembus).sort().pop() || ""] || {};
+        const cleanReq = cleanYlName(yl.nama).toLowerCase();
+        const areaCode = yl.area;
+        const matchKey = Object.keys(monthData).find(k => {
+          const ck = cleanYlName(k).toLowerCase();
+          return ck === cleanReq || k.startsWith(areaCode);
+        });
+        const p = monthData[yl.nama] || (matchKey ? monthData[matchKey] : null);
+        if (p) {
+          skhT = Number(p.skhTotal) || 0; skhTm = Number(p.skhTembus) || 0;
+          ktrT = Number(p.kntrTotal) || 0; ktrTm = Number(p.kntrTembus) || 0;
+          tkoT = Number(p.tkoTotal) || 0; tkoTm = Number(p.tkoTembus) || 0;
+        } else if (db.plgPjlManual?.[yl.nama] || db.plgPjlManual?.[yl.area]) {
+          const plg = db.plgPjlManual[yl.nama] || db.plgPjlManual[yl.area];
+          skhT = Number(plg.skhTgt || plg.sklh_total) || 0;
+          skhTm = Number(plg.skhTmbs || plg.sklh_tembus) || 0;
+          ktrT = Number(plg.kntrTgt || plg.kntr_total) || 0;
+          ktrTm = Number(plg.kntrTmbs || plg.kntr_tembus) || 0;
+          tkoT = Number(plg.tkTgt || plg.tko_total) || 0;
+          tkoTm = Number(plg.tkTmbs || plg.tko_tembus) || 0;
         }
-      } else if (db.plgPjlManual?.[yl.nama]) {
-        const plg = db.plgPjlManual[yl.nama];
-        skhT = Number(plg.skhTgt) || 0; ktrT = Number(plg.kntrTgt) || 0; tkoT = Number(plg.tkTgt) || 0;
+      } else if (db.plgPjlManual?.[yl.nama] || db.plgPjlManual?.[yl.area]) {
+        const plg = db.plgPjlManual[yl.nama] || db.plgPjlManual[yl.area];
+        skhT = Number(plg.skhTgt || plg.sklh_total) || 0;
+        skhTm = Number(plg.skhTmbs || plg.sklh_tembus) || 0;
+        ktrT = Number(plg.kntrTgt || plg.kntr_total) || 0;
+        ktrTm = Number(plg.kntrTmbs || plg.kntr_tembus) || 0;
+        tkoT = Number(plg.tkTgt || plg.tko_total) || 0;
+        tkoTm = Number(plg.tkTmbs || plg.tko_tembus) || 0;
       }
       
       const areaCode = String(yl.area).substring(0, 3);
-      const pembagiArea = breakdownRealisasi[areaCode]?.pembagiTanggal || realisasiPembagi || 1; // avoid divide by 0 if possible
+      const pembagiArea = breakdownRealisasi[areaCode]?.pembagiTanggal || realisasiPembagi || 1;
 
-      return { yl, data, potensi: { skhT, skhTm, ktrT, ktrTm, tkoT, tkoTm }, pembagi: Number(pembagiArea) };
+      return { yl, data, potensi: { skhT, skhTm, ktrT, ktrTm, tkoT, tkoTm }, pembagi: Number(pembagiArea) || 1 };
     });
+
+    // 2. Tambahkan Block TKU DP 1 (TOTAL TIM KESELURUHAN)
+    const tkuData = {
+      rmh_yo: 0, rmh_om: 0, rmh_os: 0, rmh_yt: 0,
+      psr_yo: 0, psr_om: 0, psr_os: 0, psr_yt: 0,
+      skh_yo: 0, skh_om: 0, skh_os: 0, skh_yt: 0,
+      ktr_yo: 0, ktr_om: 0, ktr_os: 0, ktr_yt: 0,
+      tk_yo: 0, tk_om: 0, tk_os: 0, tk_yt: 0,
+      ib_yo: 0, ib_om: 0, ib_os: 0, ib_yt: 0,
+      f_plg: 0, f_rb: 0, pb: 0
+    };
+    const tkuPotensi = { skhT: 0, skhTm: 0, ktrT: 0, ktrTm: 0, tkoT: 0, tkoTm: 0 };
+    let sumPembagi = 0;
+
+    ylData.forEach(yd => {
+      Object.keys(tkuData).forEach(k => {
+        (tkuData as any)[k] += (yd.data as any)[k] || 0;
+      });
+      tkuPotensi.skhT += yd.potensi.skhT;
+      tkuPotensi.skhTm += yd.potensi.skhTm;
+      tkuPotensi.ktrT += yd.potensi.ktrT;
+      tkuPotensi.ktrTm += yd.potensi.ktrTm;
+      tkuPotensi.tkoT += yd.potensi.tkoT;
+      tkuPotensi.tkoTm += yd.potensi.tkoTm;
+      sumPembagi += yd.pembagi;
+    });
+
+    const avgPembagi = ylData.length > 0 ? (sumPembagi / ylData.length) : (Number(realisasiPembagi) || 1);
+    const tkuItem = {
+      yl: { area: "TKU DP 1", nama: "TOTAL TIM" },
+      data: tkuData,
+      potensi: tkuPotensi,
+      pembagi: avgPembagi
+    };
+
+    const allBlocksToExport = [ ...ylData, tkuItem ];
 
     const buildBlock = (ylItem: any) => {
       const b: any[][] = [];
@@ -2925,9 +3056,9 @@ app.get("/api/exportRealisasi", async (req, res) => {
       return b;
     };
 
-    for (let i = 0; i < ylData.length; i += 2) {
-      const block1 = buildBlock(ylData[i]);
-      const block2 = (i + 1 < ylData.length) ? buildBlock(ylData[i+1]) : null;
+    for (let i = 0; i < allBlocksToExport.length; i += 2) {
+      const block1 = buildBlock(allBlocksToExport[i]);
+      const block2 = (i + 1 < allBlocksToExport.length) ? buildBlock(allBlocksToExport[i+1]) : null;
 
       for (let r = 0; r < 35; r++) {
         const row = [""]; // Col A
@@ -2936,7 +3067,7 @@ app.get("/api/exportRealisasi", async (req, res) => {
         } else {
           row.push("", "", "", "", "", "", "");
         }
-        row.push(""); // Col I
+        row.push(""); // Col I (Separator)
 
         if (block2 && block2[r]) {
           row.push(...block2[r]);
@@ -2949,12 +3080,16 @@ app.get("/api/exportRealisasi", async (req, res) => {
       aoa.push([]);
     }
 
-    const ws2 = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(wb, ws2, "Laporan DP1");
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // Sheet name strictly requested by user: plg pjl(laporan Dp 1)
+    XLSX.utils.book_append_sheet(wb, ws, "plg pjl(laporan Dp 1)");
 
     // Send file
     const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    const downloadFilename = `Laporan_PLG_PJL_DP1_${selectedMonth}.xlsx`;
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="${downloadFilename}"`);
+    res.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
     res.send(buffer);
   } catch (error: any) {
     console.error("Export error:", error);
