@@ -3425,7 +3425,4 @@ async function startServer() {
 
 export { app, loadData, ensureDbReady };
 
-if (!process.env.NETLIFY) {
-  startServer();
-}
-// Force deploy 1
+startServer();
