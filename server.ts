@@ -396,14 +396,20 @@ let lastSavedDb: any = {};
 let isPersisting = false;
 let pendingDbSnapshot: any = null;
 
+const HEAVY_KEYS = new Set(["ylPhotos", "seragam"]);
+let ylPhotosRemoteLoaded = false;
+let seragamRemoteLoaded = false;
+
 // atau terjadi error (supaya bisa fallback ke data lokal).
 async function loadDataFromSupabase(): Promise<any | null> {
   if (!supabase) return null;
   try {
-    // 1. Cek apakah sudah ada data pecahan
+    // 1. Cek apakah sudah ada data pecahan (kecualikan foto & seragam agar tidak boros egress saat startup)
     const { data: splitData, error: splitError } = await (supabase.from("app_store") as any)
       .select("key, data")
-      .like("key", "main_db_%");
+      .like("key", "main_db_%")
+      .neq("key", "main_db_ylPhotos")
+      .neq("key", "main_db_seragam");
 
     if (splitError) {
       console.error("[Supabase] Gagal membaca data pecahan:", splitError.message);
@@ -459,6 +465,10 @@ async function persistToSupabase(db: any) {
       const updates: any[] = [];
       
       for (const key of Object.keys(currentDb)) {
+        // Foto & seragam disimpan melalui endpoint khusus (/api/saveYlFoto, /api/saveSeragam)
+        // untuk menghemat egress dan mencegah overhead komparasi string MB
+        if (HEAVY_KEYS.has(key)) continue;
+
         // Bandingkan secara deep untuk melihat apakah ada perubahan
         if (JSON.stringify(currentDb[key]) !== JSON.stringify(lastSavedDb[key])) {
           updates.push({ 
@@ -501,15 +511,18 @@ async function persistToSupabase(db: any) {
 
 let dbReadyPromise: Promise<void> | null = null;
 
-// Dipanggil sekali sebelum server mulai melayani request (lihat startServer()
-// di bawah untuk dev/Termux, dan netlify/functions/api.ts untuk produksi).
-// Mengisi cachedDb dari Supabase kalau sudah dikonfigurasi (env SUPABASE_URL
-// + SUPABASE_SERVICE_ROLE_KEY), atau dari data.json lokal kalau belum.
+// Dipanggil sekali sebelum server mulai melayani request.
+// Mengisi cachedDb dari Supabase kalau sudah dikonfigurasi,
+// dan melengkapi foto/seragam dari file data.json lokal agar langsung siap di memori.
 function ensureDbReady(): Promise<void> {
   if (!dbReadyPromise) {
     dbReadyPromise = (async () => {
       const remote = await loadDataFromSupabase();
       if (remote) {
+        // Lengkapi foto & seragam dari disk lokal (jika ada) tanpa membebani egress Supabase
+        const local = buildDbFromLocal();
+        if (!remote.ylPhotos && local.ylPhotos) remote.ylPhotos = local.ylPhotos;
+        if (!remote.seragam && local.seragam) remote.seragam = local.seragam;
         cachedDb = normalizeDb(remote);
       } else {
         cachedDb = buildDbFromLocal();
@@ -895,6 +908,8 @@ app.post("/api/saveSupabaseConfig", async (req, res) => {
     try {
       supabase = createSupabaseClient(cleanUrl, cleanKey);
       lastSavedDb = {};
+      ylPhotosRemoteLoaded = false;
+      seragamRemoteLoaded = false;
     } catch (e) {
       console.warn("[Supabase] Gagal inisialisasi dari config:", e);
       supabase = null;
@@ -1541,7 +1556,31 @@ app.post("/api/bersihkanSampah", (req, res) => {
 // 4. Papan Kontes
 
 app.get("/api/getSeragam", async (req, res) => {
-  res.json(cachedDb.seragam || { images: {}, schedules: {} });
+  const db = loadData();
+  if (!db.seragam) db.seragam = { images: {}, schedules: {}, schedulesKaryawan: {} };
+
+  const hasImages = db.seragam.images && Object.keys(db.seragam.images).length > 0;
+  // Lazy-load dari Supabase jika gambar belum ada di memori dan belum pernah dimuat
+  if (!hasImages && supabase && !seragamRemoteLoaded) {
+    try {
+      const { data: row } = await (supabase.from("app_store") as any)
+        .select("data")
+        .eq("key", "main_db_seragam")
+        .maybeSingle();
+      if (row && row.data) {
+        db.seragam = {
+          images: { ...(db.seragam.images || {}), ...(row.data.images || {}) },
+          schedules: row.data.schedules || db.seragam.schedules || {},
+          schedulesKaryawan: row.data.schedulesKaryawan || db.seragam.schedulesKaryawan || {}
+        };
+      }
+      seragamRemoteLoaded = true;
+    } catch (err) {
+      console.warn("[Supabase] Gagal lazy-load seragam:", err);
+    }
+  }
+
+  res.json(db.seragam);
 });
 
 app.post("/api/saveSeragam", async (req, res) => {
@@ -1559,7 +1598,23 @@ app.post("/api/saveSeragam", async (req, res) => {
     cachedDb.seragam.schedulesKaryawan = req.body.schedulesKaryawan;
   }
   
-  await saveData(cachedDb);
+  safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
+
+  // Simpan langsung ke Supabase tanpa memicu bulk update
+  if (supabase) {
+    try {
+      await (supabase.from("app_store") as any).upsert([
+        {
+          key: "main_db_seragam",
+          data: cachedDb.seragam,
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: "key" });
+    } catch (err) {
+      console.error("[Supabase] Gagal menyimpan seragam ke Supabase:", err);
+    }
+  }
+
   res.json({ success: true, seragam: cachedDb.seragam });
 });
 
@@ -2655,7 +2710,23 @@ app.post("/api/saveYlFoto", async (req, res) => {
     if (yl) yl.foto = foto;
   }
   
-  saveData(db);
+  safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
+
+  // Simpan langsung ke Supabase tanpa memicu bulk update
+  if (supabase) {
+    try {
+      await (supabase.from("app_store") as any).upsert([
+        {
+          key: "main_db_ylPhotos",
+          data: db.ylPhotos,
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: "key" });
+    } catch (err) {
+      console.error("[Supabase] Gagal menyimpan ylPhotos ke Supabase:", err);
+    }
+  }
+
   res.json({ ok: true, foto });
 });
 
@@ -2668,6 +2739,24 @@ app.get("/api/getYlFoto", async (req, res) => {
     const yl = db.ylList.find((y: any) => y.nama === nama || cleanYlName(y.nama) === cleanYlName(nama));
     if (yl && yl.foto) foto = yl.foto;
   }
+
+  // Lazy-load dari Supabase jika foto belum ada di memori dan belum pernah dimuat
+  if (!foto && supabase && !ylPhotosRemoteLoaded) {
+    try {
+      const { data: row } = await (supabase.from("app_store") as any)
+        .select("data")
+        .eq("key", "main_db_ylPhotos")
+        .maybeSingle();
+      if (row && row.data) {
+        db.ylPhotos = { ...db.ylPhotos, ...row.data };
+        foto = db.ylPhotos[nama] || "";
+      }
+      ylPhotosRemoteLoaded = true;
+    } catch (err) {
+      console.warn("[Supabase] Gagal lazy-load ylPhotos:", err);
+    }
+  }
+
   res.json({ ok: true, foto });
 });
 
