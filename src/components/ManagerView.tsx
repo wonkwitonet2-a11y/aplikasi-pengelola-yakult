@@ -224,6 +224,9 @@ export function ManagerView({
 
   // Supabase Media (Akun Kedua) State
   const [mediaStatus, setMediaStatus] = useState<{ configured: boolean; url: string; tableReady: boolean; message: string } | null>(null);
+  const [sbMediaUrl, setSbMediaUrl] = useState<string>("");
+  const [sbMediaKey, setSbMediaKey] = useState<string>("");
+  const [isSbMediaSaving, setIsSbMediaSaving] = useState<boolean>(false);
   const [isMigratingMedia, setIsMigratingMedia] = useState<boolean>(false);
   const [mediaMigrationMsg, setMediaMigrationMsg] = useState<string>("");
   const [showSqlGuide, setShowSqlGuide] = useState<boolean>(false);
@@ -250,6 +253,7 @@ export function ManagerView({
       setSbPinError("");
       setSbPinInput("");
       fetchSupabaseMediaStatus();
+      fetchSupabaseMediaConfig();
     } else {
       setSbPinError("PIN Salah! Silakan periksa kembali PIN Anda.");
     }
@@ -280,6 +284,13 @@ export function ManagerView({
     setIsChangingSbPin(false);
     setTimeout(() => setSbPinChangeMsg(""), 4000);
   };
+
+  useEffect(() => {
+    if (activeTab === "setting") {
+      fetchSupabaseMediaStatus();
+      fetchSupabaseMediaConfig();
+    }
+  }, [activeTab]);
 
   // Helper functions for ManagerDashboardTab
   const currentMonthTotal = useCallback((perYL: Record<string, any>, key: "yo" | "om" | "os" | "yt") => {
@@ -822,6 +833,54 @@ export function ManagerView({
         setMediaStatus(res.media);
       }
     } catch (e) {}
+  };
+
+  // Fetch Supabase Media URL & Key
+  const fetchSupabaseMediaConfig = async () => {
+    try {
+      const res = await safeFetchJson("/api/getSupabaseMediaConfig");
+      if (res) {
+        if (res.url) setSbMediaUrl(res.url);
+        if (res.key) setSbMediaKey(res.key);
+      }
+    } catch (e) {}
+  };
+
+  // Save Supabase Media config
+  const handleSaveSupabaseMediaConfig = async () => {
+    let cleanUrl = sbMediaUrl.trim();
+    if (cleanUrl && !/^https?:\/\//i.test(cleanUrl)) {
+      cleanUrl = "https://" + cleanUrl;
+      setSbMediaUrl(cleanUrl);
+    }
+    const cleanKey = sbMediaKey.trim();
+
+    setIsSbMediaSaving(true);
+    setMediaMigrationMsg("⏳ Menyimpan konfigurasi dan menguji Akun Media...");
+    try {
+      const res = await fetch("/api/saveSupabaseMediaConfig", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: cleanUrl, key: cleanKey })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await fetchSupabaseMediaStatus();
+        setMediaMigrationMsg("✅ URL & Key Akun Media berhasil disimpan!");
+      } else {
+        setMediaMigrationMsg("❌ Gagal menyimpan konfigurasi Akun Media.");
+      }
+    } catch (e: any) {
+      setMediaMigrationMsg("❌ Error: " + (e.message || "Gagal menyimpan"));
+    } finally {
+      setIsSbMediaSaving(false);
+    }
+  };
+
+  // Reset to default Supabase Media credentials
+  const handleResetDefaultMedia = () => {
+    setSbMediaUrl("https://wkwjmwxxdfxyfqaseuha.supabase.co");
+    setSbMediaKey("sb_publishable_ZPTUqIJyJzSTb0Jazx_7ZQ_J3ciuWIH");
   };
 
   // Migrate media assets to secondary Supabase
@@ -4913,11 +4972,43 @@ export function ManagerView({
                       Akun kedua ini khusus menyimpan foto profil YL, jadwal &amp; gambar seragam, dan konfigurasi motivasi agar akun utama 100% bebas beban egress.
                     </p>
 
-                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-1 text-[11px]">
-                      <div className="text-slate-500 font-semibold">URL Akun Media:</div>
-                      <div className="font-mono text-slate-800 font-bold break-all">
-                        {mediaStatus?.url || "https://wkwjmwxxdfxyfqaseuha.supabase.co"}
+                    {/* Form Edit Manual URL & Key Akun Media */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-3 text-[11px]">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                            URL Akun Media (Supabase Kedua)
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleResetDefaultMedia}
+                            className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
+                          >
+                            Isi URL Default
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          value={sbMediaUrl}
+                          onChange={(e) => setSbMediaUrl(e.target.value)}
+                          placeholder="https://xxxxx.supabase.co"
+                          className="w-full bg-white border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
                       </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                          Anon / Public Key Akun Media
+                        </label>
+                        <input
+                          type="password"
+                          value={sbMediaKey}
+                          onChange={(e) => setSbMediaKey(e.target.value)}
+                          placeholder="eyJhbGciOi... atau sb_publishable_..."
+                          className="w-full bg-white border border-slate-200 text-xs rounded-xl p-2.5 font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+
                       {mediaStatus?.message && (
                         <div className={`text-[10px] font-bold mt-1 ${mediaStatus.tableReady ? "text-emerald-700" : "text-amber-700"}`}>
                           Status: {mediaStatus.message}
@@ -4927,9 +5018,17 @@ export function ManagerView({
 
                     <div className="flex flex-wrap gap-2">
                       <button
+                        onClick={handleSaveSupabaseMediaConfig}
+                        disabled={isSbMediaSaving}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {isSbMediaSaving ? "⏳ Menyimpan..." : "💾 Simpan & Hubungkan Akun Media"}
+                      </button>
+
+                      <button
                         onClick={handleMigrateMedia}
                         disabled={isMigratingMedia}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50"
+                        className="bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50"
                       >
                         {isMigratingMedia ? "⏳ Memindahkan..." : "🔄 Cek & Pindahkan Media ke Akun Baru"}
                       </button>

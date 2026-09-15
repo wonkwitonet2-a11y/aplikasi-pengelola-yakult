@@ -1264,6 +1264,9 @@ app.post("/api/saveSupabaseMediaConfig", async (req, res) => {
 
 // Status kedua Supabase (Utama & Media)
 app.get("/api/getSupabaseStatus", async (req, res) => {
+  const db = loadData();
+  const currentMediaUrl = db.supabaseMediaConfig?.url || SUPABASE_MEDIA_URL;
+
   const primaryConfig = {
     configured: !!supabase,
     url: (process.env.SUPABASE_URL || "").substring(0, 30) + "..."
@@ -1271,7 +1274,7 @@ app.get("/api/getSupabaseStatus", async (req, res) => {
 
   let mediaStatus = {
     configured: !!supabaseMedia,
-    url: SUPABASE_MEDIA_URL,
+    url: currentMediaUrl,
     tableReady: false,
     message: ""
   };
