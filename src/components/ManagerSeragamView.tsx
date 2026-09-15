@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight, Upload, Save, Info, Settings, ArrowLeft } from "lucide-react";
 
 const MTHS = [
@@ -57,8 +57,39 @@ export default function ManagerSeragamView() {
   const scheduleYL = schedules[monthKey] || {};
   const scheduleK = schedulesKaryawan[monthKey] || {};
 
+  const [rawDatesYL, setRawDatesYL] = useState<Record<string, string>>({});
+  const [rawDatesKaryawan, setRawDatesKaryawan] = useState<Record<string, string>>({});
+  const lastSyncMonthRef = useRef<string>("");
+
+  // Sync raw input strings when month changes or data loads
+  useEffect(() => {
+    if (!loading) {
+      const initYL: Record<string, string> = {};
+      ["yellow", "blue", "red"].forEach(uId => {
+        const dates: number[] = [];
+        for (let i = 1; i <= daysInMonth; i++) {
+          if (scheduleYL[i] === uId) dates.push(i);
+        }
+        initYL[uId] = dates.join(", ");
+      });
+      setRawDatesYL(initYL);
+
+      const initK: Record<string, string> = {};
+      ["karyawan_yellow", "karyawan_blue", "karyawan_red"].forEach(uId => {
+        const dates: number[] = [];
+        for (let i = 1; i <= daysInMonth; i++) {
+          if (scheduleK[i] === uId) dates.push(i);
+        }
+        initK[uId] = dates.join(", ");
+      });
+      setRawDatesKaryawan(initK);
+      lastSyncMonthRef.current = monthKey;
+    }
+  }, [monthKey, daysInMonth, loading]);
+
   // For YL
   const getDatesStringYL = (uniformId: string) => {
+    if (rawDatesYL[uniformId] !== undefined) return rawDatesYL[uniformId];
     const dates = [];
     for (let i = 1; i <= daysInMonth; i++) {
       if (scheduleYL[i] === uniformId) dates.push(i);
@@ -67,7 +98,9 @@ export default function ManagerSeragamView() {
   };
 
   const handleDatesChangeYL = (uniformId: string, val: string) => {
-    const parts = val.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= daysInMonth);
+    // Keep user's exact typed string so commas and spaces are never swallowed
+    setRawDatesYL(prev => ({ ...prev, [uniformId]: val }));
+    const parts = val.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= daysInMonth);
     setSchedules((prev: any) => {
       const monthSched = { ...(prev[monthKey] || {}) };
       for (let i = 1; i <= daysInMonth; i++) {
@@ -78,8 +111,18 @@ export default function ManagerSeragamView() {
     });
   };
 
+  const handleDatesBlurYL = (uniformId: string) => {
+    // Normalize format on blur
+    const dates: number[] = [];
+    for (let i = 1; i <= daysInMonth; i++) {
+      if (schedules[monthKey]?.[i] === uniformId) dates.push(i);
+    }
+    setRawDatesYL(prev => ({ ...prev, [uniformId]: dates.join(", ") }));
+  };
+
   // For Karyawan
   const getDatesStringKaryawan = (uniformId: string) => {
+    if (rawDatesKaryawan[uniformId] !== undefined) return rawDatesKaryawan[uniformId];
     const dates = [];
     for (let i = 1; i <= daysInMonth; i++) {
       if (scheduleK[i] === uniformId) dates.push(i);
@@ -88,7 +131,9 @@ export default function ManagerSeragamView() {
   };
 
   const handleDatesChangeKaryawan = (uniformId: string, val: string) => {
-    const parts = val.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 1 && n <= daysInMonth);
+    // Keep user's exact typed string so commas and spaces are never swallowed
+    setRawDatesKaryawan(prev => ({ ...prev, [uniformId]: val }));
+    const parts = val.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n) && n >= 1 && n <= daysInMonth);
     setSchedulesKaryawan((prev: any) => {
       const monthSched = { ...(prev[monthKey] || {}) };
       for (let i = 1; i <= daysInMonth; i++) {
@@ -97,6 +142,15 @@ export default function ManagerSeragamView() {
       parts.forEach(d => { monthSched[d] = uniformId; });
       return { ...prev, [monthKey]: monthSched };
     });
+  };
+
+  const handleDatesBlurKaryawan = (uniformId: string) => {
+    // Normalize format on blur
+    const dates: number[] = [];
+    for (let i = 1; i <= daysInMonth; i++) {
+      if (schedulesKaryawan[monthKey]?.[i] === uniformId) dates.push(i);
+    }
+    setRawDatesKaryawan(prev => ({ ...prev, [uniformId]: dates.join(", ") }));
   };
 
   const save = async () => {
@@ -359,6 +413,7 @@ export default function ManagerSeragamView() {
                   type="text"
                   value={getDatesStringKaryawan("karyawan_yellow")}
                   onChange={(e) => handleDatesChangeKaryawan("karyawan_yellow", e.target.value)}
+                  onBlur={() => handleDatesBlurKaryawan("karyawan_yellow")}
                   className="w-full bg-white dark:bg-slate-900 border border-amber-300 rounded-lg px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-amber-500"
                   placeholder="Contoh: 1, 8, 15"
                 />
@@ -372,6 +427,7 @@ export default function ManagerSeragamView() {
                   type="text"
                   value={getDatesStringKaryawan("karyawan_blue")}
                   onChange={(e) => handleDatesChangeKaryawan("karyawan_blue", e.target.value)}
+                  onBlur={() => handleDatesBlurKaryawan("karyawan_blue")}
                   className="w-full bg-white dark:bg-slate-900 border border-blue-300 rounded-lg px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Contoh: 2, 9, 16"
                 />
@@ -385,6 +441,7 @@ export default function ManagerSeragamView() {
                   type="text"
                   value={getDatesStringKaryawan("karyawan_red")}
                   onChange={(e) => handleDatesChangeKaryawan("karyawan_red", e.target.value)}
+                  onBlur={() => handleDatesBlurKaryawan("karyawan_red")}
                   className="w-full bg-white dark:bg-slate-900 border border-red-300 rounded-lg px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-red-500"
                   placeholder="Contoh: 3, 10, 17"
                 />
@@ -403,6 +460,7 @@ export default function ManagerSeragamView() {
                   type="text"
                   value={getDatesStringYL("yellow")}
                   onChange={(e) => handleDatesChangeYL("yellow", e.target.value)}
+                  onBlur={() => handleDatesBlurYL("yellow")}
                   className="w-full bg-white dark:bg-slate-900 border border-amber-300 rounded-lg px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-amber-500"
                   placeholder="Contoh: 1, 8, 15"
                 />
@@ -416,6 +474,7 @@ export default function ManagerSeragamView() {
                   type="text"
                   value={getDatesStringYL("blue")}
                   onChange={(e) => handleDatesChangeYL("blue", e.target.value)}
+                  onBlur={() => handleDatesBlurYL("blue")}
                   className="w-full bg-white dark:bg-slate-900 border border-blue-300 rounded-lg px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Contoh: 2, 9, 16"
                 />
@@ -429,6 +488,7 @@ export default function ManagerSeragamView() {
                   type="text"
                   value={getDatesStringYL("red")}
                   onChange={(e) => handleDatesChangeYL("red", e.target.value)}
+                  onBlur={() => handleDatesBlurYL("red")}
                   className="w-full bg-white dark:bg-slate-900 border border-red-300 rounded-lg px-4 py-2.5 text-slate-800 dark:text-slate-100 font-medium focus:outline-none focus:ring-2 focus:ring-red-500"
                   placeholder="Contoh: 3, 10, 17"
                 />

@@ -7,11 +7,13 @@ import {
   ArrowUpDown, TrendingDown, Clock, ShieldAlert, Activity, UserCheck, UserX,
   AlertCircle, ArrowUpRight, ArrowDownRight, ArrowRight as ArrowRightIcon,
   PieChart as PieChartIcon, CheckCircle2, Target, Archive, Camera, Award, Search,
-  BookOpen, FileText, HelpCircle, Home, Store, GraduationCap, Building2, ShoppingBag, Zap, Heart
+  BookOpen, FileText, HelpCircle, Home, Store, GraduationCap, Building2, ShoppingBag, Zap, Heart,
+  Image as ImageIcon, Upload, Eye, EyeOff, Smile, HeartHandshake, Palette, Menu,
+  Download, ChevronUp, ChevronDown, Settings2
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Legend, PieChart, Pie, Cell, LabelList
+  LineChart, Line, Legend, PieChart, Pie, Cell, LabelList, AreaChart, Area
 } from "recharts";
 import { loadFromSupabase, saveToSupabase, deleteFromSupabase } from "../lib/supabaseClient";
 import { cleanYlName } from "../types";
@@ -26,7 +28,40 @@ const MONTHS = ["jan", "feb", "mar", "apr", "mei", "jun", "jul", "agu", "sep", "
 const MONTH_LABELS = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 
+// Warna sektor untuk Slide 8
+const SECTOR_COLORS = {
+  rumah: "#3B82F6",   // Biru
+  pasar: "#F59E0B",   // Kuning
+  sekolah: "#10B981", // Hijau
+  kantor: "#8B5CF6",  // Ungu
+  toko: "#EC4899",    // Pink
+  ib: "#EF4444"       // Merah
+};
+
 const PRODUCT_COLORS: Record<string, string> = { YO: "#dc2626", OM: "#eab308", OS: "#ec4899", YT: "#2563eb" };
+
+// Resolver warna sektor yang toleran terhadap variasi penulisan key dari sumber data
+// (arsip bulanan bisa memakai key singkat "rmh"/"psr"/dst, sedangkan SECTOR_COLORS memakai
+// key panjang "rumah"/"pasar"/dst — pencarian langsung SECTOR_COLORS[sec.key] gagal cocok
+// utk 5 dari 6 sektor & selalu jatuh ke default biru). Dicocokkan via key ATAU label,
+// dan kalau tetap tidak kenal, fallback ke urutan posisi standar (Rumah/Pasar/Sekolah/Kantor/Toko/IB).
+const SECTOR_COLOR_ORDER = [
+  SECTOR_COLORS.rumah, SECTOR_COLORS.pasar, SECTOR_COLORS.sekolah,
+  SECTOR_COLORS.kantor, SECTOR_COLORS.toko, SECTOR_COLORS.ib,
+];
+function resolveSectorColor(rawKey: unknown, rawLabel: unknown, idx: number): string {
+  const norm = (s: unknown) => String(s || "").toLowerCase().replace(/[^a-z]/g, "");
+  const k = norm(rawKey);
+  const l = norm(rawLabel);
+  const hit = (needle: string) => k === needle || k.includes(needle) || l.includes(needle);
+  if (hit("rumah") || k === "rmh") return SECTOR_COLORS.rumah;
+  if (hit("pasar") || k === "psr") return SECTOR_COLORS.pasar;
+  if (hit("sekolah") || k === "skh") return SECTOR_COLORS.sekolah;
+  if (hit("kantor") || k === "ktr") return SECTOR_COLORS.kantor;
+  if (hit("toko") || k === "tk") return SECTOR_COLORS.toko;
+  if (hit("instant") || hit("ib") || k === "ib") return SECTOR_COLORS.ib;
+  return SECTOR_COLOR_ORDER[idx % SECTOR_COLOR_ORDER.length] || "#3b82f6";
+}
 
 export const PRODUCT_LABELS: Record<string, { code: string; shortName: string; fullName: string; color: string }> = {
   YO: { code: "YO", shortName: "Original", fullName: "Original (YO)", color: "#dc2626" },
@@ -85,23 +120,40 @@ function sum(nums: (number | null | undefined)[]): number {
 
 function useActionPlan(selectedYear: string, periode: Periode, monthIndex: number) {
   const key = `presentasi_action_plan_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
-  const [items, setItems] = useState<ActionPlanItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(key);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [items, setItems] = useState<ActionPlanItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(key);
-      setItems(saved ? JSON.parse(saved) : []);
-    } catch {
-      setItems([]);
-    }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const local = localStorage.getItem(key);
+        if (local) {
+          if (!cancelled) setItems(JSON.parse(local));
+        } else {
+          const remote = await loadFromSupabase<ActionPlanItem[]>(key);
+          if (!cancelled) setItems(remote || []);
+        }
+      } catch (e) {
+        console.error("Gagal memuat Action Plan:", e);
+        if (!cancelled) setItems([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [key]);
+
+  const persist = (updated: ActionPlanItem[]) => {
+    setItems(updated);
+    try {
+      localStorage.setItem(key, JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+    saveToSupabase(key, updated).catch((e) => console.error("Gagal menyinkronkan Action Plan ke Supabase:", e));
+  };
 
   const addItem = (text: string) => {
     if (!text.trim()) return;
@@ -111,36 +163,171 @@ function useActionPlan(selectedYear: string, periode: Periode, monthIndex: numbe
       done: false,
       createdAt: new Date().toISOString(),
     };
-    const updated = [...items, newItem];
-    setItems(updated);
-    try {
-      localStorage.setItem(key, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    persist([...items, newItem]);
   };
 
   const toggleItem = (id: string) => {
-    const updated = items.map((it) => (it.id === id ? { ...it, done: !it.done } : it));
-    setItems(updated);
-    try {
-      localStorage.setItem(key, JSON.stringify(updated));
-    } catch (e) {
-      console.error(e);
-    }
+    persist(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
   };
 
   const deleteItem = (id: string) => {
-    const updated = items.filter((it) => it.id !== id);
-    setItems(updated);
+    persist(items.filter((it) => it.id !== id));
+  };
+
+  return { items, addItem, toggleItem, deleteItem, loading };
+}
+
+// ----------------------------------------------------------------------------
+// Pengumpulan Sampah Terbanyak — Persistence Hook (input manual per bulan)
+// ----------------------------------------------------------------------------
+
+export interface SampahTerbanyakRecord {
+  nama: string;
+  area: string;
+  jumlah: string;
+}
+
+const EMPTY_SAMPAH: SampahTerbanyakRecord = { nama: "", area: "", jumlah: "" };
+
+function useSampahTerbanyak(selectedYear: string, periode: Periode, monthIndex: number) {
+  const key = `presentasi_sampah_terbanyak_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
+  const [record, setRecord] = useState<SampahTerbanyakRecord>(EMPTY_SAMPAH);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const local = localStorage.getItem(key);
+        if (local) {
+          if (!cancelled) setRecord(JSON.parse(local));
+        } else {
+          const remote = await loadFromSupabase<SampahTerbanyakRecord>(key);
+          if (!cancelled) setRecord(remote || EMPTY_SAMPAH);
+        }
+      } catch (e) {
+        console.error("Gagal memuat data Sampah Terbanyak:", e);
+        if (!cancelled) setRecord(EMPTY_SAMPAH);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [key]);
+
+  const updateRecord = (patch: Partial<SampahTerbanyakRecord>) => {
+    const updated = { ...record, ...patch };
+    setRecord(updated);
     try {
       localStorage.setItem(key, JSON.stringify(updated));
     } catch (e) {
       console.error(e);
     }
+    saveToSupabase(key, updated).catch((e) => console.error("Gagal menyinkronkan Sampah Terbanyak ke Supabase:", e));
   };
 
-  return { items, addItem, toggleItem, deleteItem };
+  return { record, updateRecord, loading };
+}
+
+// ----------------------------------------------------------------------------
+// Urutan & Visibilitas Slide (khusus Laporan Bulanan) — Persistence Hook
+// ----------------------------------------------------------------------------
+
+export const BULANAN_SLIDE_DEFS: { id: string; label: string }[] = [
+  { id: "cover", label: "Laporan Bulanan (Cover)" },
+  { id: "pencapaian", label: "Hasil Pencapaian Tim" },
+  { id: "evaluasi10yl", label: "Evaluasi Seluruh 10 YL" },
+  { id: "distribusi", label: "Distribusi Penjualan Tim" },
+  { id: "karakteristik", label: "Analisis Karakteristik Pelanggan" },
+  { id: "mixproduk", label: "Evaluasi Mix Produk" },
+  { id: "apresiasi", label: "Apresiasi Performa" },
+  { id: "ytd", label: "Rata-Rata YTD per YL" },
+  { id: "analisa", label: "Analisa Data Pencapaian" },
+  { id: "kesimpulan", label: "Kesimpulan" },
+];
+
+export interface SlideOrderItem {
+  id: string;
+  visible: boolean;
+}
+
+const DEFAULT_SLIDE_ORDER: SlideOrderItem[] = BULANAN_SLIDE_DEFS.map((d) => ({ id: d.id, visible: true }));
+
+// Gabungkan config tersimpan dengan daftar default terbaru — jaga-jaga kalau ada slide
+// baru yang belum tercatat di config lama, atau ada slide lama yang sudah dihapus dari kode.
+function mergeSlideOrder(saved: SlideOrderItem[]): SlideOrderItem[] {
+  const validIds = new Set(BULANAN_SLIDE_DEFS.map((d) => d.id));
+  const savedIds = new Set(saved.map((s) => s.id));
+  const merged = saved.filter((s) => validIds.has(s.id));
+  BULANAN_SLIDE_DEFS.forEach((d) => {
+    if (!savedIds.has(d.id)) merged.push({ id: d.id, visible: true });
+  });
+  return merged;
+}
+
+function useSlideOrderConfig() {
+  const key = "presentasi_slide_order_bulanan_v1";
+  const [order, setOrder] = useState<SlideOrderItem[]>(DEFAULT_SLIDE_ORDER);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const local = localStorage.getItem(key);
+        if (local) {
+          if (!cancelled) setOrder(mergeSlideOrder(JSON.parse(local)));
+        } else {
+          const remote = await loadFromSupabase<SlideOrderItem[]>(key);
+          if (!cancelled) setOrder(remote ? mergeSlideOrder(remote) : DEFAULT_SLIDE_ORDER);
+        }
+      } catch (e) {
+        console.error("Gagal memuat urutan slide:", e);
+        if (!cancelled) setOrder(DEFAULT_SLIDE_ORDER);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const persist = (updated: SlideOrderItem[]) => {
+    setOrder(updated);
+    try {
+      localStorage.setItem(key, JSON.stringify(updated));
+    } catch (e) {
+      console.error(e);
+    }
+    saveToSupabase(key, updated).catch((e) => console.error("Gagal menyinkronkan urutan slide ke Supabase:", e));
+  };
+
+  const moveUp = (id: string) => {
+    const idx = order.findIndex((o) => o.id === id);
+    if (idx <= 0) return;
+    const updated = [...order];
+    [updated[idx - 1], updated[idx]] = [updated[idx], updated[idx - 1]];
+    persist(updated);
+  };
+
+  const moveDown = (id: string) => {
+    const idx = order.findIndex((o) => o.id === id);
+    if (idx === -1 || idx >= order.length - 1) return;
+    const updated = [...order];
+    [updated[idx + 1], updated[idx]] = [updated[idx], updated[idx + 1]];
+    persist(updated);
+  };
+
+  const toggleVisible = (id: string) => {
+    persist(order.map((o) => (o.id === id ? { ...o, visible: !o.visible } : o)));
+  };
+
+  const resetOrder = () => {
+    persist(DEFAULT_SLIDE_ORDER);
+  };
+
+  return { order, moveUp, moveDown, toggleVisible, resetOrder, loading };
 }
 
 // ----------------------------------------------------------------------------
@@ -212,6 +399,149 @@ function useYlOfTheMonth(storageKey: string) {
   };
 
   return { record, loading, save, clear };
+}
+
+// ----------------------------------------------------------------------------
+// Custom Slide Hook & Photo Resizer (Slide Tambahan Foto / Lampiran Data)
+// ----------------------------------------------------------------------------
+
+export interface CustomSlideRecord {
+  enabled: boolean;
+  title: string;
+  subtitle?: string;
+  foto?: string;
+  fotoName?: string;
+  catatan?: string;
+  updatedAt?: string;
+}
+
+function resizeCustomSlidePhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_DIM = 1400;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_DIM) {
+            height *= MAX_DIM / width;
+            width = MAX_DIM;
+          }
+        } else {
+          if (height > MAX_DIM) {
+            width *= MAX_DIM / height;
+            height = MAX_DIM;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = reject;
+      img.src = reader.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function useCustomSlide(storageKey: string) {
+  const [record, setRecord] = useState<CustomSlideRecord>({
+    enabled: false,
+    title: "Data Tambahan & Lampiran Dokumentasi",
+    subtitle: "",
+    foto: "",
+    fotoName: "",
+    catatan: "",
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const local = localStorage.getItem(storageKey);
+        if (local) {
+          if (!cancelled) setRecord(JSON.parse(local));
+        } else {
+          const remote = await loadFromSupabase<CustomSlideRecord>(storageKey);
+          if (!cancelled && remote) setRecord(remote);
+        }
+      } catch (e) {
+        console.error("Gagal memuat data slide kustom:", e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [storageKey]);
+
+  const save = async (rec: CustomSlideRecord) => {
+    const payload = { ...rec, updatedAt: new Date().toISOString() };
+    setRecord(payload);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(payload));
+    } catch (e) {
+      console.error(e);
+    }
+    try {
+      await saveToSupabase(storageKey, payload);
+    } catch (e) {
+      console.error("Gagal menyinkronkan data slide kustom ke Supabase:", e);
+    }
+  };
+
+  const clear = async () => {
+    const emptyRec: CustomSlideRecord = {
+      enabled: false,
+      title: "Data Tambahan & Lampiran Dokumentasi",
+      subtitle: "",
+      foto: "",
+      fotoName: "",
+      catatan: "",
+    };
+    setRecord(emptyRec);
+    try {
+      localStorage.removeItem(storageKey);
+    } catch (e) {
+      console.error(e);
+    }
+    try {
+      await deleteFromSupabase(storageKey);
+    } catch (e) {
+      console.error("Gagal menghapus data slide kustom dari Supabase:", e);
+    }
+  };
+
+  const toggleEnabled = async () => {
+    await save({ ...record, enabled: !record.enabled });
+  };
+
+  const uploadPhoto = async (file: File) => {
+    const b64 = await resizeCustomSlidePhoto(file);
+    await save({ ...record, enabled: true, foto: b64, fotoName: file.name });
+  };
+
+  const removePhoto = async () => {
+    await save({ ...record, foto: "", fotoName: "" });
+  };
+
+  return {
+    record,
+    loading,
+    save,
+    clear,
+    reset: clear,
+    toggleEnabled,
+    uploadPhoto,
+    removePhoto,
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -287,10 +617,8 @@ export function computeYLAverageData(
     };
   });
 
-  // Urutkan default berdasarkan rata-rata tertinggi (ranking)
   rows.sort((a, b) => b.rataRata - a.rataRata);
 
-  // Rata-rata per kolom bulan tim
   const teamMonthlyAvgs = monthIndices.map((i) => {
     const k = MONTHS[i];
     const colVals = (perYL || [])
@@ -463,7 +791,7 @@ export function computeBebanKapasitas(
   jumlahYL = 10
 ): BebanKapasitasResult {
   const effectiveMonths = Math.max(1, monthsRemaining);
-  const daysRemaining = effectiveMonths * 25; // 25 hari kerja per bulan
+  const daysRemaining = effectiveMonths * 25;
   const bebanTotalHarian = Math.round(targetSisa / daysRemaining);
   const bebanPerYLHarian = Math.round(bebanTotalHarian / Math.max(1, jumlahYL));
 
@@ -631,7 +959,6 @@ function generateWhatsAppSummary({
     }
     text += `• SDM: Rekrut ${fmtNum(agg.ylBaru)} YL Baru, Resign ${fmtNum(agg.ylResign)} YL\n\n`;
 
-    // Rata-rata per YL
     const semYl = isS1
       ? computeYLAverageData(perYL, 0, 5)
       : computeYLAverageData(perYL, 0, 11);
@@ -661,7 +988,6 @@ function generateWhatsAppSummary({
     return text;
   }
 
-  // Tahunan
   const t = computeTahunanAgg(bulanan, selectedYear);
   let text = `📊 *LAPORAN TAHUNAN STRATEGIS ${tku}*\n`;
   text += `📅 *Tahun:* ${selectedYear}\n`;
@@ -805,7 +1131,6 @@ function ActionPlanCard({
         Catat komitmen strategi, pembinaan YL, atau target perbaikan yang disepakati saat rapat.
       </p>
 
-      {/* Progress Bar PDCA */}
       {totalCount > 0 && (
         <div className="mb-4 bg-slate-100 dark:bg-slate-800/80 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
           <div className="flex items-center justify-between text-[11px] font-bold mb-1.5">
@@ -826,7 +1151,6 @@ function ActionPlanCard({
         </div>
       )}
 
-      {/* Input baru */}
       <form onSubmit={handleSubmit} className="flex gap-2 mb-3 no-print">
         <input
           type="text"
@@ -844,7 +1168,6 @@ function ActionPlanCard({
         </button>
       </form>
 
-      {/* Filter Tabs */}
       {totalCount > 0 && (
         <div className="flex items-center gap-1.5 mb-2.5 no-print text-[11px]">
           <button
@@ -883,7 +1206,6 @@ function ActionPlanCard({
         </div>
       )}
 
-      {/* List items */}
       <div className="space-y-1.5">
         {filteredItems.map((it) => (
           <div
@@ -960,7 +1282,7 @@ const YL_OTM_CATEGORIES: { id: string; label: string; auto: boolean }[] = [
   { id: "rumah_tertinggi", label: "Penjualan Sektor Rumah Tertinggi", auto: true },
   { id: "stabil", label: "Penjualan Paling Stabil", auto: true },
   { id: "sampah_terbanyak", label: "Pengumpulan Sampah Botol Terbanyak", auto: false },
-  { id: "bebas", label: "Kategori Bebas / Lainnya", auto: false },
+  { id: "bebas", label: "Kategori Bebas (Kustom)", auto: false },
 ];
 
 export interface SectorSummaryItem {
@@ -1002,6 +1324,11 @@ interface MonthArchiveDetails {
     thn_lalu: number;
   };
   rataHarian?: number;
+  topSampah?: {
+    nama: string;
+    area: string;
+    jumlah: number;
+  };
 }
 
 async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number): Promise<MonthArchiveDetails> {
@@ -1048,6 +1375,8 @@ async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number)
     ib:  { label: "Instant Buyer (IB)", isFixedCustomer: false, yo: 0, om: 0, os: 0, yt: 0, akm: 0 },
   };
 
+  const sampahByArea: Record<string, { nama: string; area: string; total: number }> = {};
+
   const processTransactions = (txs: any[]) => {
     txs.forEach((t: any) => {
       const areaMatch = t.nama ? String(t.nama).match(/\b(20[1-9]|210)\b/) : null;
@@ -1056,6 +1385,18 @@ async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number)
         (Number(t.rmh_yo) || 0) + (Number(t.rmh_om) || 0) + (Number(t.rmh_os) || 0) + (Number(t.rmh_yt) || 0);
       if (areaKey && rmhTot > 0) {
         result.sektorRumahByArea![areaKey] = (result.sektorRumahByArea![areaKey] || 0) + rmhTot;
+      }
+
+      // Hitung sampah botol per YL
+      const btl = Number(t.apk_botol) || 0;
+      if (areaKey && btl > 0) {
+        if (!sampahByArea[areaKey]) {
+          sampahByArea[areaKey] = { nama: t.nama || "", area: areaKey, total: 0 };
+        }
+        sampahByArea[areaKey].total += btl;
+        if (t.nama && (!sampahByArea[areaKey].nama || sampahByArea[areaKey].nama.length < String(t.nama).length)) {
+          sampahByArea[areaKey].nama = String(t.nama);
+        }
       }
 
       (["rmh", "psr", "skh", "ktr", "tk", "ib"] as const).forEach((secKey) => {
@@ -1070,6 +1411,15 @@ async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number)
         secMap[secKey].akm += (yo + om + os + yt);
       });
     });
+
+    const sortedSampah = Object.values(sampahByArea).sort((a, b) => b.total - a.total);
+    if (sortedSampah[0] && sortedSampah[0].total > 0) {
+      result.topSampah = {
+        nama: sortedSampah[0].nama,
+        area: sortedSampah[0].area,
+        jumlah: sortedSampah[0].total,
+      };
+    }
   };
 
   let hariKerja = 25;
@@ -1079,7 +1429,6 @@ async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number)
     hariKerja = rec.hariKerja || rec.pembagiManager || 25;
     result.hariKerja = hariKerja;
 
-    // Ambil Target Tim (Total) dari Menu Target di Arsip
     let tkuTarget = 0;
     let tkuBlnLalu = 0;
     let tkuThnLalu = 0;
@@ -1095,7 +1444,6 @@ async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number)
       tkuThnLalu = Number(tt.tahunLalu ?? tt.thn_lalu) || 0;
     }
 
-    // Fallback dari localStorage target_tku jika belum terekam di snapshot
     if (tkuTarget === 0) {
       try {
         const localTku = localStorage.getItem(`target_tku_${ymKey}`) || localStorage.getItem("target_tku");
@@ -1146,7 +1494,6 @@ async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number)
       });
     }
 
-    // Jika target tim masih 0, jumlahkan dari target masing-masing YL di menu target
     let sumTgt = 0, sumBln = 0, sumThn = 0;
     Object.values(result.perYL || {}).forEach((y) => {
       sumTgt += y.targetYL || 0;
@@ -1168,7 +1515,6 @@ async function loadMonthArchiveDetails(selectedYear: string, monthIndex: number)
     }
   }
 
-  // Jika sektor belum didapat dari snapshot arsip, tarik dari endpoint transaksi PLG PJL
   if (Object.values(secMap).reduce((s, x) => s + x.akm, 0) === 0) {
     try {
       const resp = await fetch(`/api/getPlgPjlData?month=${encodeURIComponent(ymKey)}`);
@@ -1419,6 +1765,7 @@ function YlOfTheMonthCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [category, setCategory] = useState<string>(record?.category || "total_tertinggi");
+  const [customCategoryLabel, setCustomCategoryLabel] = useState<string>(record?.categoryLabel || "");
   const [pending, setPending] = useState<{ area: string; nama: string; valueLabel: string } | null>(null);
   const [manualArea, setManualArea] = useState("");
   const [manualValueLabel, setManualValueLabel] = useState("");
@@ -1476,7 +1823,9 @@ function YlOfTheMonthCard({
   );
 
   const handleStartEdit = () => {
-    setCategory(record?.category || "total_tertinggi");
+    const currentCatId = record?.category || "total_tertinggi";
+    setCategory(currentCatId);
+    setCustomCategoryLabel(record?.categoryLabel || "");
     setFoto(record?.foto || "");
     const recordCat = record ? YL_OTM_CATEGORIES.find((c) => c.id === record.category) : null;
     setPending(record && recordCat?.auto ? { area: record.area, nama: record.nama, valueLabel: record.valueLabel } : null);
@@ -1489,6 +1838,12 @@ function YlOfTheMonthCard({
 
   const handleCategoryChange = async (id: string) => {
     setCategory(id);
+    const matched = YL_OTM_CATEGORIES.find((c) => c.id === id);
+    if (id === "bebas") {
+      setCustomCategoryLabel(record?.category === "bebas" ? (record.categoryLabel || "") : "");
+    } else if (matched) {
+      setCustomCategoryLabel(matched.label);
+    }
     setPending(null);
     setSearched(true);
     if (!archiveDetails) {
@@ -1529,11 +1884,12 @@ function YlOfTheMonthCard({
     if (!winner || !winner.area) return;
     setSaving(true);
     try {
+      const finalCategoryLabel = customCategoryLabel.trim() || currentCat.label;
       await onSave({
         area: winner.area,
         nama: winner.nama,
         category,
-        categoryLabel: currentCat.label,
+        categoryLabel: finalCategoryLabel,
         valueLabel: winner.valueLabel || "",
         foto,
         updatedAt: new Date().toISOString(),
@@ -1613,6 +1969,24 @@ function YlOfTheMonthCard({
             </select>
           </div>
 
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1">
+              Keterangan / Nama Kategori di Slide {category === "bebas" ? "(Wajib/Bebas Diisi)" : "(Bisa Disesuaikan)"}
+            </label>
+            <input
+              type="text"
+              value={customCategoryLabel}
+              onChange={(e) => setCustomCategoryLabel(e.target.value)}
+              placeholder={category === "bebas" ? "Contoh: Ibu Teramah, Pelayanan Prima, dll." : currentCat.label}
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+            {category === "bebas" && (
+              <p className="text-[10px] text-orange-500 mt-1">
+                💡 Masukkan nama atau alasan kategori penghargaan di sini agar muncul di slide presentasi.
+              </p>
+            )}
+          </div>
+
           {currentCat.auto ? (
             <div>
               <button
@@ -1628,7 +2002,7 @@ function YlOfTheMonthCard({
                 <div className="mt-2 space-y-1.5">
                   {ranked.length === 0 && (
                     <p className="text-[11px] text-slate-400 text-center py-3 italic">
-                      Data belum cukup untuk kategori &amp; periode ini. Coba kategori lain atau gunakan &quot;Kategori Bebas&quot;.
+                      Data belum cukup untuk kategori &amp; periode ini. Coba kategori lain atau gunakan &quot;Yakult Lady Terbaik&quot;.
                     </p>
                   )}
                   {ranked.map((r, idx) => (
@@ -1741,6 +2115,268 @@ function YlOfTheMonthCard({
 }
 
 // ----------------------------------------------------------------------------
+// CustomSlideCard: Pengaturan Slide Tambahan (Data & Foto Dokumentasi)
+// ----------------------------------------------------------------------------
+
+function CustomSlideCard({
+  record,
+  loading,
+  onSave,
+  onClear,
+  onToggleEnabled,
+  onUploadPhoto,
+  onRemovePhoto,
+  onReset,
+  label,
+}: {
+  record: CustomSlideRecord;
+  loading: boolean;
+  onSave: (rec: CustomSlideRecord) => Promise<void>;
+  onClear?: () => Promise<void>;
+  onToggleEnabled?: () => Promise<void>;
+  onUploadPhoto?: (file: File) => Promise<void>;
+  onRemovePhoto?: () => Promise<void>;
+  onReset?: () => Promise<void>;
+  label?: string;
+}) {
+  const [openEditor, setOpenEditor] = useState(false);
+  const [title, setTitle] = useState(record?.title || "Data Tambahan & Lampiran Dokumentasi");
+  const [subtitle, setSubtitle] = useState(record?.subtitle || "");
+  const [catatan, setCatatan] = useState(record?.catatan || "");
+  const [foto, setFoto] = useState(record?.foto || "");
+  const [fotoName, setFotoName] = useState(record?.fotoName || "");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTitle(record?.title || "Data Tambahan & Lampiran Dokumentasi");
+    setSubtitle(record?.subtitle || "");
+    setCatatan(record?.catatan || "");
+    setFoto(record?.foto || "");
+    setFotoName(record?.fotoName || "");
+  }, [record]);
+
+  const handleUploadFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const b64 = await resizeCustomSlidePhoto(file);
+      setFoto(b64);
+      setFotoName(file.name);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleToggleActive = async () => {
+    setSaving(true);
+    try {
+      await onSave({
+        ...record,
+        enabled: !record.enabled,
+        title: title || record.title,
+        subtitle: subtitle || record.subtitle,
+        catatan: catatan || record.catatan,
+        foto: foto || record.foto,
+        fotoName: fotoName || record.fotoName,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveEditor = async () => {
+    setSaving(true);
+    try {
+      await onSave({
+        enabled: true,
+        title: title.trim() || "Data Tambahan & Lampiran Dokumentasi",
+        subtitle: subtitle.trim(),
+        catatan: catatan.trim(),
+        foto,
+        fotoName,
+      });
+      setOpenEditor(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveFoto = () => {
+    setFoto("");
+    setFotoName("");
+  };
+
+  return (
+    <Card className="border-orange-200/60 dark:border-orange-950/40 bg-gradient-to-br from-white via-white to-orange-50/20 dark:from-slate-900 dark:via-slate-900 dark:to-orange-950/10">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="flex items-start gap-2.5">
+          <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-950/50 text-orange-600 dark:text-orange-400 shrink-0">
+            <Camera className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-black text-slate-900 dark:text-white">
+                Slide Tambahan (Data &amp; Foto Lampiran)
+              </h3>
+              <span
+                className={`text-[9.5px] font-bold px-2 py-0.5 rounded-full ${
+                  record.enabled
+                    ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700"
+                }`}
+              >
+                {record.enabled ? "✓ Aktif di Presentasi" : "Disembunyikan"}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Sisipkan foto data tabel, grafik luar, atau foto kegiatan (maksimal 3 slide).
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 self-end sm:self-center">
+          <button
+            type="button"
+            onClick={handleToggleActive}
+            disabled={saving || loading}
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl cursor-pointer transition-all ${
+              record.enabled
+                ? "bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-700"
+                : "bg-orange-500 hover:bg-orange-600 text-white shadow-xs"
+            }`}
+          >
+            {record.enabled ? (
+              <>
+                <EyeOff className="w-3.5 h-3.5 text-slate-500" /> Sembunyikan
+              </>
+            ) : (
+              <>
+                <Plus className="w-3.5 h-3.5" /> Tambah / Munculkan Slide
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setOpenEditor(!openEditor)}
+            className="flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-orange-400 cursor-pointer transition-all"
+          >
+            {openEditor ? "Tutup Pengaturan" : "Kelola Foto & Judul"}
+          </button>
+        </div>
+      </div>
+
+      {openEditor && (
+        <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800 space-y-3 animate-in fade-in">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1">
+                Judul Slide Tambahan
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="cth: Data Dokumentasi & Tabel Tambahan"
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1">
+                Subjudul / Keterangan Ringkas (Opsional)
+              </label>
+              <input
+                type="text"
+                value={subtitle}
+                onChange={(e) => setSubtitle(e.target.value)}
+                placeholder="cth: Foto realisasi penjualan rute khusus"
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1">
+              Foto Data / Lampiran (Maksimal 3 Slide)
+            </label>
+            <div className="flex flex-col sm:flex-row items-center gap-3 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
+              {foto ? (
+                <div className="relative group w-32 h-24 rounded-xl overflow-hidden bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 shrink-0">
+                  <img src={foto} alt="Preview Foto" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={handleRemoveFoto}
+                    className="absolute top-1 right-1 p-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg opacity-90 transition-opacity cursor-pointer"
+                    title="Hapus Foto"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="w-32 h-24 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-dashed border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center text-slate-400 shrink-0">
+                  <Camera className="w-6 h-6 mb-1 text-slate-400" />
+                  <span className="text-[10px] font-bold">Belum Ada Foto</span>
+                </div>
+              )}
+
+              <div className="flex-1 space-y-1.5 text-center sm:text-left">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  {fotoName || (foto ? "Foto Data Siap Ditampilkan" : "Pilih foto tabel, piagam, grafik, atau dokumentasi kegiatan")}
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  Format gambar JPG, PNG, atau WEBP. Gambar otomatis dioptimalkan agar tajam saat diproyeksikan.
+                </p>
+                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs transition-all active:scale-95 mt-1">
+                  {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                  {uploading ? "Mengompres..." : foto ? "Ganti Foto Ini" : "Pilih & Unggah Foto"}
+                  <input type="file" accept="image/*" className="hidden" onChange={handleUploadFoto} disabled={uploading} />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1">
+              Catatan / Penjelasan Tambahan (Opsional)
+            </label>
+            <textarea
+              value={catatan}
+              onChange={(e) => setCatatan(e.target.value)}
+              rows={2}
+              placeholder="Tuliskan keterangan pendukung jika diperlukan..."
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              onClick={() => setOpenEditor(false)}
+              className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            >
+              Batal
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveEditor}
+              disabled={saving}
+              className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              Terapkan ke Slide
+            </button>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ----------------------------------------------------------------------------
 // Main component
 // ----------------------------------------------------------------------------
 
@@ -1754,6 +2390,10 @@ export default function PresentasiView() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [copiedWA, setCopiedWA] = useState(false);
+  const [showSlideOrderPanel, setShowSlideOrderPanel] = useState(false);
+  // State untuk foto background slide pertama
+  const [coverFoto, setCoverFoto] = useState<string>("");
+  const [coverFotoName, setCoverFotoName] = useState<string>("");
 
   // Hook Action Plan tersimpan per tahun + periode + bulan
   const {
@@ -1763,9 +2403,63 @@ export default function PresentasiView() {
     deleteItem: deleteActionPlan,
   } = useActionPlan(selectedYear, periode, monthIndex);
 
+  // Hook Pengumpulan Sampah Terbanyak (input manual, per tahun + bulan)
+  const { record: sampahRecord, updateRecord: updateSampahRecord } = useSampahTerbanyak(selectedYear, periode, monthIndex);
+
+  // Hook Urutan & Visibilitas Slide (khusus Laporan Bulanan)
+  const { order: slideOrder, moveUp: moveSlideUp, moveDown: moveSlideDown, toggleVisible: toggleSlideVisible, resetOrder: resetSlideOrder } = useSlideOrderConfig();
+
   // Hook Yakult Lady of the Month tersimpan per tahun + periode + bulan
   const otmKey = `presentasi_yl_otm_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
   const { record: otmRecord, loading: otmLoading, save: saveOtm, clear: clearOtm } = useYlOfTheMonth(otmKey);
+
+  // Hook Slide Tambahan / Custom Foto Data (bisa dimunculkan atau disembunyikan) - maksimal 3 slide
+  const customSlideKey1 = `presentasi_custom_slide_1_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
+  const customSlideKey2 = `presentasi_custom_slide_2_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
+  const customSlideKey3 = `presentasi_custom_slide_3_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
+
+  const {
+    record: customSlideRecord1,
+    loading: customSlideLoading1,
+    save: saveCustomSlide1,
+    toggleEnabled: toggleCustomSlideEnabled1,
+    uploadPhoto: uploadCustomSlidePhoto1,
+    removePhoto: removeCustomSlidePhoto1,
+    reset: resetCustomSlide1,
+  } = useCustomSlide(customSlideKey1);
+
+  const {
+    record: customSlideRecord2,
+    loading: customSlideLoading2,
+    save: saveCustomSlide2,
+    toggleEnabled: toggleCustomSlideEnabled2,
+    uploadPhoto: uploadCustomSlidePhoto2,
+    removePhoto: removeCustomSlidePhoto2,
+    reset: resetCustomSlide2,
+  } = useCustomSlide(customSlideKey2);
+
+  const {
+    record: customSlideRecord3,
+    loading: customSlideLoading3,
+    save: saveCustomSlide3,
+    toggleEnabled: toggleCustomSlideEnabled3,
+    uploadPhoto: uploadCustomSlidePhoto3,
+    removePhoto: removeCustomSlidePhoto3,
+    reset: resetCustomSlide3,
+  } = useCustomSlide(customSlideKey3);
+
+  // Load cover foto dari localStorage
+  useEffect(() => {
+    const coverKey = `presentasi_cover_foto_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
+    try {
+      const saved = localStorage.getItem(coverKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setCoverFoto(parsed.foto || "");
+        setCoverFotoName(parsed.fotoName || "");
+      }
+    } catch {}
+  }, [selectedYear, periode, monthIndex]);
 
   // State data arsip bulanan (PLG PJL, perYL) dan komparasi tahun lalu
   const [prevYearPerYL, setPrevYearPerYL] = useState<any[] | null>(null);
@@ -1811,7 +2505,6 @@ export default function PresentasiView() {
           if (res && res.tahun) {
             if (!cancelled) setData(res);
           } else if (selectedYear === "2026") {
-            // Fallback ke SEED_DATA_2026 agar presentasi tidak kosong saat pertama kali dibuka
             if (!cancelled) {
               setData(SEED_DATA_2026);
               try {
@@ -1841,7 +2534,6 @@ export default function PresentasiView() {
     return () => { cancelled = true; };
   }, [selectedYear]);
 
-  // Pilih bulan terakhir yang ada datanya sebagai default
   useEffect(() => {
     if (data?.bulanan) {
       let latest = 0;
@@ -1856,7 +2548,6 @@ export default function PresentasiView() {
   const perYL = data?.perYL || [];
   const tku = data?.tku || "DP JEMBER 1";
 
-  // Fitur 1: Sinkronisasi Data dari Arsip Supabase / LocalStorage
   const handleSyncFromArchives = async () => {
     setIsSyncing(true);
     try {
@@ -1919,7 +2610,6 @@ export default function PresentasiView() {
             ratarataYT: sumData.ratarataProduk?.YT || mergedData.bulanan[mKey]?.ratarataYT || 0,
           };
 
-          // Update perYL penjualan jika ada
           if (Array.isArray(rec.salesData)) {
             if (!Array.isArray(mergedData.perYL) || mergedData.perYL.length === 0) {
               mergedData.perYL = rec.salesData.map((s: any) => ({
@@ -1957,7 +2647,6 @@ export default function PresentasiView() {
     }
   };
 
-  // Fitur 4: Salin Ringkasan Eksekutif untuk WhatsApp
   const handleCopyWhatsApp = async () => {
     try {
       const summaryText = generateWhatsAppSummary({
@@ -1977,9 +2666,30 @@ export default function PresentasiView() {
     }
   };
 
-  // Fitur 4: Cetak / Export PDF
   const handlePrint = () => {
     window.print();
+  };
+
+  // Handler upload cover foto
+  const handleUploadCoverFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const b64 = await resizeCustomSlidePhoto(file);
+      setCoverFoto(b64);
+      setCoverFotoName(file.name);
+      const coverKey = `presentasi_cover_foto_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
+      localStorage.setItem(coverKey, JSON.stringify({ foto: b64, fotoName: file.name }));
+    } catch (err) {
+      console.error("Gagal upload cover foto:", err);
+    }
+  };
+
+  const handleRemoveCoverFoto = () => {
+    setCoverFoto("");
+    setCoverFotoName("");
+    const coverKey = `presentasi_cover_foto_${selectedYear}_${periode}_${periode === "bulanan" ? monthIndex : "all"}`;
+    localStorage.removeItem(coverKey);
   };
 
   // Bangun slide untuk Mode Presentasi sesuai periode yang aktif
@@ -1987,14 +2697,43 @@ export default function PresentasiView() {
     if (!data) return [];
     const injectOtm = (arr: SlideDef[]): SlideDef[] => {
       if (arr.length === 0 || !otmRecord) return arr;
-      return [...arr, buildYlOtmSlide(otmRecord, periode)];
+      return [
+        ...arr,
+        buildYlOtmTeaserSlide(periode, MONTH_LABELS[monthIndex], selectedYear, otmRecord),
+        buildYlOtmSlide(otmRecord, periode),
+      ];
     };
     if (periode === "bulanan") {
       const m = applyTahunLaluFallback(bulanan[MONTHS[monthIndex]], selectedYear, monthIndex);
       if (!m) return [];
       const prevIdx = monthIndex - 1;
       const prevM = prevIdx >= 0 ? bulanan[MONTHS[prevIdx]] : null;
-      return injectOtm(buildBulananSlides({
+
+      // Kumpulkan custom slides yang enabled (maksimal 3)
+      const customSlides: SlideDef[] = [];
+      if (customSlideRecord1?.enabled && customSlideRecord1.foto) {
+        customSlides.push(buildCustomPhotoSlide({
+          customSlide: customSlideRecord1,
+          onUploadPhoto: uploadCustomSlidePhoto1,
+          onToggleEnabled: toggleCustomSlideEnabled1,
+        }));
+      }
+      if (customSlideRecord2?.enabled && customSlideRecord2.foto) {
+        customSlides.push(buildCustomPhotoSlide({
+          customSlide: customSlideRecord2,
+          onUploadPhoto: uploadCustomSlidePhoto2,
+          onToggleEnabled: toggleCustomSlideEnabled2,
+        }));
+      }
+      if (customSlideRecord3?.enabled && customSlideRecord3.foto) {
+        customSlides.push(buildCustomPhotoSlide({
+          customSlide: customSlideRecord3,
+          onUploadPhoto: uploadCustomSlidePhoto3,
+          onToggleEnabled: toggleCustomSlideEnabled3,
+        }));
+      }
+
+      const bulananSlides = buildBulananSlides({
         m,
         prevM,
         monthLabel: MONTH_LABELS[monthIndex],
@@ -2005,25 +2744,84 @@ export default function PresentasiView() {
         actionPlans,
         prevYearPerYL,
         archiveDetails,
-      }));
+        coverFoto,
+        coverFotoName,
+        onUploadCoverFoto: handleUploadCoverFoto,
+        onRemoveCoverFoto: handleRemoveCoverFoto,
+        sampah: sampahRecord,
+        onSampahChange: updateSampahRecord,
+      });
+
+      // Terapkan urutan & visibilitas slide sesuai pengaturan (kalau ada slide yg disembunyikan/diurutkan ulang)
+      const orderedBulananSlides = slideOrder
+        .filter((o) => o.visible)
+        .map((o) => bulananSlides.find((s) => s.id === o.id))
+        .filter((s): s is SlideDef => !!s);
+
+      // Sisipkan custom slides (Lampiran Data Tambahan) setelah slide Evaluasi Mix Produk
+      const result = [...orderedBulananSlides];
+      const mixProdukIdx = result.findIndex(s => s.id === "mixproduk" || s.eyebrow?.includes("Mix Produk") || s.title?.includes("Mix Produk"));
+      if (mixProdukIdx !== -1 && customSlides.length > 0) {
+        result.splice(mixProdukIdx + 1, 0, ...customSlides);
+      } else {
+        result.push(...customSlides);
+      }
+
+      // Hapus slide action plan (indeks terakhir)
+      // Cari dan hapus slide dengan isActionPlan = true
+      const filteredResult = result.filter(s => !s.isActionPlan);
+
+      return injectOtm(filteredResult);
     }
     if (periode === "s1") {
       const agg = computeSemesterAgg(bulanan, 0, 5, selectedYear);
       if (agg.monthsData.length === 0) return [];
-      return injectOtm(buildSemesterSlides(agg, "Semester 1", "Januari – Juni", selectedYear, tku, actionPlans, perYL));
+      const semSlides = buildSemesterSlides(agg, "Semester 1", "Januari – Juni", selectedYear, tku, actionPlans, perYL, sampahRecord, updateSampahRecord, coverFoto);
+      const filtered = semSlides.filter(s => !s.isActionPlan);
+      return injectOtm(filtered);
     }
     if (periode === "s2") {
       const s2 = computeSemester2Agg(bulanan, selectedYear);
       if (s2.agg.monthsData.length === 0) return [];
-      return injectOtm(buildSemester2Slides(s2, selectedYear, tku, data.jumlahYL || perYL.length || 10, actionPlans, perYL));
+      const semSlides = buildSemester2Slides(s2, selectedYear, tku, data.jumlahYL || perYL.length || 10, actionPlans, perYL, sampahRecord, updateSampahRecord, coverFoto);
+      const filtered = semSlides.filter(s => !s.isActionPlan);
+      return injectOtm(filtered);
     }
     if (periode === "tahunan") {
       const t = computeTahunanAgg(bulanan, data.tahun || selectedYear);
       if (!t) return [];
-      return injectOtm(buildTahunanSlides(t, data.tahun || selectedYear, tku, actionPlans, perYL));
+      const tahSlides = buildTahunanSlides(t, data.tahun || selectedYear, tku, actionPlans, perYL, sampahRecord, updateSampahRecord, coverFoto);
+      const filtered = tahSlides.filter(s => !s.isActionPlan);
+      return injectOtm(filtered);
     }
     return [];
-  }, [data, periode, bulanan, monthIndex, perYL, selectedYear, tku, actionPlans, otmRecord, prevYearPerYL, archiveDetails]);
+  }, [
+    data,
+    periode,
+    bulanan,
+    monthIndex,
+    perYL,
+    selectedYear,
+    tku,
+    actionPlans,
+    otmRecord,
+    prevYearPerYL,
+    archiveDetails,
+    coverFoto,
+    coverFotoName,
+    sampahRecord,
+    updateSampahRecord,
+    slideOrder,
+    customSlideRecord1,
+    customSlideRecord2,
+    customSlideRecord3,
+    uploadCustomSlidePhoto1,
+    uploadCustomSlidePhoto2,
+    uploadCustomSlidePhoto3,
+    toggleCustomSlideEnabled1,
+    toggleCustomSlideEnabled2,
+    toggleCustomSlideEnabled3,
+  ]);
 
   if (isLoading) {
     return (
@@ -2102,31 +2900,50 @@ export default function PresentasiView() {
         </div>
       </div>
 
+      {/* Cover Foto Upload */}
+      <div className="no-print bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-orange-500" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Foto Cover Slide Pertama:</span>
+          </div>
+          {coverFoto ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 truncate max-w-[200px]">{coverFotoName || "Foto cover"}</span>
+              <button
+                onClick={handleRemoveCoverFoto}
+                className="text-xs text-red-500 hover:text-red-700 font-bold px-2 py-0.5 rounded-lg bg-red-50 dark:bg-red-950/30 cursor-pointer"
+              >
+                Hapus
+              </button>
+            </div>
+          ) : (
+            <label className="cursor-pointer">
+              <span className="text-xs font-bold text-orange-500 hover:text-orange-600 px-3 py-1 rounded-lg bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800">
+                Upload Foto Cover
+              </span>
+              <input type="file" accept="image/*" className="hidden" onChange={handleUploadCoverFoto} />
+            </label>
+          )}
+          <span className="text-[10px] text-slate-400">Foto akan tampil penuh sebagai slide pertama (Bulanan/Semester/Tahunan), menggantikan slide judul teks</span>
+        </div>
+      </div>
+
       {/* Action Bar: Mode Presentasi & Kontrol Tambahan */}
       <div className="space-y-2 no-print">
-        {/* Tombol Utama: Mode Presentasi */}
         <button
           onClick={async () => {
-            // PENTING: requestFullscreen & orientation lock HARUS dipanggil langsung
-            // di dalam event klik ini (bukan di useEffect setelah komponen mount),
-            // supaya browser HP tidak menolaknya (butuh user gesture langsung).
             try {
               if (!document.fullscreenElement) {
                 await document.documentElement.requestFullscreen();
               }
-            } catch {
-              // Browser ini mungkin tidak mendukung Fullscreen API (mis. Safari iOS).
-              // Presentasi tetap dibuka, hanya tanpa mode layar penuh browser.
-            }
+            } catch {}
             try {
               const orient = (screen as any).orientation;
               if (orient?.lock) {
                 await orient.lock("landscape");
               }
-            } catch {
-              // Sebagian browser/OS tidak mengizinkan penguncian orientasi via web.
-              // Presentasi tetap dibuka; user bisa memutar HP secara manual.
-            }
+            } catch {}
             setSlideMode(true);
           }}
           disabled={slides.length === 0}
@@ -2135,13 +2952,12 @@ export default function PresentasiView() {
           <Play className="w-4 h-4 fill-white" /> Mode Presentasi (Layar Penuh)
         </button>
 
-        {/* 3 Tombol Pendukung: Sinkronkan Arsip, Salin Ringkasan WA, Cetak PDF */}
         <div className="grid grid-cols-3 gap-2">
           <button
             onClick={handleSyncFromArchives}
             disabled={isSyncing}
             className="flex items-center justify-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-orange-400 dark:hover:border-orange-500 text-slate-700 dark:text-slate-200 text-xs font-bold py-2 px-2 rounded-xl shadow-xs cursor-pointer transition-all active:scale-95 disabled:opacity-50"
-            title="Tarik &amp; Sinkronkan Data dari Arsip Supabase"
+            title="Tarik & Sinkronkan Data dari Arsip Supabase"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-orange-500 shrink-0 ${isSyncing ? "animate-spin" : ""}`} />
             <span className="truncate">{isSyncing ? "Menyinkronkan..." : "Tarik Arsip"}</span>
@@ -2193,6 +3009,82 @@ export default function PresentasiView() {
         ))}
       </div>
 
+      {/* Pengaturan Urutan & Tampilan Slide — khusus Laporan Bulanan */}
+      {periode === "bulanan" && (
+        <div className="no-print bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowSlideOrderPanel(!showSlideOrderPanel)}
+            className="w-full flex items-center justify-between p-3 cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <Settings2 className="w-4 h-4 text-orange-500" />
+              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Atur Urutan & Tampilkan/Sembunyikan Slide</span>
+            </div>
+            {showSlideOrderPanel ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          </button>
+          {showSlideOrderPanel && (
+            <div className="px-3 pb-3 space-y-1.5">
+              <p className="text-[10px] text-slate-400 mb-1">
+                Panah untuk mengubah urutan, ikon mata untuk sembunyikan/tampilkan slide. Slide "Lampiran", "Momen Penghargaan", dan "YOM" diatur terpisah dan selalu mengikuti posisi tetap.
+              </p>
+              {slideOrder.map((item, i) => {
+                const def = BULANAN_SLIDE_DEFS.find((d) => d.id === item.id);
+                if (!def) return null;
+                return (
+                  <div
+                    key={item.id}
+                    className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border ${
+                      item.visible
+                        ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+                        : "bg-slate-100 dark:bg-slate-800/50 border-dashed border-slate-300 dark:border-slate-700 opacity-60"
+                    }`}
+                  >
+                    <span className="text-[10px] font-mono text-slate-400 w-4 shrink-0">{i + 1}</span>
+                    <span className={`flex-1 text-[11px] font-bold truncate ${item.visible ? "text-slate-700 dark:text-slate-200" : "text-slate-400 line-through"}`}>
+                      {def.label}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => moveSlideUp(item.id)}
+                      disabled={i === 0}
+                      className="p-1 rounded-md text-slate-400 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      title="Pindah ke atas"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveSlideDown(item.id)}
+                      disabled={i === slideOrder.length - 1}
+                      className="p-1 rounded-md text-slate-400 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      title="Pindah ke bawah"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleSlideVisible(item.id)}
+                      className={`p-1 rounded-md cursor-pointer ${item.visible ? "text-emerald-500 hover:text-emerald-600" : "text-slate-400 hover:text-slate-500"}`}
+                      title={item.visible ? "Sembunyikan slide ini" : "Tampilkan slide ini"}
+                    >
+                      {item.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={resetSlideOrder}
+                className="w-full mt-1 text-[10px] font-bold text-slate-500 hover:text-orange-500 py-1.5 cursor-pointer"
+              >
+                Kembalikan ke Urutan Default
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <YlOfTheMonthCard
         perYL={perYL}
         bulanan={bulanan}
@@ -2214,6 +3106,40 @@ export default function PresentasiView() {
         onClear={clearOtm}
       />
 
+      {/* 3 Custom Slide Cards */}
+      <div className="space-y-2">
+        <CustomSlideCard
+          record={customSlideRecord1}
+          loading={customSlideLoading1}
+          onSave={saveCustomSlide1}
+          onToggleEnabled={toggleCustomSlideEnabled1}
+          onUploadPhoto={uploadCustomSlidePhoto1}
+          onRemovePhoto={removeCustomSlidePhoto1}
+          onReset={resetCustomSlide1}
+          label={`Slide Tambahan #1`}
+        />
+        <CustomSlideCard
+          record={customSlideRecord2}
+          loading={customSlideLoading2}
+          onSave={saveCustomSlide2}
+          onToggleEnabled={toggleCustomSlideEnabled2}
+          onUploadPhoto={uploadCustomSlidePhoto2}
+          onRemovePhoto={removeCustomSlidePhoto2}
+          onReset={resetCustomSlide2}
+          label={`Slide Tambahan #2`}
+        />
+        <CustomSlideCard
+          record={customSlideRecord3}
+          loading={customSlideLoading3}
+          onSave={saveCustomSlide3}
+          onToggleEnabled={toggleCustomSlideEnabled3}
+          onUploadPhoto={uploadCustomSlidePhoto3}
+          onRemovePhoto={removeCustomSlidePhoto3}
+          onReset={resetCustomSlide3}
+          label={`Slide Tambahan #3`}
+        />
+      </div>
+
       {periode === "bulanan" && (
         <LaporanBulanan
           bulanan={bulanan}
@@ -2221,15 +3147,6 @@ export default function PresentasiView() {
           monthIndex={monthIndex}
           setMonthIndex={setMonthIndex}
           selectedYear={selectedYear}
-          actionPlanNode={
-            <ActionPlanCard
-              items={actionPlans}
-              onAdd={addActionPlan}
-              onToggle={toggleActionPlan}
-              onDelete={deleteActionPlan}
-              label={MONTH_LABELS[monthIndex]}
-            />
-          }
         />
       )}
       {periode === "s1" && (
@@ -2240,15 +3157,6 @@ export default function PresentasiView() {
           endIdx={5}
           title="Semester 1 (Januari – Juni)"
           tahun={data.tahun || selectedYear}
-          actionPlanNode={
-            <ActionPlanCard
-              items={actionPlans}
-              onAdd={addActionPlan}
-              onToggle={toggleActionPlan}
-              onDelete={deleteActionPlan}
-              label="Semester 1"
-            />
-          }
         />
       )}
       {periode === "s2" && (
@@ -2257,15 +3165,6 @@ export default function PresentasiView() {
           perYL={perYL}
           jumlahYL={data.jumlahYL || perYL.length || 10}
           tahun={data.tahun || selectedYear}
-          actionPlanNode={
-            <ActionPlanCard
-              items={actionPlans}
-              onAdd={addActionPlan}
-              onToggle={toggleActionPlan}
-              onDelete={deleteActionPlan}
-              label="Semester 2"
-            />
-          }
         />
       )}
       {periode === "tahunan" && (
@@ -2273,15 +3172,6 @@ export default function PresentasiView() {
           bulanan={bulanan}
           perYL={perYL}
           tahun={data.tahun || selectedYear}
-          actionPlanNode={
-            <ActionPlanCard
-              items={actionPlans}
-              onAdd={addActionPlan}
-              onToggle={toggleActionPlan}
-              onDelete={deleteActionPlan}
-              label={`Tahunan ${selectedYear}`}
-            />
-          }
         />
       )}
     </div>
@@ -2357,7 +3247,6 @@ export function TabelRataRataYL({
 
   return (
     <div className={isDarkSlide ? "space-y-1.5 w-full" : "space-y-3"}>
-      {/* Title & Controls (Render only if not in dark presentation slide OR if explicit title is passed) */}
       {(!isDarkSlide || title) && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
           <div>
@@ -2378,9 +3267,7 @@ export function TabelRataRataYL({
             )}
           </div>
 
-          {/* View Mode & Sort Controls */}
           <div className="flex items-center gap-1 self-start sm:self-auto shrink-0 flex-wrap">
-            {/* Kolom Mode Toggle (Ringkas Fit HP vs Semua Bulan) */}
             <div className={`flex items-center p-0.5 rounded-lg border text-[9px] sm:text-[9.5px] font-bold ${
               isDarkSlide ? "bg-slate-800/90 border-slate-700" : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700"
             }`}>
@@ -2410,7 +3297,6 @@ export function TabelRataRataYL({
               </button>
             </div>
 
-            {/* Sort Toggle */}
             <button
               type="button"
               onClick={() => setSortBy(sortBy === "rank" ? "area" : "rank")}
@@ -2428,7 +3314,6 @@ export function TabelRataRataYL({
         </div>
       )}
 
-      {/* KPI Highlight Badges / Ribbon */}
       {isDarkSlide ? (
         <div className="flex items-center justify-between gap-1 flex-wrap bg-slate-800/70 border border-slate-700/80 rounded-lg px-2 py-0.5 text-[9px] sm:text-[10px]">
           <div className="flex items-center gap-2 flex-wrap">
@@ -2461,7 +3346,6 @@ export function TabelRataRataYL({
             </span>
           </div>
 
-          {/* Integrated Compact Controls for Dark Slide Mode */}
           <div className="flex items-center gap-1.5 ml-auto">
             <div className="flex items-center p-0.5 rounded border border-slate-700 bg-slate-900/80 text-[8.5px] font-bold">
               <button
@@ -2542,7 +3426,6 @@ export function TabelRataRataYL({
         </div>
       )}
 
-      {/* Main Table with Responsive Scrolling & Sticky Name */}
       <div className={`rounded-xl border ${
         isDarkSlide
           ? "w-full overflow-x-auto border-slate-700/80 bg-slate-900/60 shadow-lg"
@@ -2769,7 +3652,6 @@ export function AnalisisAbsensiLossCard({
         ? "p-2.5 sm:p-3 bg-slate-900/80 border-slate-700/80 text-white w-full"
         : "p-4 sm:p-5 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white shadow-xs"
     }`}>
-      {/* Title & Header */}
       {!isDarkSlide ? (
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
@@ -2808,7 +3690,6 @@ export function AnalisisAbsensiLossCard({
         </div>
       )}
 
-      {/* Metrics Grid (3 Kartu Sederhana: Hari Absen, Rata-Rata YL, dan Botol Terlewatkan) */}
       <div className={`grid grid-cols-1 sm:grid-cols-3 ${isDarkSlide ? "gap-2 mb-2.5" : "gap-2.5 mb-4"}`}>
         <div className={`rounded-xl border ${isDarkSlide ? "p-2 sm:p-2.5 bg-slate-800/60 border-slate-700/70" : "p-3 bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700"}`}>
           <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Hari Izin / Sakit</p>
@@ -2835,7 +3716,6 @@ export function AnalisisAbsensiLossCard({
         </div>
       </div>
 
-      {/* Solusi Utama Saat YL Izin atau Sakit */}
       <div className={`rounded-xl border ${
         isDarkSlide
           ? "p-2.5 sm:p-3 bg-slate-800/40 border-slate-700/60 text-slate-300"
@@ -2872,6 +3752,7 @@ export function AnalisisMixProductCard({
   isDarkSlide?: boolean;
 }) {
   const res = useMemo(() => computeMixProductAnalysis(months), [months]);
+  const [mixChartKind, cycleMixChart] = useChartKindCycle("presentasi_chart_mix_produk", ["pie", "bar"]);
 
   return (
     <div className={`rounded-2xl border ${
@@ -2879,7 +3760,6 @@ export function AnalisisMixProductCard({
         ? "p-2.5 sm:p-3 bg-slate-900/80 border-slate-700/80 text-white"
         : "p-4 sm:p-5 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white shadow-xs"
     }`}>
-      {/* Header */}
       {!isDarkSlide ? (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 mb-4">
           <div>
@@ -2917,25 +3797,38 @@ export function AnalisisMixProductCard({
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-center">
-        {/* Donut Chart */}
-        <div className={`sm:col-span-5 ${isDarkSlide ? "h-32 sm:h-38" : "h-44"}`}>
+        <div className={`sm:col-span-5 relative ${isDarkSlide ? "h-32 sm:h-38" : "h-44"}`}>
+          <ChartKindToggleButton kind={mixChartKind} onClick={cycleMixChart} />
           {res.total > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={res.chartData}
-                  dataKey="value"
-                  nameKey="name"
-                  innerRadius={isDarkSlide ? 30 : 38}
-                  outerRadius={isDarkSlide ? 52 : 62}
-                  paddingAngle={2}
-                >
-                  {res.chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(v: number) => `${fmtNum(v)} btl (${((v / res.total) * 100).toFixed(1)}%)`} />
-              </PieChart>
+              {mixChartKind === "bar" ? (
+                <BarChart data={res.chartData} layout="vertical" margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+                  <XAxis type="number" hide />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: isDarkSlide ? "#94a3b8" : "#64748b" }} width={72} />
+                  <Tooltip formatter={(v: number) => `${fmtNum(v)} btl (${((v / res.total) * 100).toFixed(1)}%)`} />
+                  <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                    {res.chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              ) : (
+                <PieChart>
+                  <Pie
+                    data={res.chartData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={isDarkSlide ? 30 : 38}
+                    outerRadius={isDarkSlide ? 52 : 62}
+                    paddingAngle={2}
+                  >
+                    {res.chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number) => `${fmtNum(v)} btl (${((v / res.total) * 100).toFixed(1)}%)`} />
+                </PieChart>
+              )}
             </ResponsiveContainer>
           ) : (
             <div className="flex items-center justify-center h-full text-xs text-slate-400 italic">
@@ -2944,7 +3837,6 @@ export function AnalisisMixProductCard({
           )}
         </div>
 
-        {/* Product Breakdown stats */}
         <div className={`sm:col-span-7 ${isDarkSlide ? "space-y-1.5" : "space-y-2"}`}>
           <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
             <div className={`p-2 rounded-xl border ${isDarkSlide ? "bg-slate-800/60 border-slate-700/60" : "bg-red-50/50 dark:bg-red-950/20 border-red-200/60 dark:border-red-900/30"}`}>
@@ -3023,7 +3915,6 @@ export function UjiKelayakanBebanCard({
         ? "p-2.5 sm:p-3 bg-slate-900/80 border-slate-700/80 text-white w-full"
         : "p-4 sm:p-5 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white shadow-xs"
     }`}>
-      {/* Title */}
       {!isDarkSlide ? (
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
@@ -3062,7 +3953,6 @@ export function UjiKelayakanBebanCard({
         </div>
       )}
 
-      {/* Stats Grid */}
       <div className={`grid grid-cols-2 sm:grid-cols-4 ${isDarkSlide ? "gap-2 mb-2.5" : "gap-2.5 mb-4"}`}>
         <div className={`rounded-xl border ${isDarkSlide ? "p-2 bg-slate-800/60 border-slate-700/70" : "p-3 bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700"}`}>
           <p className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-slate-400">Target Sisa</p>
@@ -3107,7 +3997,6 @@ export function UjiKelayakanBebanCard({
         </div>
       </div>
 
-      {/* Thermometer / Kapasitas bar */}
       <div className="mb-4">
         <div className="flex items-center justify-between text-[11px] font-bold mb-1">
           <span className="text-slate-400">Batas Fisik Pengantaran YL:</span>
@@ -3128,7 +4017,6 @@ export function UjiKelayakanBebanCard({
         </div>
       </div>
 
-      {/* Solusi Strategis */}
       <div className={`p-3 rounded-xl border text-xs ${
         isDarkSlide
           ? "bg-slate-800/40 border-slate-700/60 text-slate-300"
@@ -3156,8 +4044,8 @@ export function UjiKelayakanBebanCard({
 // 1. Laporan Bulanan
 // ----------------------------------------------------------------------------
 
-function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYear, actionPlanNode }: {
-  bulanan: Record<string, any>; perYL: any[]; monthIndex: number; setMonthIndex: (i: number) => void; selectedYear?: string | number; actionPlanNode?: React.ReactNode;
+function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYear }: {
+  bulanan: Record<string, any>; perYL: any[]; monthIndex: number; setMonthIndex: (i: number) => void; selectedYear?: string | number;
 }) {
   const m = selectedYear ? applyTahunLaluFallback(bulanan[MONTHS[monthIndex]], selectedYear, monthIndex) : bulanan[MONTHS[monthIndex]];
 
@@ -3167,7 +4055,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
     ? (m.akmPenjualan / prevM.akmPenjualan) * 100
     : null;
 
-  // Ranking YL bulan ini
   const ylRanked = useMemo(() => {
     return [...perYL]
       .map((yl) => ({
@@ -3183,7 +4070,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
   const jumlahYLDisplay = m?.jumlahYL || (ylCount > 0 ? ylCount : undefined);
   const jumlahAreaDisplay = m?.jumlahArea || (ylCount > 0 ? new Set(ylRanked.map((r) => r.area).filter(Boolean)).size : undefined);
 
-  // Kondisi YL (Distribusi Botol) - Menggunakan data manual jika ada, atau kalkulasi otomatis dari ylRanked
   const manualKondisi = m?.kondisiYL || {};
   const manualTotal =
     (Number(manualKondisi.kurang250) || 0) +
@@ -3242,7 +4128,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
 
   return (
     <div className="space-y-4">
-      {/* Month picker */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
         {MONTH_SHORT.map((lbl, i) => (
           <button
@@ -3265,7 +4150,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
         <EmptyMonthNote label={MONTH_LABELS[monthIndex]} />
       ) : (
         <>
-          {/* Widget Ringkasan */}
           <Card>
             <SectionTitle icon={TrendingUp}>Widget Ringkasan — {MONTH_LABELS[monthIndex]}</SectionTitle>
             <div className="flex flex-wrap gap-2">
@@ -3275,7 +4159,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
             </div>
           </Card>
 
-          {/* Komparasi */}
           <Card>
             <SectionTitle icon={BarChart3}>Komparasi</SectionTitle>
             <div className="flex flex-wrap gap-2">
@@ -3294,7 +4177,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
             </div>
           </Card>
 
-          {/* Efisiensi & Kedisiplinan */}
           <Card>
             <SectionTitle icon={Package}>Efisiensi & Kedisiplinan</SectionTitle>
             <div className="flex flex-wrap gap-2">
@@ -3304,14 +4186,12 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
             </div>
           </Card>
 
-          {/* Evaluasi Dampak Absensi & Opportunity Loss Bulan Berjalan */}
           <AnalisisAbsensiLossCard
             months={[m]}
             title={`Analisis Dampak Absensi & Potensi Botol Hilang — ${MONTH_LABELS[monthIndex]}`}
             subtitle={`Kalkulasi opportunity loss akibat ketidakhadiran ${m.absen?.jumlahYL || 0} YL (${m.absen?.frekuensi || 0}x izin/sakit) pada bulan ${MONTH_LABELS[monthIndex]}`}
           />
 
-          {/* Analisis Tim */}
           <Card>
             <SectionTitle icon={Users}>Analisis Tim</SectionTitle>
             <div className="flex flex-wrap gap-2 mb-4">
@@ -3376,7 +4256,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
             </div>
           </Card>
 
-          {/* Produk & Area */}
           <Card>
             <SectionTitle icon={MapPin}>Produk & Area</SectionTitle>
             <div className="flex flex-col sm:flex-row gap-4">
@@ -3406,14 +4285,12 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
             </div>
           </Card>
 
-          {/* Analisis Rasio Mix Produk & Penetrasi Varian Baru */}
           <AnalisisMixProductCard
             months={[m]}
             title={`Evaluasi Mix Produk & Penetrasi Varian — ${MONTH_LABELS[monthIndex]}`}
             subtitle="Keseimbangan penjualan Original (YO) vs varian baru (Original Mangga, Original Stroberi, Yakult Light)"
           />
 
-          {/* Evaluasi Kualitatif */}
           <Card>
             <SectionTitle icon={Sparkles}>Evaluasi Kualitatif</SectionTitle>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3438,7 +4315,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
             </div>
           </Card>
 
-          {/* Tabel Rata-Rata Kumulatif YTD jika bulan > Januari */}
           {monthIndex > 0 && (
             <Card>
               <SectionTitle icon={Users}>
@@ -3455,7 +4331,6 @@ function LaporanBulanan({ bulanan, perYL, monthIndex, setMonthIndex, selectedYea
           )}
         </>
       )}
-      {actionPlanNode}
     </div>
   );
 }
@@ -3498,8 +4373,8 @@ function computeSemesterAgg(bulanan: Record<string, any>, startIdx: number, endI
   return { monthsData, totalAkm, avgCapaian, avgRetur, ylBaru, ylResign, peak, evalPlus, evalMinus, trend };
 }
 
-function LaporanSemester({ bulanan, perYL, startIdx, endIdx, title, tahun, actionPlanNode }: {
-  bulanan: Record<string, any>; perYL: any[]; startIdx: number; endIdx: number; title: string; tahun?: string | number; actionPlanNode?: React.ReactNode;
+function LaporanSemester({ bulanan, perYL, startIdx, endIdx, title, tahun }: {
+  bulanan: Record<string, any>; perYL: any[]; startIdx: number; endIdx: number; title: string; tahun?: string | number;
 }) {
   const agg = useMemo(() => computeSemesterAgg(bulanan, startIdx, endIdx, tahun), [bulanan, startIdx, endIdx, tahun]);
 
@@ -3540,7 +4415,6 @@ function LaporanSemester({ bulanan, perYL, startIdx, endIdx, title, tahun, actio
         )}
       </Card>
 
-      {/* Tabel Rata-Rata per YL */}
       <Card>
         <SectionTitle icon={Users}>
           Tabel Rata-Rata Penjualan YL — {title}
@@ -3554,7 +4428,6 @@ function LaporanSemester({ bulanan, perYL, startIdx, endIdx, title, tahun, actio
         />
       </Card>
 
-      {/* Evaluasi Tambahan: Dampak Absensi & Mix Produk */}
       <AnalisisAbsensiLossCard
         months={agg.monthsData.map((x) => x.m)}
         title={`Analisis Dampak Absensi & Loss Potential (${title})`}
@@ -3576,7 +4449,7 @@ function LaporanSemester({ bulanan, perYL, startIdx, endIdx, title, tahun, actio
       </Card>
 
       <Card>
-        <SectionTitle icon={Sparkles}>Rangkuman Evaluasi</SectionTitle>
+        <SectionTitle icon={Sparkles}>Evaluasi Kualitatif</SectionTitle>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <p className="text-[11px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-1.5 flex items-center gap-1"><ThumbsUp className="w-3.5 h-3.5" /> Kelebihan</p>
@@ -3594,7 +4467,6 @@ function LaporanSemester({ bulanan, perYL, startIdx, endIdx, title, tahun, actio
           </div>
         </div>
       </Card>
-      {actionPlanNode}
     </div>
   );
 }
@@ -3607,7 +4479,6 @@ function computeSemester2Agg(bulanan: Record<string, any>, tahun?: string | numb
   const agg = computeSemesterAgg(bulanan, 6, 11, tahun);
   const s1Agg = computeSemesterAgg(bulanan, 0, 5, tahun);
 
-  // Target tahunan diestimasi dari rata-rata target bulan yang sudah terisi (S1 + S2 berjalan)
   const filledMonths = [...s1Agg.monthsData, ...agg.monthsData];
   const avgMonthlyTarget = average(filledMonths.map((x) => x.m.akmTarget)) || 0;
   const monthsRemaining = 12 - filledMonths.length;
@@ -3623,8 +4494,8 @@ function computeSemester2Agg(bulanan: Record<string, any>, tahun?: string | numb
   return { agg, s1Agg, monthsRemaining, targetTahunEstimasi, totalRealisasiSoFar, targetSisa, kapasitasSisaEstimasi, alarmMonths };
 }
 
-function LaporanSemester2({ bulanan, perYL, jumlahYL, tahun, actionPlanNode }: {
-  bulanan: Record<string, any>; perYL: any[]; jumlahYL: number; tahun?: string | number; actionPlanNode?: React.ReactNode;
+function LaporanSemester2({ bulanan, perYL, jumlahYL, tahun }: {
+  bulanan: Record<string, any>; perYL: any[]; jumlahYL: number; tahun?: string | number;
 }) {
   const s2 = useMemo(() => computeSemester2Agg(bulanan, tahun), [bulanan, tahun]);
   const { agg, monthsRemaining, targetTahunEstimasi, targetSisa, kapasitasSisaEstimasi, alarmMonths } = s2;
@@ -3659,7 +4530,6 @@ function LaporanSemester2({ bulanan, perYL, jumlahYL, tahun, actionPlanNode }: {
         )}
       </Card>
 
-      {/* Tabel Rata-Rata per YL */}
       <Card>
         <SectionTitle icon={Users}>
           Tabel Rata-Rata Penjualan YL — Kumulatif (Januari s/d Terakhir)
@@ -3687,7 +4557,6 @@ function LaporanSemester2({ bulanan, perYL, jumlahYL, tahun, actionPlanNode }: {
         <p className="text-[10.5px] text-slate-400 mt-2">*Estimasi berdasarkan rata-rata realisasi &amp; target bulan-bulan yang sudah terisi.</p>
       </Card>
 
-      {/* Uji Kelayakan Beban Target & Kapasitas Fisik YL */}
       <UjiKelayakanBebanCard
         targetSisa={targetSisa}
         monthsRemaining={monthsRemaining}
@@ -3695,14 +4564,12 @@ function LaporanSemester2({ bulanan, perYL, jumlahYL, tahun, actionPlanNode }: {
         currentAvgYL={agg.monthsData.length > 0 ? average(agg.monthsData.map((x) => x.m.salesPerYL || (x.m.ratarataPenjualanYL ? Math.round(x.m.ratarataPenjualanYL / 10) : 0))) || undefined : undefined}
       />
 
-      {/* Evaluasi Dampak Absensi & Loss Potential Semester 2 */}
       <AnalisisAbsensiLossCard
         months={agg.monthsData.map((x) => x.m)}
         title="Analisis Dampak Absensi & Loss Potential — Semester 2"
         subtitle="Evaluasi frekuensi ketidakhadiran dan potensi botol terlewatkan selama semester 2 berjalan"
       />
 
-      {/* Evaluasi Mix Produk Semester 2 */}
       <AnalisisMixProductCard
         months={agg.monthsData.map((x) => x.m)}
         title="Evaluasi Mix Produk — Semester 2"
@@ -3724,7 +4591,6 @@ function LaporanSemester2({ bulanan, perYL, jumlahYL, tahun, actionPlanNode }: {
           </ul>
         )}
       </Card>
-      {actionPlanNode}
     </div>
   );
 }
@@ -3779,8 +4645,8 @@ function computeTahunanAgg(bulanan: Record<string, any>, tahun?: string | number
   return { monthsData, akmSoFar, targetSoFar, count, estimasiTahunan, targetTahunan, growthPct, areaTercoverFinal, capaianTahunan, trend, kesimpulan };
 }
 
-function LaporanTahunan({ bulanan, perYL, tahun, actionPlanNode }: {
-  bulanan: Record<string, any>; perYL: any[]; tahun: string | number; actionPlanNode?: React.ReactNode;
+function LaporanTahunan({ bulanan, perYL, tahun }: {
+  bulanan: Record<string, any>; perYL: any[]; tahun: string | number;
 }) {
   const t = useMemo(() => computeTahunanAgg(bulanan, tahun), [bulanan, tahun]);
 
@@ -3825,7 +4691,6 @@ function LaporanTahunan({ bulanan, perYL, tahun, actionPlanNode }: {
         </div>
       </Card>
 
-      {/* Tabel Rata-Rata per YL Tahunan */}
       <Card>
         <SectionTitle icon={Users}>
           Tabel Rata-Rata Penjualan Tahunan per YL (Januari s/d Terakhir)
@@ -3839,7 +4704,6 @@ function LaporanTahunan({ bulanan, perYL, tahun, actionPlanNode }: {
         />
       </Card>
 
-      {/* Evaluasi Mix Produk & Loss Potential Tahunan */}
       <AnalisisMixProductCard
         months={monthsData.map((x) => x.m)}
         title={`Evaluasi Mix Produk Tahunan — Tahun ${tahun}`}
@@ -3871,7 +4735,6 @@ function LaporanTahunan({ bulanan, perYL, tahun, actionPlanNode }: {
         <SectionTitle icon={Sparkles}>Kesimpulan Akhir</SectionTitle>
         <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">{kesimpulan}</p>
       </Card>
-      {actionPlanNode}
     </div>
   );
 }
@@ -3887,13 +4750,22 @@ interface SlideDef {
   node: React.ReactNode;
   speakerNotes?: string;
   isActionPlan?: boolean;
+  coverImage?: string;
 }
 
-function SlideTitle({ children, sub }: { children: React.ReactNode; sub?: string }) {
+function SlideTitle({ children, sub, coverImage }: { children: React.ReactNode; sub?: string; coverImage?: string }) {
+  // Catatan: foto cover sekarang dirender full-bleed langsung di kartu slide (lihat SlideShow),
+  // supaya foto memenuhi SELURUH kartu (termasuk saat landscape) — di sini tinggal teksnya saja.
   return (
-    <div className="text-center mb-4 sm:mb-6">
-      <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-white leading-tight">{children}</h1>
-      {sub && <p className="text-slate-400 text-xs sm:text-sm mt-2 sm:mt-3 font-medium tracking-wide">{sub}</p>}
+    <div className="relative w-full h-full flex flex-col items-center justify-center min-h-[50vh]">
+      <div className="text-center">
+        <h1 className={`text-2xl sm:text-4xl lg:text-5xl font-black text-white leading-tight ${coverImage ? "drop-shadow-[0_2px_12px_rgba(0,0,0,0.9)]" : ""}`}>{children}</h1>
+        {sub && (
+          <p className={`text-slate-300 text-xs sm:text-sm mt-2 sm:mt-3 font-medium tracking-wide ${coverImage ? "drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]" : ""}`}>
+            {sub}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -3911,6 +4783,150 @@ function BigStat({ label, value, sub, pct }: { label: string; value: string; sub
           {pct >= 100 ? "▲" : "▼"} {fmtPct(pct)}%
         </span>
       )}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------
+// Toggle Tipe Grafik (Batang / Garis / Kurva / Donat) — biar tampilan slide
+// tidak monoton tiap presentasi. Pilihan tersimpan per-grafik di localStorage.
+// ----------------------------------------------------------------------------
+
+type ChartKind = "bar" | "line" | "area" | "pie";
+const CHART_KIND_LABEL: Record<ChartKind, string> = { bar: "Batang", line: "Garis", area: "Kurva", pie: "Donat" };
+const CHART_KIND_ICON: Record<ChartKind, any> = { bar: BarChart3, line: TrendingUp, area: Activity, pie: PieChartIcon };
+
+function useChartKindCycle(storageKey: string, options: ChartKind[]) {
+  const [kind, setKind] = useState<ChartKind>(() => {
+    try {
+      const saved = localStorage.getItem(storageKey) as ChartKind | null;
+      return saved && options.includes(saved) ? saved : options[0];
+    } catch {
+      return options[0];
+    }
+  });
+
+  const cycle = () => {
+    setKind((prev) => {
+      const next = options[(options.indexOf(prev) + 1) % options.length];
+      try {
+        localStorage.setItem(storageKey, next);
+      } catch (e) {
+        console.error(e);
+      }
+      return next;
+    });
+  };
+
+  return [kind, cycle] as const;
+}
+
+function ChartKindToggleButton({ kind, onClick }: { kind: ChartKind; onClick: () => void }) {
+  const Icon = CHART_KIND_ICON[kind];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Ganti tampilan grafik"
+      className="absolute -top-1 right-0 z-10 flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-2 py-1 rounded-full bg-slate-800/90 border border-slate-600 text-slate-300 hover:bg-orange-500/20 hover:border-orange-500/50 hover:text-orange-300 active:scale-95 transition-all"
+    >
+      <Icon className="w-3 h-3" />
+      {CHART_KIND_LABEL[kind]}
+    </button>
+  );
+}
+
+// Grafik distribusi Kondisi YL — bisa ditoggle Batang <-> Donat
+function KondisiYLChart({ data, storageKey }: { data: { name: string; value: number }[]; storageKey: string }) {
+  const [kind, cycle] = useChartKindCycle(storageKey, ["bar", "pie"]);
+  return (
+    <div className="relative h-40 sm:h-48">
+      <ChartKindToggleButton kind={kind} onClick={cycle} />
+      <ResponsiveContainer width="100%" height="100%">
+        {kind === "pie" ? (
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius="42%" outerRadius="80%" paddingAngle={2}>
+              {data.map((_, i) => <Cell key={i} fill={KONDISI_COLORS[i % KONDISI_COLORS.length]} />)}
+            </Pie>
+            <Tooltip
+              formatter={(v: number, n: string) => [`${v} YL`, n]}
+              contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#fff", fontSize: 11 }}
+            />
+            <Legend wrapperStyle={{ fontSize: 10, color: "#cbd5e1" }} />
+          </PieChart>
+        ) : (
+          <BarChart data={data} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} />
+            <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} allowDecimals={false} domain={[0, (dataMax: number) => Math.max(dataMax + 1, 4)]} />
+            <Tooltip
+              formatter={(v: number) => [`${v} YL`, "Jumlah YL"]}
+              contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#fff", fontSize: 11 }}
+            />
+            <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+              <LabelList dataKey="value" position="top" fill="#f8fafc" fontSize={11} fontWeight="bold" />
+              {data.map((_, i) => <Cell key={i} fill={KONDISI_COLORS[i % KONDISI_COLORS.length]} />)}
+            </Bar>
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Grafik tren penjualan vs target (bulanan) — bisa ditoggle Batang <-> Garis <-> Kurva
+function TrendPenjualanChart({
+  data,
+  storageKey,
+  heightClass = "h-56 sm:h-64 md:h-72",
+}: {
+  data: any[];
+  storageKey: string;
+  heightClass?: string;
+}) {
+  const [kind, cycle] = useChartKindCycle(storageKey, ["bar", "line", "area"]);
+  return (
+    <div className={`relative ${heightClass} w-full`}>
+      <ChartKindToggleButton kind={kind} onClick={cycle} />
+      <ResponsiveContainer width="100%" height="100%">
+        {kind === "bar" ? (
+          <BarChart data={data} margin={{ top: 10, right: 25, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+            <XAxis dataKey="bulan" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+            <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} />
+            <Tooltip formatter={(v: number) => fmtNum(v)} contentStyle={{ backgroundColor: "#1e293b", borderColor: "#475569", color: "#fff", fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 11, color: "#cbd5e1" }} />
+            <Bar dataKey="penjualan" name="Realisasi" fill="#f97316" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="target" name="Target" fill="#64748b" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        ) : kind === "area" ? (
+          <AreaChart data={data} margin={{ top: 10, right: 25, left: 10, bottom: 5 }}>
+            <defs>
+              <linearGradient id={`${storageKey}-fill`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#f97316" stopOpacity={0.55} />
+                <stop offset="95%" stopColor="#f97316" stopOpacity={0.05} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+            <XAxis dataKey="bulan" tick={{ fill: "#94a3b8", fontSize: 10 }} />
+            <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} />
+            <Tooltip formatter={(v: number) => fmtNum(v)} contentStyle={{ backgroundColor: "#1e293b", borderColor: "#475569", color: "#fff", fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 11, color: "#cbd5e1" }} />
+            <Area type="monotone" dataKey="penjualan" name="Realisasi" stroke="#f97316" fill={`url(#${storageKey}-fill)`} strokeWidth={2.5} />
+            <Area type="monotone" dataKey="target" name="Target" stroke="#94a3b8" fill="transparent" strokeWidth={2} strokeDasharray="4 4" />
+          </AreaChart>
+        ) : (
+          <LineChart data={data} margin={{ top: 10, right: 25, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+            <XAxis dataKey="bulan" tick={{ fill: "#94a3b8", fontSize: 11 }} />
+            <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} />
+            <Tooltip formatter={(v: number) => fmtNum(v)} contentStyle={{ backgroundColor: "#1e293b", borderColor: "#475569", color: "#fff", fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 11, color: "#cbd5e1" }} />
+            <Line type="monotone" dataKey="penjualan" name="Realisasi" stroke="#f97316" strokeWidth={3} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="target" name="Target" stroke="#94a3b8" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+          </LineChart>
+        )}
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -4026,6 +5042,119 @@ function InteractiveActionPlanSlide({
   );
 }
 
+// Daftar tema warna background kartu slide (semua slide, kecuali cover foto slide 1).
+// Tombol "Ganti Tema" di toolbar mode presentasi akan memutar indeks ini,
+// dan berlaku untuk SEMUA slide sekaligus (bukan per-slide).
+export interface SlideBgTheme {
+  id: string;
+  name: string;
+  classes: string;
+  isLight?: boolean;
+  dotColor: string;
+  category: "terang" | "gelap";
+}
+
+const SLIDE_BG_THEMES: SlideBgTheme[] = [
+  // WARNA TERANG / CERAH (Diminta Pengguna: Pink, Biru Muda, dll.)
+  {
+    id: "pink-ceria",
+    name: "Pink Ceria",
+    classes: "from-[#fff0f5] via-[#fce7f3] to-[#fbcfe8]",
+    isLight: true,
+    dotColor: "#f472b6",
+    category: "terang",
+  },
+  {
+    id: "biru-muda",
+    name: "Biru Muda Segar",
+    classes: "from-[#f0f9ff] via-[#e0f2fe] to-[#bae6fd]",
+    isLight: true,
+    dotColor: "#38bdf8",
+    category: "terang",
+  },
+  {
+    id: "mint-segar",
+    name: "Mint Hijau Muda",
+    classes: "from-[#f0fdf4] via-[#dcfce7] to-[#bbf7d0]",
+    isLight: true,
+    dotColor: "#4ade80",
+    category: "terang",
+  },
+  {
+    id: "lavender-lembut",
+    name: "Lavender Lembut",
+    classes: "from-[#faf5ff] via-[#f3e8ff] to-[#e9d5ff]",
+    isLight: true,
+    dotColor: "#c084fc",
+    category: "terang",
+  },
+  {
+    id: "peach-manis",
+    name: "Peach Manis",
+    classes: "from-[#fff7ed] via-[#ffedd5] to-[#fed7aa]",
+    isLight: true,
+    dotColor: "#fb923c",
+    category: "terang",
+  },
+  {
+    id: "putih-minimalis",
+    name: "Putih Minimalis",
+    classes: "from-[#ffffff] via-[#f8fafc] to-[#e2e8f0]",
+    isLight: true,
+    dotColor: "#cbd5e1",
+    category: "terang",
+  },
+  // WARNA GELAP / ELEGAN (Klasik)
+  {
+    id: "malam-biru",
+    name: "Malam Biru",
+    classes: "from-[#131728] via-[#0E1220] to-[#0A0D18]",
+    isLight: false,
+    dotColor: "#1e293b",
+    category: "gelap",
+  },
+  {
+    id: "zamrud-gelap",
+    name: "Zamrud Gelap",
+    classes: "from-[#0f2e27] via-[#0b211d] to-[#081714]",
+    isLight: false,
+    dotColor: "#065f46",
+    category: "gelap",
+  },
+  {
+    id: "ungu-royal",
+    name: "Ungu Royal",
+    classes: "from-[#1e1533] via-[#171029] to-[#0f0a1c]",
+    isLight: false,
+    dotColor: "#581c87",
+    category: "gelap",
+  },
+  {
+    id: "merah-marun",
+    name: "Merah Marun",
+    classes: "from-[#2a1414] via-[#1f0f0f] to-[#150a0a]",
+    isLight: false,
+    dotColor: "#881337",
+    category: "gelap",
+  },
+  {
+    id: "cokelat-elegan",
+    name: "Cokelat Elegan",
+    classes: "from-[#241a12] via-[#1a130d] to-[#100c08]",
+    isLight: false,
+    dotColor: "#78350f",
+    category: "gelap",
+  },
+  {
+    id: "abu-netral",
+    name: "Abu Netral",
+    classes: "from-[#1c1f26] via-[#15171c] to-[#0e1013]",
+    isLight: false,
+    dotColor: "#334155",
+    category: "gelap",
+  },
+];
+
 function SlideShow({
   slides,
   onClose,
@@ -4043,27 +5172,73 @@ function SlideShow({
 }) {
   const [idx, setIdx] = useState(0);
   const [showJumpMenu, setShowJumpMenu] = useState(false);
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showNotes, setShowNotes] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [blackScreen, setBlackScreen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // Paksa layar berputar 90° lewat CSS kalau screen.orientation.lock() gagal/tidak
-  // didukung (umum terjadi di kabel HP->proyektor & banyak Android WebView/Chrome).
-  // Ini murni trik visual: kontennya "diputar" secara CSS supaya tampil landscape
-  // walau buffer layar fisik HP tetap portrait — hasil mirror ke proyektor jadi penuh.
   const [forceRotate, setForceRotate] = useState(false);
   const [rotateManualOverride, setRotateManualOverride] = useState<boolean | null>(null);
 
   const pointerDownRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const lastWheelTimeRef = useRef<number>(0);
+  const slideCardRef = useRef<HTMLDivElement>(null);
+  const [exportingImage, setExportingImage] = useState(false);
 
-  // Clean Mode (auto-hide toolbar): semua tombol/label kontrol
-  // (header atas, toolbar bawah, tombol navigasi) otomatis memudar setelah 3 detik
-  // tanpa interaksi, baik di Google Chrome (Fullscreen API), Safari, maupun di Kodular
-  // (Android WebView) yang tidak mendukung Fullscreen API native.
-  // Ketuk layar (tap) atau gerakkan pointer untuk memunculkannya kembali selama 3 detik.
   const [controlsVisible, setControlsVisible] = useState(true);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Toast pemberitahuan pergantian tema
+  const [themeToast, setThemeToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const triggerThemeToast = (themeName: string, isLight?: boolean) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setThemeToast(`${themeName} ${isLight ? "✨ (Warna Terang)" : "🌙 (Warna Gelap)"}`);
+    toastTimerRef.current = setTimeout(() => {
+      setThemeToast(null);
+    }, 2500);
+  };
+
+  // Tema warna background kartu slide — berlaku global utk semua slide, tersimpan antar sesi
+  const [bgThemeIdx, setBgThemeIdx] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem("presentasi_bg_theme_idx");
+      const parsed = saved ? parseInt(saved, 10) : 0;
+      return Number.isFinite(parsed) && parsed >= 0 && parsed < SLIDE_BG_THEMES.length ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const bgTheme = SLIDE_BG_THEMES[bgThemeIdx] || SLIDE_BG_THEMES[0];
+
+  const selectBgTheme = (newIdx: number) => {
+    setBgThemeIdx(newIdx);
+    try {
+      localStorage.setItem("presentasi_bg_theme_idx", String(newIdx));
+    } catch {}
+    const targetTheme = SLIDE_BG_THEMES[newIdx];
+    if (targetTheme) {
+      triggerThemeToast(targetTheme.name, targetTheme.isLight);
+    }
+  };
+
+  const cycleBgTheme = (e?: React.MouseEvent | React.PointerEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setBgThemeIdx((prev) => {
+      const next = (prev + 1) % SLIDE_BG_THEMES.length;
+      try {
+        localStorage.setItem("presentasi_bg_theme_idx", String(next));
+      } catch {}
+      const targetTheme = SLIDE_BG_THEMES[next];
+      if (targetTheme) {
+        triggerThemeToast(targetTheme.name, targetTheme.isLight);
+      }
+      return next;
+    });
+  };
 
   const scheduleHideControls = () => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -4072,7 +5247,7 @@ function SlideShow({
         if (showJumpMenu || showShortcuts || showNotes) return prev;
         return false;
       });
-    }, 3000);
+    }, 5000);
   };
 
   const revealControls = () => {
@@ -4080,16 +5255,13 @@ function SlideShow({
     scheduleHideControls();
   };
 
-  // Mulai timer auto-hide saat masuk ke mode presentasi
   useEffect(() => {
     scheduleHideControls();
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Saat status Layar Penuh berubah: jadwalkan hide controls
   useEffect(() => {
     if (isFullscreen) {
       scheduleHideControls();
@@ -4106,9 +5278,7 @@ function SlideShow({
       return;
     }
     setIdx((i) => Math.min(i + 1, slides.length - 1));
-    // Sembunyikan kontrol agar presentasi selalu bersih saat berpindah slide
-    setControlsVisible(false);
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    scheduleHideControls();
   };
 
   const goPrev = () => {
@@ -4117,34 +5287,36 @@ function SlideShow({
       return;
     }
     setIdx((i) => Math.max(i - 1, 0));
-    // Sembunyikan kontrol agar presentasi selalu bersih saat berpindah slide
-    setControlsVisible(false);
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    scheduleHideControls();
   };
 
-  // Fullscreen toggle
   const toggleFullscreen = async () => {
     try {
       if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+          setIsFullscreen(true);
+        }
       } else {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+          setIsFullscreen(false);
+        }
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  const handleClosePresentation = async () => {
+  const handleClosePresentation = (e?: React.MouseEvent | React.PointerEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
     try {
       const orient = (screen as any).orientation;
       if (orient?.unlock) orient.unlock();
     } catch {}
     try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
+      if (typeof document !== "undefined" && document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
       }
     } catch {}
     onClose();
@@ -4153,16 +5325,10 @@ function SlideShow({
   useEffect(() => {
     const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onFsChange);
-    // Fallback saja: percobaan utama sudah dilakukan langsung di tombol
-    // "Mode Presentasi" (dalam gesture klik). Ini cuma jaga-jaga kalau slide
-    // dibuka lewat jalur lain (mis. langsung setIdx / re-render) dan belum fullscreen.
     setIsFullscreen(!!document.fullscreenElement);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
-  // Pengaturan orientasi: biarkan layar HP mengikuti orientasi alami (bila HP portrait,
-  // mode presentasi ikut portrait bersih tanpa dipaksa rotasi 90 derajat secara CSS).
-  // Tombol rotasi manual tetap disediakan bila pengguna ingin memutar secara paksa.
   useEffect(() => {
     if (rotateManualOverride !== null) {
       setForceRotate(rotateManualOverride);
@@ -4171,10 +5337,8 @@ function SlideShow({
     }
   }, [rotateManualOverride]);
 
-  // Keyboard & Presenter Clicker Shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // If black screen active, any key restores slide
       if (blackScreen) {
         if (e.key === "Escape") handleClosePresentation();
         else setBlackScreen(false);
@@ -4190,9 +5354,22 @@ function SlideShow({
         return;
       }
 
-      // Next slide: ArrowRight, ArrowDown, PageDown, Space, Enter
-      // + fallback keyCode (33/34/37/39) dan tombol media (dipakai sebagian presenter
-      // clicker/pointer murah yang mengirim kode lama atau tombol media next/prev)
+      // Jangan tangkap tombol navigasi slide (Backspace/Enter/panah/spasi) saat
+      // fokus sedang berada di input/textarea/select — biarkan browser memprosesnya
+      // secara normal (mis. menghapus karakter), supaya tidak "lompat slide" saat
+      // sedang mengetik di field seperti Area / Nama pada slide Apresiasi Performa.
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isTypingTarget =
+        !!activeEl &&
+        (activeEl.tagName === "INPUT" ||
+          activeEl.tagName === "TEXTAREA" ||
+          activeEl.tagName === "SELECT" ||
+          activeEl.isContentEditable);
+      if (isTypingTarget) {
+        if (e.key === "Escape") activeEl?.blur();
+        return;
+      }
+
       if (
         e.key === "ArrowRight" ||
         e.key === "ArrowDown" ||
@@ -4200,58 +5377,46 @@ function SlideShow({
         e.key === " " ||
         e.key === "Enter" ||
         e.key === "MediaTrackNext" ||
-        e.keyCode === 34 || // Page Down (fallback)
-        e.keyCode === 39 // Arrow Right (fallback)
+        e.keyCode === 34 ||
+        e.keyCode === 39
       ) {
         e.preventDefault();
         goNext();
         return;
-      }
-      // Prev slide: ArrowLeft, ArrowUp, PageUp, Backspace
-      else if (
+      } else if (
         e.key === "ArrowLeft" ||
         e.key === "ArrowUp" ||
         e.key === "PageUp" ||
         e.key === "Backspace" ||
         e.key === "MediaTrackPrevious" ||
-        e.keyCode === 33 || // Page Up (fallback)
-        e.keyCode === 37 // Arrow Left (fallback)
+        e.keyCode === 33 ||
+        e.keyCode === 37
       ) {
         e.preventDefault();
         goPrev();
         return;
       }
 
-      // Tombol non-navigasi (menu, bantuan, fullscreen) memunculkan controls
       revealControls();
 
-      // Black screen: B or . (Period)
       if (e.key === "b" || e.key === "B" || e.key === ".") {
         e.preventDefault();
         setBlackScreen((prev) => !prev);
-      }
-      // Notes: N
-      else if (e.key === "n" || e.key === "N") {
+      } else if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         setShowNotes((prev) => !prev);
-      }
-      // Fullscreen: F or F5
-      else if (e.key === "f" || e.key === "F" || e.key === "F5") {
+      } else if (e.key === "f" || e.key === "F" || e.key === "F5") {
         e.preventDefault();
         toggleFullscreen();
-      }
-      // Close: Escape
-      else if (e.key === "Escape") {
+      } else if (e.key === "Escape") {
         handleClosePresentation();
       }
     };
 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slides.length, onClose, showJumpMenu, showShortcuts, blackScreen, isFullscreen]);
 
-  // Pointer / Mouse / Stylus drag & swipe
   const handlePointerDown = (e: React.PointerEvent) => {
     pointerDownRef.current = { x: e.clientX, y: e.clientY, time: Date.now() };
   };
@@ -4262,13 +5427,31 @@ function SlideShow({
     const diffY = Math.abs(e.clientY - pointerDownRef.current.y);
     const duration = Date.now() - pointerDownRef.current.time;
 
-    // Gesture swipe: horizontal movement > 45px and vertical < 80px, completed within 800ms
+    // Abaikan jika interaksi pointer berasal dari tombol atau elemen interaktif
+    const targetEl = e.target as HTMLElement | null;
+    if (targetEl?.closest("button, a, input, select, textarea, [role='button'], .no-slide-toggle")) {
+      pointerDownRef.current = null;
+      return;
+    }
+
     if (Math.abs(diffX) > 45 && diffY < 80 && duration < 800) {
       if (diffX < 0) goNext();
       else goPrev();
     } else if (Math.abs(diffX) < 15 && diffY < 15 && duration < 350) {
-      // Sentuhan biasa / tap ringan pada layar: munculkan atau sembunyikan kontrol
-      if (!controlsVisible) {
+      // Ketuk (tap) singkat di zona tepi kiri/kanan langsung pindah slide.
+      // Dihitung dari koordinat ketuk terhadap lebar layar, BUKAN dari tombol
+      // transparan absolut yang sering tertutup kartu slide (kartu z-20 hampir
+      // selebar layar di HP, sehingga area tombol tepi yang benar-benar bisa
+      // disentuh jadi sangat tipis). Dengan cara ini area ketuk tepi selalu
+      // konsisten selebar yang dimaksud, di seluruh permukaan layar.
+      const tapX = pointerDownRef.current.x;
+      const w = window.innerWidth;
+      const edgeZone = Math.min(w * 0.2, 140);
+      if (tapX < edgeZone) {
+        goPrev();
+      } else if (tapX > w - edgeZone) {
+        goNext();
+      } else if (!controlsVisible) {
         revealControls();
       } else {
         setControlsVisible(false);
@@ -4277,7 +5460,6 @@ function SlideShow({
     pointerDownRef.current = null;
   };
 
-  // Wheel scroll navigation (debounced)
   const handleWheel = (e: React.WheelEvent) => {
     const now = Date.now();
     if (now - lastWheelTimeRef.current < 400) return;
@@ -4302,6 +5484,39 @@ function SlideShow({
 
   const cur = slides[Math.min(idx, slides.length - 1)];
 
+  // Ekspor slide yang sedang tampil sebagai gambar PNG (untuk dibagikan cepat via WhatsApp dsb.)
+  // Catatan: memakai html2canvas secara dynamic import — pastikan paket ini terinstal
+  // di project (npm install html2canvas) agar fitur ini berfungsi.
+  const handleExportSlideImage = async () => {
+    if (!slideCardRef.current || exportingImage) return;
+    setExportingImage(true);
+    try {
+      const mod: any = await import("html2canvas");
+      const html2canvas = mod.default || mod;
+      const canvas = await html2canvas(slideCardRef.current, {
+        backgroundColor: null,
+        scale: 2,
+        useCORS: true,
+      });
+      const dataUrl = canvas.toDataURL("image/png");
+      const link = document.createElement("a");
+      const safeTitle = String(cur.eyebrow || "slide").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      link.download = `slide-${idx + 1}-${safeTitle || "yakult"}.png`;
+      link.href = dataUrl;
+      link.click();
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setThemeToast("📸 Slide berhasil diunduh sebagai gambar!");
+      toastTimerRef.current = setTimeout(() => setThemeToast(null), 2500);
+    } catch (err) {
+      console.error("Gagal mengekspor slide sebagai gambar:", err);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setThemeToast("⚠️ Gagal mengunduh gambar. Pastikan paket html2canvas sudah terinstal.");
+      toastTimerRef.current = setTimeout(() => setThemeToast(null), 4000);
+    } finally {
+      setExportingImage(false);
+    }
+  };
+
   return (
     <div
       className={`fixed z-[200] bg-[#07090F] text-white flex flex-col justify-between overflow-hidden select-none ${
@@ -4319,30 +5534,24 @@ function SlideShow({
             }
           : undefined
       }
-      onPointerDown={(e) => {
-        handlePointerDown(e);
-      }}
+      onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerMove={(e) => {
-        // Hanya munculkan bilah kontrol jika kursor mendekati bilah atas (<64px) atau bilah bawah
         if (typeof window !== "undefined") {
           const y = e.clientY;
           const h = window.innerHeight;
-          if (y < 64 || y > h - 64) {
+          if (y < 80 || y > h - 80) {
             revealControls();
           }
         }
       }}
-      onWheel={(e) => {
-        handleWheel(e);
-      }}
+      onWheel={handleWheel}
     >
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ backgroundImage: "radial-gradient(circle at center, #ffffff06 1px, transparent 1px)", backgroundSize: "28px 28px" }}
       />
 
-      {/* Black Screen Overlay (Presentation blank mode) */}
       {blackScreen && (
         <div
           onClick={() => setBlackScreen(false)}
@@ -4355,18 +5564,86 @@ function SlideShow({
         </div>
       )}
 
-      {/* Top Header Bar (auto-hide di mode Layar Penuh - "Clean Mode") */}
+      {/* Floating Quick Dock saat controls disembunyikan agar tombol X, Tema, & Menu selalu bisa diklik */}
+      {!controlsVisible && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="fixed top-3 right-3 z-50 flex items-center gap-1.5 animate-in fade-in duration-200"
+        >
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              cycleBgTheme(e);
+            }}
+            className="p-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 backdrop-blur-md shadow-lg cursor-pointer transition-all active:scale-95 flex items-center gap-1.5"
+            title={`Ganti Tema Slide (Klik untuk ganti: ${bgTheme.name})`}
+          >
+            <span
+              className="w-3 h-3 rounded-full border border-white/50 shrink-0 shadow-xs"
+              style={{ backgroundColor: bgTheme.dotColor }}
+            />
+            <Palette className="w-3.5 h-3.5 text-orange-400" />
+          </button>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              revealControls();
+            }}
+            className="px-2.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700/80 backdrop-blur-md shadow-lg cursor-pointer transition-all active:scale-95 flex items-center gap-1 text-xs font-bold"
+            title="Tampilkan Bilah Navigasi & Menu Lengkap"
+          >
+            <Menu className="w-4 h-4 text-orange-400" />
+            <span className="hidden sm:inline text-[11px]">Menu</span>
+          </button>
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClosePresentation(e);
+            }}
+            className="p-2 rounded-xl bg-slate-900/90 hover:bg-rose-950 border border-slate-700/80 text-slate-300 hover:text-rose-300 backdrop-blur-md shadow-lg cursor-pointer transition-all active:scale-95"
+            title="Keluar Mode Presentasi (Esc)"
+          >
+            <X className="w-4 h-4 text-rose-400" />
+          </button>
+        </div>
+      )}
+
+      {/* Top Controls Bar */}
       <div
-        className={`flex items-center justify-between px-4 sm:px-6 relative z-20 shrink-0 border-b border-slate-800/40 bg-[#0A0D17]/80 backdrop-blur-sm overflow-hidden transition-all duration-300 ease-in-out ${
-          controlsVisible ? "pt-3 pb-2 max-h-24 opacity-100" : "pt-0 pb-0 max-h-0 opacity-0 pointer-events-none border-transparent"
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onMouseEnter={() => {
+          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        }}
+        onMouseLeave={() => {
+          scheduleHideControls();
+        }}
+        className={`flex items-center justify-between px-4 sm:px-6 relative z-30 shrink-0 border-b border-slate-800/40 bg-[#0A0D17]/90 backdrop-blur-md transition-all duration-300 ease-in-out ${
+          controlsVisible ? "pt-3 pb-2 max-h-24 opacity-100" : "pt-0 pb-0 max-h-0 opacity-0 pointer-events-none border-transparent overflow-hidden"
         }`}
       >
-        {/* Left: Quick Jump Menu & Slide Dots */}
         <div className="flex items-center gap-2 sm:gap-3">
           <button
             type="button"
-            onClick={() => setShowJumpMenu(!showJumpMenu)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer transition-all border border-slate-700/80 shadow-xs"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowJumpMenu(!showJumpMenu);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer transition-all border border-slate-700/80 shadow-xs active:scale-95"
             title="Daftar Slide (Quick Jump)"
           >
             <Layers className="w-3.5 h-3.5 text-orange-400" />
@@ -4378,7 +5655,12 @@ function SlideShow({
               <button
                 key={i}
                 type="button"
-                onClick={() => setIdx(i)}
+                onPointerDown={(e) => e.stopPropagation()}
+                onPointerUp={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIdx(i);
+                }}
                 className={`h-1.5 rounded-full transition-all cursor-pointer ${
                   i === idx ? "w-6 sm:w-7 bg-orange-500 shadow-sm shadow-orange-500/40" : "w-2 bg-slate-700 hover:bg-slate-500"
                 }`}
@@ -4388,12 +5670,16 @@ function SlideShow({
           </div>
         </div>
 
-        {/* Right: Speaker Notes, Shortcut Help, Fullscreen, Close */}
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             type="button"
-            onClick={() => setShowNotes(!showNotes)}
-            className={`p-2 rounded-xl text-xs font-bold cursor-pointer transition-all border ${
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowNotes(!showNotes);
+            }}
+            className={`p-2 rounded-xl text-xs font-bold cursor-pointer transition-all border active:scale-95 ${
               showNotes
                 ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
                 : "bg-slate-800 text-slate-300 border-slate-700/80 hover:bg-slate-700 hover:text-white"
@@ -4405,21 +5691,31 @@ function SlideShow({
 
           <button
             type="button"
-            onClick={() => setShowShortcuts(!showShortcuts)}
-            className={`p-2 rounded-xl text-xs font-bold cursor-pointer transition-all border ${
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowShortcuts(!showShortcuts);
+            }}
+            className={`p-2 rounded-xl text-xs font-bold cursor-pointer transition-all border active:scale-95 ${
               showShortcuts
                 ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
                 : "bg-slate-800 text-slate-300 border-slate-700/80 hover:bg-slate-700 hover:text-white"
             }`}
-            title="Petunjuk Pointer &amp; Navigasi"
+            title="Petunjuk Pointer & Navigasi"
           >
             <HelpCircle className="w-4 h-4" />
           </button>
 
           <button
             type="button"
-            onClick={() => setRotateManualOverride((prev) => (prev === null ? !forceRotate : !prev))}
-            className={`p-2 rounded-xl text-xs font-bold cursor-pointer transition-all border ${
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setRotateManualOverride((prev) => (prev === null ? !forceRotate : !prev));
+            }}
+            className={`p-2 rounded-xl text-xs font-bold cursor-pointer transition-all border active:scale-95 ${
               forceRotate
                 ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
                 : "bg-slate-800 text-slate-300 border-slate-700/80 hover:bg-slate-700 hover:text-white"
@@ -4431,8 +5727,51 @@ function SlideShow({
 
           <button
             type="button"
-            onClick={toggleFullscreen}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-slate-300 hover:text-white cursor-pointer transition-all"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowThemeMenu(!showThemeMenu);
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold cursor-pointer transition-all active:scale-95 ${
+              showThemeMenu
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/50"
+                : "bg-slate-800 text-slate-300 border-slate-700/80 hover:bg-slate-700 hover:text-white"
+            }`}
+            title={`Pilih Tema Slide (Saat ini: ${bgTheme.name})`}
+          >
+            <span
+              className="w-3 h-3 rounded-full border border-white/50 shrink-0 shadow-xs"
+              style={{ backgroundColor: bgTheme.dotColor }}
+            />
+            <span className="hidden md:inline text-[11px]">{bgTheme.name}</span>
+            <Palette className="w-3.5 h-3.5 text-orange-400" />
+          </button>
+
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleExportSlideImage();
+            }}
+            disabled={exportingImage}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-slate-300 hover:text-white cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait"
+            title="Unduh Slide Ini sebagai Gambar PNG"
+          >
+            {exportingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          </button>
+
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFullscreen();
+            }}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-slate-300 hover:text-white cursor-pointer transition-all active:scale-95"
             title={isFullscreen ? "Keluar Layar Penuh (F)" : "Layar Penuh (F)"}
           >
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -4440,8 +5779,13 @@ function SlideShow({
 
           <button
             type="button"
-            onClick={handleClosePresentation}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950 border border-slate-700/80 text-slate-300 hover:text-rose-300 cursor-pointer transition-all"
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleClosePresentation(e);
+            }}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950 border border-slate-700/80 text-slate-300 hover:text-rose-300 cursor-pointer transition-all active:scale-95"
             title="Keluar Mode Presentasi (Esc)"
           >
             <X className="w-4 h-4" />
@@ -4449,9 +5793,13 @@ function SlideShow({
         </div>
       </div>
 
-      {/* Quick Jump Slide Popover Modal */}
       {showJumpMenu && (
-        <div className="absolute top-14 left-5 z-40 w-80 max-h-[70vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-3 space-y-1">
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-14 left-5 z-40 w-80 max-h-[70vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-3 space-y-1"
+        >
           <div className="flex items-center justify-between px-2 py-1 mb-1 border-b border-slate-800">
             <p className="text-[10px] uppercase font-black tracking-wider text-slate-400">Pilih Slide Presentasi</p>
             <span className="text-[10px] text-slate-500">{slides.length} Slide</span>
@@ -4460,7 +5808,10 @@ function SlideShow({
             <button
               key={i}
               type="button"
-              onClick={() => {
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
                 setIdx(i);
                 setShowJumpMenu(false);
               }}
@@ -4478,16 +5829,143 @@ function SlideShow({
         </div>
       )}
 
-      {/* Pointer & Keyboard Shortcut Cheatsheet */}
+      {/* Popover Menu Pilihan Tema Slide */}
+      {showThemeMenu && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-14 right-4 sm:right-20 z-50 w-72 sm:w-84 bg-slate-900/98 border border-slate-700 rounded-2xl shadow-2xl p-3.5 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-150"
+        >
+          <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-slate-800">
+            <div className="flex items-center gap-1.5">
+              <Palette className="w-4 h-4 text-amber-400" />
+              <p className="text-xs font-black text-white tracking-wide">PILIH TEMA WARNA SLIDE</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowThemeMenu(false)}
+              className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Kategori Warna Terang / Pastel */}
+          <div className="mb-3">
+            <p className="text-[10px] uppercase font-black tracking-wider text-pink-400 mb-1.5 flex items-center gap-1">
+              <span>🌸</span>
+              <span>Warna Terang / Cerah (Pastel)</span>
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {SLIDE_BG_THEMES.filter((t) => t.category === "terang").map((t) => {
+                const tIdx = SLIDE_BG_THEMES.findIndex((x) => x.id === t.id);
+                const isSelected = bgThemeIdx === tIdx;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      selectBgTheme(tIdx);
+                      setShowThemeMenu(false);
+                    }}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-amber-500/20 text-white border-amber-400 shadow-md ring-1 ring-amber-400/40"
+                        : "bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white"
+                    }`}
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded-full border border-white/50 shadow-xs shrink-0"
+                      style={{ backgroundColor: t.dotColor }}
+                    />
+                    <span className="truncate text-[11px]">{t.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Kategori Warna Gelap / Elegan */}
+          <div>
+            <p className="text-[10px] uppercase font-black tracking-wider text-sky-400 mb-1.5 flex items-center gap-1">
+              <span>🌙</span>
+              <span>Warna Gelap / Elegan</span>
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {SLIDE_BG_THEMES.filter((t) => t.category === "gelap").map((t) => {
+                const tIdx = SLIDE_BG_THEMES.findIndex((x) => x.id === t.id);
+                const isSelected = bgThemeIdx === tIdx;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => {
+                      selectBgTheme(tIdx);
+                      setShowThemeMenu(false);
+                    }}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-left text-xs font-bold transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-amber-500/20 text-white border-amber-400 shadow-md ring-1 ring-amber-400/40"
+                        : "bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-700 hover:text-white"
+                    }`}
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded-full border border-white/50 shadow-xs shrink-0"
+                      style={{ backgroundColor: t.dotColor }}
+                    />
+                    <span className="truncate text-[11px]">{t.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between">
+            <span className="text-[10px] text-slate-400">Tersimpan otomatis</span>
+            <button
+              type="button"
+              onClick={() => {
+                cycleBgTheme();
+              }}
+              className="text-[10.5px] font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer"
+            >
+              Putar tema berikutnya →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Toast notifikasi pergantian tema */}
+      {themeToast && (
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-2xl bg-slate-900/95 text-white border border-amber-400/50 shadow-2xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-3 duration-200 pointer-events-none"
+        >
+          <Palette className="w-4 h-4 text-amber-400" />
+          <span>Tema Slide: <strong className="text-amber-300">{themeToast}</strong></span>
+        </div>
+      )}
+
       {showShortcuts && (
-        <div className="absolute top-14 right-5 z-40 w-80 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4 text-xs space-y-3">
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute top-14 right-5 z-40 w-80 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4 text-xs space-y-3"
+        >
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <p className="font-black text-white flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-orange-400" /> Navigasi &amp; Pointer PPT
             </p>
             <button
               type="button"
-              onClick={() => setShowShortcuts(false)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowShortcuts(false);
+              }}
               className="text-slate-400 hover:text-white cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />
@@ -4526,12 +6004,7 @@ function SlideShow({
         </div>
       )}
 
-      {/* Main Slide Presentation Stage (Fit-to-Screen Canvas) */}
-      <div className="flex-1 flex items-center justify-center p-2 sm:p-4 relative z-10 min-h-0 overflow-hidden">
-        {/* Left Hotspot Click Zone: sentuh/klik sisi kiri langsung pindah slide TANPA memunculkan tombol.
-            z-10 (di BAWAH canvas z-20) supaya kalau kartu slide menutupi zona ini (mis. di HP layar sempit
-            tanpa jarak/gutter), sentuhan/scroll di area itu tetap jatuh ke konten kartu (tabel dsb), bukan
-            "dicuri" oleh tombol ini. Tombol ini cuma aktif di celah kosong di luar kartu. */}
+      <div className="flex-1 flex items-center justify-center p-1 sm:p-3.5 landscape:p-1 md:landscape:p-2 relative z-10 min-h-0 overflow-hidden">
         <button
           type="button"
           onClick={goPrev}
@@ -4542,28 +6015,32 @@ function SlideShow({
           aria-label="Slide sebelumnya"
         />
 
-        {/* Widescreen Presentation Canvas (Auto Fit Screen Proyektor & Monitor) */}
         <div
-          className={`relative z-20 w-full mx-auto bg-gradient-to-b from-[#131728] via-[#0E1220] to-[#0A0D18] border border-slate-800/90 rounded-2xl shadow-2xl flex flex-col justify-between overflow-hidden transition-all duration-300 ${
+          ref={slideCardRef}
+          className={`relative z-20 w-full mx-auto bg-gradient-to-b ${bgTheme.classes} border ${
+            bgTheme.isLight ? "border-slate-300 shadow-2xl slide-theme-light" : "border-slate-800/90 shadow-2xl slide-theme-dark"
+          } rounded-2xl flex flex-col justify-between overflow-hidden transition-all duration-300 ${
             isFullscreen || !controlsVisible
-              ? "max-w-[98vw] h-full max-h-full p-2 sm:p-3.5 md:p-5"
-              : "max-w-6xl xl:max-w-7xl h-full max-h-[calc(100vh-80px)] p-2 sm:p-3.5 md:p-4"
+              ? "max-w-[98vw] h-full max-h-full p-2 sm:p-3.5 md:p-4 landscape:p-1.5 md:landscape:p-3"
+              : "max-w-6xl xl:max-w-7xl h-full max-h-full p-2 sm:p-3.5 md:p-4 landscape:p-1.5 md:landscape:p-3"
           }`}
         >
-          {/* Slide Header (Eyebrow + Title) */}
-          <div className="shrink-0 text-center mb-1.5 sm:mb-2">
-            <p className="text-orange-400 text-[10px] sm:text-xs font-black tracking-[0.25em] uppercase">
+          <div className="relative z-10 shrink-0 text-center mb-1 sm:mb-2 landscape:mb-0.5">
+            <p className={`${
+              bgTheme.isLight ? "text-orange-600 drop-shadow-none" : "text-orange-400 drop-shadow-lg"
+            } text-[9.5px] sm:text-xs landscape:text-[9px] font-black tracking-[0.25em] uppercase`}>
               {cur.eyebrow}
             </p>
             {cur.title && (
-              <h3 className="text-sm sm:text-base md:text-lg font-black text-white mt-0.5 truncate">
+              <h3 className={`text-xs sm:text-base md:text-lg landscape:text-xs sm:landscape:text-sm font-black ${
+                bgTheme.isLight ? "text-slate-900 drop-shadow-none" : "text-white drop-shadow-lg"
+              } mt-0.5 truncate`}>
                 {cur.title}
               </h3>
             )}
           </div>
 
-          {/* Slide Body Content: Fit to Screen, No Clipping */}
-          <div className="flex-1 flex flex-col items-center w-full min-h-0 overflow-y-auto overflow-x-hidden py-1 px-1 sm:px-2">
+          <div className="relative z-10 flex-1 w-full min-h-0 overflow-y-auto overflow-x-hidden py-0.5 px-1 sm:px-2">
             {cur.isActionPlan ? (
               <InteractiveActionPlanSlide
                 actionPlans={actionPlans}
@@ -4573,23 +6050,27 @@ function SlideShow({
                 subtitle={`Komitmen & rencana aksi perbaikan untuk disepakati bersama:`}
               />
             ) : (
-              <div className="w-full my-auto flex flex-col items-center justify-center">
+              <div
+                className="w-full min-h-full flex flex-col items-center py-0.5"
+                style={{ justifyContent: "safe center" }}
+              >
                 {cur.node}
               </div>
             )}
           </div>
 
-          {/* Slide Canvas Footer (Slide Indicator) */}
-          <div className="shrink-0 flex items-center justify-between text-[10px] text-slate-500 pt-1.5 sm:pt-2 border-t border-slate-800/40">
-            <span className="font-mono text-[9px] sm:text-[10px]">Yakult Presentation Deck &middot; Mode Layar Penuh</span>
-            <span className="font-mono font-bold text-slate-400 text-[9px] sm:text-[10px]">
+          <div className={`relative z-10 shrink-0 flex items-center justify-between text-[8.5px] sm:text-[10px] landscape:text-[8px] ${
+            bgTheme.isLight ? "text-slate-600 border-slate-300/80" : "text-slate-500 border-slate-800/40"
+          } pt-1 sm:pt-1.5 landscape:pt-0.5 border-t`}>
+            <span className={`font-mono text-[8px] sm:text-[10px] landscape:text-[7.5px] ${bgTheme.isLight ? "text-slate-600" : "text-slate-500"}`}>
+              Yakult Presentation Deck &middot; Mode Layar Penuh
+            </span>
+            <span className={`font-mono font-bold ${bgTheme.isLight ? "text-slate-800" : "text-slate-400"} text-[8px] sm:text-[10px] landscape:text-[8px]`}>
               Slide {idx + 1} dari {slides.length}
             </span>
           </div>
         </div>
 
-        {/* Right Hotspot Click Zone: sentuh/klik sisi kanan langsung pindah slide TANPA memunculkan tombol.
-            z-10 (di BAWAH canvas z-20), lihat catatan di tombol kiri di atas. */}
         <button
           type="button"
           onClick={goNext}
@@ -4601,9 +6082,13 @@ function SlideShow({
         />
       </div>
 
-      {/* Speaker Notes Drawer (Toggled by 'N' or header icon) */}
       {showNotes && (
-        <div className="relative z-30 bg-slate-900/95 border-t border-slate-700/80 p-3 sm:p-4 shrink-0 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-2">
+        <div
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          className="relative z-30 bg-slate-900/95 border-t border-slate-700/80 p-3 sm:p-4 shrink-0 shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-2"
+        >
           <div className="max-w-4xl mx-auto flex items-start justify-between gap-4">
             <div className="flex items-start gap-2.5">
               <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 shrink-0 mt-0.5">
@@ -4621,7 +6106,12 @@ function SlideShow({
             </div>
             <button
               type="button"
-              onClick={() => setShowNotes(false)}
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowNotes(false);
+              }}
               className="p-1 text-slate-400 hover:text-white cursor-pointer shrink-0"
               title="Tutup Catatan Pembicara"
             >
@@ -4631,15 +6121,28 @@ function SlideShow({
         </div>
       )}
 
-      {/* Bottom Navigation Toolbar (auto-hide di mode Layar Penuh - "Clean Mode") */}
       <div
-        className={`flex items-center justify-between px-5 relative z-20 shrink-0 border-t border-slate-800/40 bg-[#0A0D17]/80 backdrop-blur-sm overflow-hidden transition-all duration-300 ease-in-out ${
-          controlsVisible ? "pb-4 pt-2 max-h-24 opacity-100" : "pb-0 pt-0 max-h-0 opacity-0 pointer-events-none border-transparent"
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onMouseEnter={() => {
+          if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        }}
+        onMouseLeave={() => {
+          scheduleHideControls();
+        }}
+        className={`flex items-center justify-between px-5 relative z-20 shrink-0 border-t border-slate-800/40 bg-[#0A0D17]/90 backdrop-blur-md transition-all duration-300 ease-in-out ${
+          controlsVisible ? "pb-4 pt-2 max-h-24 opacity-100" : "pb-0 pt-0 max-h-0 opacity-0 pointer-events-none border-transparent overflow-hidden"
         }`}
       >
         <button
           type="button"
-          onClick={goPrev}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            goPrev();
+          }}
           disabled={idx === 0}
           className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-all active:scale-95 border border-slate-700 text-xs font-bold"
           title="Slide Sebelumnya (⬅ / PageUp)"
@@ -4657,7 +6160,12 @@ function SlideShow({
 
         <button
           type="button"
-          onClick={goNext}
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            goNext();
+          }}
           disabled={idx === slides.length - 1}
           className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-25 disabled:cursor-not-allowed cursor-pointer transition-all active:scale-95 shadow-md shadow-orange-500/20 text-xs font-bold"
           title="Slide Berikutnya (➡ / Spasi / PageDown)"
@@ -4674,31 +6182,645 @@ function SlideShow({
 // Slide Builders
 // ----------------------------------------------------------------------------
 
+function buildYlOtmTeaserSlide(
+  periode: Periode = "bulanan",
+  monthLabel: string = "",
+  selectedYear: string | number = "",
+  record?: YlOtmRecord | null
+): SlideDef {
+  const awardTitle = getOtmTitleByPeriode(periode);
+  const displayCategory = record?.categoryLabel && record.categoryLabel !== "Kategori Bebas (Pilihan Manual)"
+    ? record.categoryLabel
+    : (YL_OTM_CATEGORIES.find((c) => c.id === record?.category)?.label || "Penghargaan Spesial");
+
+  return {
+    eyebrow: "Momen Penghargaan Tertinggi",
+    title: `Siapakah ${awardTitle} Kita?`,
+    speakerNotes: `Bangkitkan antusiasme dan rasa penasaran seluruh Ibu-ibu Yakult Lady! Ajak hadirin menebak siapa sosok luar biasa yang berhasil meraih ${awardTitle} di kategori ${displayCategory} sebelum membuka slide pengumuman.`,
+    node: (
+      <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl sm:rounded-3xl p-4 sm:p-6 landscape:p-3 text-center max-w-xl mx-auto space-y-2.5 sm:space-y-3 landscape:space-y-1.5 shadow-2xl">
+        <div className="inline-flex items-center gap-1.5 px-3 py-0.5 sm:py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] sm:text-[11px] font-black uppercase tracking-widest animate-pulse">
+          <Sparkles className="w-3.5 h-3.5" />
+          Kategori: {displayCategory}
+        </div>
+
+        <div className="relative mx-auto w-20 h-20 sm:w-28 sm:h-28 landscape:w-16 landscape:h-16 rounded-full bg-gradient-to-br from-amber-400/20 via-orange-500/10 to-slate-900 border-2 border-amber-400/40 shadow-2xl shadow-amber-500/20 flex items-center justify-center group">
+          <div className="absolute inset-0 rounded-full bg-amber-400/10 animate-ping" style={{ animationDuration: "2.5s" }} />
+          <div className="relative flex flex-col items-center justify-center">
+            <Trophy className="w-7 h-7 sm:w-9 sm:h-9 landscape:w-6 landscape:h-6 text-amber-400/60 mb-0.5" />
+            <span className="text-xl sm:text-2xl landscape:text-lg font-black text-amber-300 font-mono tracking-tighter animate-bounce">?</span>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <h2 className="text-lg sm:text-2xl md:text-3xl landscape:text-lg font-black text-white tracking-tight">
+            Siapakah <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-orange-300 to-amber-200">{awardTitle}</span> Kita?
+          </h2>
+          <p className="text-[11px] sm:text-xs text-slate-300 max-w-md mx-auto leading-relaxed">
+            Ibu tangguh dengan senyum tulus, ketekunan merawat langganan setia di kategori <strong className="text-amber-300 font-bold">{displayCategory}</strong> periode <strong className="text-white">{monthLabel ? `${monthLabel} ${selectedYear}` : selectedYear}</strong>!
+          </p>
+        </div>
+
+        <div className="pt-1">
+          <div className="inline-flex items-center gap-1.5 text-[10.5px] sm:text-xs font-bold text-slate-300 bg-slate-800/90 border border-slate-700 px-3.5 py-1.5 rounded-xl">
+            <span>Ayo tebak bersama...</span>
+            <span className="text-orange-400 font-black">Tekan slide berikutnya untuk membuka pemenang! 👉</span>
+          </div>
+        </div>
+      </div>
+    ),
+  };
+}
+
+function CustomSlideContent({
+  customSlide,
+  onUploadPhoto,
+  onToggleEnabled,
+}: {
+  customSlide: CustomSlideRecord;
+  onUploadPhoto?: (file: File) => void;
+  onToggleEnabled?: () => void;
+}) {
+  const [showZoom, setShowZoom] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f && onUploadPhoto) {
+      onUploadPhoto(f);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-5xl mx-auto flex flex-col items-center justify-center h-full gap-2 text-center">
+      {customSlide.subtitle && (
+        <p className="text-xs sm:text-sm text-slate-300 font-medium">
+          {customSlide.subtitle}
+        </p>
+      )}
+
+      {customSlide.foto ? (
+        <div className="relative group w-full flex-1 min-h-[40vh] max-h-[58vh] flex items-center justify-center">
+          <div className="relative max-w-full max-h-full rounded-2xl overflow-hidden border border-slate-700/80 bg-black/50 shadow-2xl">
+            <img
+              src={customSlide.foto}
+              alt={customSlide.fotoName || customSlide.title}
+              className="max-h-[56vh] w-auto object-contain cursor-zoom-in"
+              onClick={() => setShowZoom(true)}
+            />
+            <div className="absolute top-2 right-2 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/80 backdrop-blur-xs p-1 rounded-xl border border-slate-700">
+              <button
+                type="button"
+                onClick={() => setShowZoom(true)}
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs flex items-center gap-1 cursor-pointer"
+                title="Perbesar Layar Penuh"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="p-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs flex items-center gap-1 cursor-pointer"
+                title="Ganti Foto Ini"
+              >
+                <Upload className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="w-full max-w-xl mx-auto py-10 px-6 rounded-2xl border-2 border-dashed border-slate-700 bg-slate-900/60 flex flex-col items-center justify-center gap-3">
+          <div className="w-16 h-16 rounded-full bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-orange-400">
+            <Camera className="w-8 h-8" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-base font-black text-white">Slide Tambahan Siap Digunakan</h4>
+            <p className="text-xs text-slate-400 max-w-md">
+              Belum ada foto yang diunggah untuk slide ini. Anda dapat mengunggah foto tabel catatan, grafik luar, piagam, atau foto kegiatan.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold rounded-xl shadow-lg cursor-pointer transition-all active:scale-95"
+          >
+            <Upload className="w-4 h-4" />
+            Unggah Foto Sekarang
+          </button>
+          {onToggleEnabled && (
+            <button
+              type="button"
+              onClick={onToggleEnabled}
+              className="text-[11px] text-slate-500 hover:text-slate-400 underline cursor-pointer mt-1"
+            >
+              Sembunyikan slide ini dari presentasi
+            </button>
+          )}
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {customSlide.catatan && (
+        <div className="w-full max-w-3xl bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 text-center">
+          <span className="text-orange-400 font-bold mr-1.5">Catatan:</span>
+          {customSlide.catatan}
+        </div>
+      )}
+
+      {showZoom && customSlide.foto && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4"
+          onClick={() => setShowZoom(false)}
+        >
+          <button
+            type="button"
+            onClick={() => setShowZoom(false)}
+            className="absolute top-4 right-4 p-2 bg-slate-800 hover:bg-slate-700 text-white rounded-full cursor-pointer z-10"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={customSlide.foto}
+            alt={customSlide.fotoName || "Zoom Foto Data"}
+            className="max-h-[90vh] max-w-[95vw] object-contain rounded-xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          {customSlide.catatan && (
+            <p className="text-sm text-slate-300 mt-3 text-center max-w-2xl bg-slate-900/90 px-4 py-2 rounded-xl border border-slate-800">
+              {customSlide.catatan}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function buildCustomPhotoSlide({
+  customSlide,
+  onUploadPhoto,
+  onToggleEnabled,
+}: {
+  customSlide: CustomSlideRecord;
+  onUploadPhoto?: (file: File) => void;
+  onToggleEnabled?: () => void;
+}): SlideDef {
+  return {
+    eyebrow: "Dokumentasi & Lampiran Data Tambahan",
+    title: customSlide.title || "Data Tambahan & Lampiran",
+    speakerNotes: customSlide.catatan || "Slide tambahan untuk melampirkan foto data tabel, piagam apresiasi, grafik luar, atau foto aktivitas tim yang melengkapi pembahasan evaluasi bulanan.",
+    node: (
+      <CustomSlideContent
+        customSlide={customSlide}
+        onUploadPhoto={onUploadPhoto}
+        onToggleEnabled={onToggleEnabled}
+      />
+    ),
+  };
+}
+
 function buildYlOtmSlide(record: YlOtmRecord, periode: Periode = "bulanan"): SlideDef {
   const title = getOtmTitleByPeriode(periode);
+  const displayCategory = record.categoryLabel && record.categoryLabel !== "Kategori Bebas (Pilihan Manual)"
+    ? record.categoryLabel
+    : (YL_OTM_CATEGORIES.find((c) => c.id === record.category)?.label || "Penghargaan Spesial");
+
   return {
     eyebrow: "Apresiasi & Penghargaan Penutup",
     title: title,
-    speakerNotes: `Sampaikan apresiasi penutup tertinggi kepada ${record.nama} atas penghargaan ${title} (${record.categoryLabel}). Ajak seluruh tim memberikan tepuk tangan meriah atas konsistensi dan pencapaian luar biasa!`,
+    speakerNotes: `Sampaikan apresiasi penutup tertinggi kepada ${record.nama} atas penghargaan ${title} (${displayCategory}). Ajak seluruh tim memberikan tepuk tangan meriah atas konsistensi dan pencapaian luar biasa!`,
     node: (
-      <div className="text-center py-2">
-        <p className="text-slate-400 text-[10px] uppercase font-bold tracking-widest mb-3">
-          {record.categoryLabel}
-        </p>
-        <div className="mx-auto mb-3 w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden ring-4 ring-amber-400/40 shadow-xl shadow-amber-500/10 bg-slate-800 flex items-center justify-center">
-          {record.foto ? (
-            <img src={record.foto} alt={record.nama} className="w-full h-full object-cover" />
-          ) : (
-            <Trophy className="w-12 h-12 text-amber-400" />
-          )}
+      <div className="w-full max-w-5xl mx-auto h-full flex flex-col justify-center py-1 sm:py-2">
+        <div className="flex flex-col md:flex-row items-stretch justify-center gap-3 sm:gap-4.5 landscape:gap-3 w-full h-full max-h-[75vh] landscape:max-h-[78vh]">
+          {/* Sisi Kiri: Card Keterangan */}
+          <div className="flex-1 bg-slate-900/95 border border-amber-500/40 rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 landscape:p-3 flex flex-col justify-between shadow-2xl shadow-amber-500/10 text-left relative overflow-hidden">
+            {/* Ambient gold glow */}
+            <div className="absolute top-0 right-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+
+            <div>
+              {/* Badge Kategori & Title */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10.5px] sm:text-xs font-black uppercase tracking-wider shadow-sm">
+                  <Award className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{displayCategory}</span>
+                </div>
+                <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  {title}
+                </span>
+              </div>
+
+              {/* Nama & Area */}
+              <div className="mt-3 sm:mt-4 landscape:mt-2 space-y-1">
+                <p className="text-[10px] sm:text-xs font-black text-amber-400/90 uppercase tracking-widest">
+                  ★ Pemenang Penghargaan Tertinggi ★
+                </p>
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl landscape:text-2xl font-black text-white tracking-tight leading-tight">
+                  {record.nama}
+                </h2>
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="px-2.5 py-0.5 rounded-lg bg-orange-500/20 border border-orange-500/40 text-orange-300 text-xs sm:text-sm font-black tracking-wide">
+                    Area {record.area}
+                  </span>
+                  <span className="text-xs text-slate-300 font-medium">
+                    Ibu Yakult Lady Teladan
+                  </span>
+                </div>
+              </div>
+
+              {/* Prestasi / Value Label */}
+              {record.valueLabel && (
+                <div className="mt-3 landscape:mt-2 p-2.5 sm:p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200">
+                  <p className="text-[9.5px] sm:text-[10.5px] font-black uppercase tracking-wider text-amber-400 mb-0.5">
+                    Catatan Prestasi &amp; Pencapaian:
+                  </p>
+                  <p className="text-xs sm:text-sm font-bold leading-relaxed">
+                    {record.valueLabel}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Pesan Apresiasi Penutup */}
+            <div className="mt-3 landscape:mt-2 pt-2.5 border-t border-slate-800/80">
+              <p className="text-[11px] sm:text-xs landscape:text-[10px] text-slate-300 italic leading-relaxed">
+                &ldquo;Terima kasih atas perjuangan, ketulusan melayani, dan kesetiaan menjaga kesehatan keluarga pelanggan setiap hari. Kerja keras Ibu adalah inspirasi bagi seluruh tim!&rdquo;
+              </p>
+              <div className="flex items-center gap-2 mt-2 text-[10px] sm:text-[11px] font-bold text-amber-400">
+                <span>🏆 Juara Sejati</span>
+                <span>•</span>
+                <span>⭐ Teladan Tim</span>
+                <span>•</span>
+                <span>❤️ Kebanggaan Keluarga</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Sisi Kanan: Foto YL Seukuran Card Keterangan */}
+          <div className="w-full md:w-[45%] lg:w-[42%] flex-shrink-0 bg-slate-900/95 border-2 border-amber-400/50 rounded-2xl sm:rounded-3xl shadow-2xl shadow-amber-500/20 ring-4 ring-amber-400/10 overflow-hidden relative flex flex-col items-center justify-center min-h-[260px] sm:min-h-[340px] md:min-h-[380px] landscape:min-h-[220px]">
+            {record.foto ? (
+              <div className="w-full h-full relative group flex items-center justify-center bg-slate-950">
+                <img
+                  src={record.foto}
+                  alt={record.nama}
+                  className="w-full h-full object-cover rounded-[inherit] max-h-[440px] landscape:max-h-[280px]"
+                />
+                {/* Poster gradient overlay with name watermark at bottom */}
+                <div className="keep-white absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-3 sm:p-4 text-center">
+                  <p className="text-white font-black text-sm sm:text-lg drop-shadow-md leading-tight">{record.nama}</p>
+                  <p className="text-amber-300 text-[10.5px] sm:text-xs font-bold uppercase tracking-wider mt-0.5">Area {record.area} · {title}</p>
+                </div>
+                {/* Top right award badge ribbon */}
+                <div className="absolute top-3 right-3 bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 font-black text-[10px] sm:text-xs px-2.5 py-1 rounded-full shadow-xl flex items-center gap-1">
+                  <Trophy className="w-3 h-3 text-slate-950 fill-slate-950" />
+                  <span>PEMENANG</span>
+                </div>
+              </div>
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center space-y-2.5">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-amber-500/10 border-2 border-amber-400/40 flex items-center justify-center text-amber-400 shadow-inner">
+                  <Trophy className="w-10 h-10 sm:w-12 sm:h-12" />
+                </div>
+                <div>
+                  <p className="text-base sm:text-lg font-black text-white">{record.nama}</p>
+                  <p className="text-xs text-orange-400 font-bold uppercase tracking-wider">Area {record.area}</p>
+                </div>
+                <p className="text-[11px] text-slate-400 max-w-xs leading-relaxed">
+                  (Unggah foto pemenang di formulir pengaturan YL of the Month agar tampil megah di slide ini)
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-white">{record.nama}</h2>
-        <p className="text-orange-400 text-xs font-bold uppercase tracking-wider mt-1">Area {record.area}</p>
-        {record.valueLabel && (
-          <span className="inline-block mt-3 text-xs font-bold px-4 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            {record.valueLabel}
-          </span>
+      </div>
+    ),
+  };
+}
+
+function SlideAnalisaPerformaNode({
+  periodeLabel,
+  ylCount,
+  top3Baik,
+  plusList = [],
+  top2Perbaikan,
+  minusList = [],
+  fallbackBaikText,
+  fallbackPerbaikanText,
+}: {
+  periodeLabel: string;
+  ylCount: number;
+  top3Baik: string[];
+  plusList?: string[];
+  top2Perbaikan: string[];
+  minusList?: string[];
+  fallbackBaikText?: string;
+  fallbackPerbaikanText?: string;
+}) {
+  return (
+    <div className="space-y-2 sm:space-y-3 landscape:space-y-1.5 w-full max-w-5xl mx-auto text-left">
+      <div className="bg-gradient-to-r from-orange-500/20 via-amber-500/10 to-transparent border border-orange-500/30 rounded-xl sm:rounded-2xl p-2 sm:p-3 landscape:p-2 flex items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 landscape:w-7 landscape:h-7 rounded-lg sm:rounded-xl bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-orange-400 shrink-0">
+            <HeartHandshake className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          <div>
+            <p className="text-sm sm:text-lg landscape:text-sm font-black text-white">
+              Terima Kasih Ibu-Ibu Hebat &amp; Pejuang Keluarga!
+            </p>
+            <p className="text-xs sm:text-sm landscape:text-[11px] text-slate-300">
+              Mari kita bedah hasil perjuangan <strong className="text-orange-300">{periodeLabel}</strong>: apa yang sudah luar biasa dan patut kita syukuri, serta apa yang bisa kita perbaiki bersama secara kompak.
+            </p>
+          </div>
+        </div>
+        <div className="hidden sm:flex landscape:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900/80 border border-slate-700/80 text-xs sm:text-sm landscape:text-xs font-bold text-slate-300 shrink-0">
+          <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-400" />
+          <span>{ylCount} Ibu YL Tangguh</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 landscape:grid-cols-2 md:grid-cols-2 gap-2 sm:gap-3 landscape:gap-2">
+        <div className="bg-slate-900/90 border border-emerald-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 landscape:p-2 flex flex-col justify-between shadow-lg">
+          <div>
+            <div className="flex items-center justify-between pb-1.5 sm:pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-emerald-400 font-black text-xs sm:text-base landscape:text-xs uppercase tracking-wide">
+                <ThumbsUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span>3 Hal Yang Sudah Bagus &amp; Wajib Dipertahankan</span>
+              </div>
+              <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                🌟 Patut Bangga
+              </span>
+            </div>
+
+            <div className="mt-2 space-y-1.5 sm:space-y-2 landscape:space-y-1.5 text-xs sm:text-sm landscape:text-[11px] text-slate-200 leading-snug">
+              {top3Baik.length > 0 ? (
+                top3Baik.map((poin, i) => (
+                  <div key={i} className="flex items-start gap-2 bg-slate-800/40 p-1.5 sm:p-2 landscape:p-1.5 rounded-lg border border-slate-700/40">
+                    <span className="text-emerald-400 font-bold mt-0.5 shrink-0">✓</span>
+                    <div>
+                      <span className="text-slate-300">{poin}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex items-start gap-2 bg-slate-800/40 p-1.5 sm:p-2 landscape:p-1.5 rounded-lg border border-slate-700/40">
+                  <span className="text-emerald-400 font-bold mt-0.5 shrink-0">✓</span>
+                  <div>
+                    <span className="text-slate-300">{fallbackBaikText || "Semua YL bekerja dengan semangat dan dedikasi tinggi!"}</span>
+                  </div>
+                </div>
+              )}
+              {plusList.length > 0 && (
+                <div className="space-y-1 pt-1.5 border-t border-slate-800/80">
+                  <p className="text-[10.5px] sm:text-xs uppercase font-bold text-slate-400">Catatan Tambahan Manager:</p>
+                  {plusList.slice(0, 3).map((s: string, i: number) => (
+                    <p key={i} className="text-slate-300 text-xs sm:text-[13px] italic">• &ldquo;{s}&rdquo;</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-[10.5px] sm:text-xs landscape:text-[10px] text-emerald-400 font-bold">
+            <span>Pertahankan keramahan &amp; konsistensi rute!</span>
+            <span>⭐ Semangat Juara</span>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/90 border border-amber-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 landscape:p-2 flex flex-col justify-between shadow-lg">
+          <div>
+            <div className="flex items-center justify-between pb-1.5 sm:pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-1.5 sm:gap-2 text-amber-400 font-black text-xs sm:text-base landscape:text-xs uppercase tracking-wide">
+                <ThumbsDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span>2 Hal Yang Perlu Kita Perbaiki Bersama</span>
+              </div>
+              <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                💡 Solusi &amp; Rangkul
+              </span>
+            </div>
+
+            <div className="mt-2 space-y-1.5 sm:space-y-2 landscape:space-y-1.5 text-xs sm:text-sm landscape:text-[11px] text-slate-200 leading-snug">
+              {top2Perbaikan.length > 0 ? (
+                top2Perbaikan.map((poin, i) => (
+                  <div key={i} className="flex items-start gap-2 bg-slate-800/40 p-1.5 sm:p-2 landscape:p-1.5 rounded-lg border border-slate-700/40">
+                    <span className="text-amber-400 font-bold mt-0.5 shrink-0">!</span>
+                    <div>
+                      <span className="text-slate-300">{poin}</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="flex items-start gap-2 bg-slate-800/40 p-1.5 sm:p-2 landscape:p-1.5 rounded-lg border border-slate-700/40">
+                  <span className="text-amber-400 font-bold mt-0.5 shrink-0">!</span>
+                  <div>
+                    <span className="text-slate-300">{fallbackPerbaikanText || "Semua indikator menunjukkan performa baik! Pertahankan konsistensi dan terus tingkatkan volume penjualan."}</span>
+                  </div>
+                </div>
+              )}
+              {minusList.length > 0 && (
+                <div className="space-y-1 pt-1.5 border-t border-slate-800/80">
+                  <p className="text-[10.5px] sm:text-xs uppercase font-bold text-slate-400">Catatan Perbaikan Tambahan:</p>
+                  {minusList.slice(0, 3).map((s: string, i: number) => (
+                    <p key={i} className="text-slate-300 text-xs sm:text-[13px] italic">• &ldquo;{s}&rdquo;</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-[10.5px] sm:text-xs landscape:text-[10px] text-amber-400 font-bold">
+            <span>Saling rangkul, maju bersama sebagai satu keluarga!</span>
+            <span>🤝 Satu Hati</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="text-center py-1 text-xs sm:text-sm landscape:text-[11px] text-slate-400 italic">
+        💖 <strong className="text-slate-200">Kata Hati:</strong> &ldquo;Rezeki tidak akan tertukar. Langkah kaki, kayuhan sepeda, dan senyum tulus Ibu-ibu menyapa pelanggan adalah berkah kesehatan untuk keluarga dan masyarakat!&rdquo;
+      </div>
+    </div>
+  );
+}
+
+// Slide Cover generik — dipakai di semua jenis laporan (Bulanan, Semester, Tahunan)
+// supaya foto cover yang diupload konsisten tampil di slide pertama jenis laporan manapun.
+function buildCoverSlide({
+  eyebrow,
+  title,
+  coverFoto,
+  fallbackNode,
+  speakerNotes,
+  id,
+}: {
+  eyebrow: string;
+  title: string;
+  coverFoto?: string;
+  fallbackNode: React.ReactNode;
+  speakerNotes?: string;
+  id?: string;
+}): SlideDef {
+  return {
+    id,
+    eyebrow,
+    title,
+    speakerNotes,
+    node: coverFoto ? (
+      <div className="w-full h-full flex items-center justify-center p-2 landscape:p-4">
+        <img
+          src={coverFoto}
+          alt="Foto Cover"
+          className="max-w-full max-h-full landscape:max-w-[70%] landscape:max-h-[72vh] object-contain rounded-xl mx-auto"
+        />
+      </div>
+    ) : fallbackNode,
+  };
+}
+
+interface ApresiasiPerformaWinner {
+  nama: string;
+  area: string;
+  valueLabel: string;
+}
+
+// Slide "Apresiasi Performa" generik — dipakai di Laporan Bulanan, Semester, dan Tahunan
+// supaya ketiga jenis laporan konsisten menampilkan 3 kategori performa terbaik.
+function buildApresiasiPerformaSlide({
+  periodeLabel,
+  headerStat,
+  winnerRata2,
+  winnerKenaikan,
+  kenaikanLabel,
+  sampah,
+  onSampahChange,
+  id,
+}: {
+  periodeLabel: string;
+  headerStat?: { label: string; value: string; sub?: string } | null;
+  winnerRata2: ApresiasiPerformaWinner | null;
+  winnerKenaikan: ApresiasiPerformaWinner | null;
+  kenaikanLabel: string;
+  sampah?: SampahTerbanyakRecord;
+  onSampahChange?: (patch: Partial<SampahTerbanyakRecord>) => void;
+  id?: string;
+}): SlideDef {
+  return {
+    id,
+    eyebrow: "Apresiasi Performa",
+    title: `3 Performa Terbaik — ${periodeLabel}`,
+    speakerNotes: `Beri tepuk tangan dan apresiasi meriah bagi Ibu Yakult Lady peraih 3 kategori performa terbaik ${periodeLabel}: rata-rata tertinggi, ${kenaikanLabel.toLowerCase()}, dan pengumpulan sampah botol terbanyak!`,
+    node: (
+      <div className="w-full max-w-4xl mx-auto">
+        {headerStat && (
+          <BigStat label={headerStat.label} value={headerStat.value} sub={headerStat.sub} />
         )}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 mt-3">
+          {/* Kategori 1: Rata-Rata Tertinggi */}
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-3 text-center flex flex-col items-center shadow-lg">
+            <div className="w-10 h-10 rounded-full bg-amber-400/20 text-amber-400 flex items-center justify-center mb-1.5">
+              <Trophy className="w-5 h-5" />
+            </div>
+            <p className="text-[9px] font-bold uppercase text-amber-400 tracking-widest mb-1">Rata-Rata Tertinggi</p>
+            {winnerRata2 ? (
+              <div className="w-full flex flex-col items-center">
+                <p className="text-sm font-black text-white truncate w-full h-5 leading-5">{winnerRata2.nama}</p>
+                <p className="text-[9.5px] text-slate-400 font-bold uppercase h-3.5 leading-[14px]">Area {winnerRata2.area}</p>
+                <p className="text-[11px] text-emerald-400 font-bold mt-1 h-4 leading-4">{winnerRata2.valueLabel}</p>
+              </div>
+            ) : (
+              <p className="text-[10px] text-slate-500 italic mt-1">Data belum tersedia</p>
+            )}
+          </div>
+
+          {/* Kategori 2: Kenaikan Tertinggi */}
+          <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-3 text-center flex flex-col items-center shadow-lg">
+            <div className="w-10 h-10 rounded-full bg-emerald-400/20 text-emerald-400 flex items-center justify-center mb-1.5">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <p className="text-[9px] font-bold uppercase text-emerald-400 tracking-widest mb-1">{kenaikanLabel}</p>
+            {winnerKenaikan ? (
+              <div className="w-full flex flex-col items-center">
+                <p className="text-sm font-black text-white truncate w-full h-5 leading-5">{winnerKenaikan.nama}</p>
+                <p className="text-[9.5px] text-slate-400 font-bold uppercase h-3.5 leading-[14px]">Area {winnerKenaikan.area}</p>
+                <p className="text-[11px] text-emerald-400 font-bold mt-1 h-4 leading-4">{winnerKenaikan.valueLabel}</p>
+              </div>
+            ) : (
+              <p className="text-[10px] text-slate-500 italic mt-1">Data belum tersedia</p>
+            )}
+          </div>
+
+          {/* Kategori 3: Pengumpulan Sampah Terbanyak */}
+          <div className="bg-slate-900/90 border border-sky-500/30 rounded-2xl p-3 text-center flex flex-col items-center shadow-lg">
+            <div className="w-10 h-10 rounded-full bg-sky-400/20 text-sky-400 flex items-center justify-center mb-1.5">
+              <Package className="w-5 h-5" />
+            </div>
+            <p className="text-[9px] font-bold uppercase text-sky-400 tracking-widest mb-1">Sampah Terbanyak</p>
+            {onSampahChange ? (
+              <div className="w-full flex flex-col items-center">
+                <input
+                  type="text"
+                  value={sampah?.nama || ""}
+                  onChange={(e) => onSampahChange({ nama: e.target.value })}
+                  placeholder="NAMA IBU YL"
+                  className="w-full bg-transparent outline-none p-0 text-sm font-black text-white uppercase text-center truncate h-5 leading-5 placeholder:text-slate-500 placeholder:font-normal"
+                />
+                <input
+                  type="text"
+                  value={
+                    sampah?.area
+                      ? (String(sampah.area).trim().toLowerCase().startsWith("area")
+                          ? `Area ${String(sampah.area).trim().replace(/^area\s*/i, "")}`
+                          : `Area ${String(sampah.area).trim()}`)
+                      : ""
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const cleanNum = raw.replace(/^area\s*/i, "").trim();
+                    onSampahChange({ area: cleanNum });
+                  }}
+                  placeholder="Area 205"
+                  className="w-full bg-transparent outline-none p-0 text-[9.5px] text-slate-400 font-bold uppercase text-center h-3.5 leading-[14px] placeholder:text-slate-500 placeholder:font-normal"
+                />
+                <input
+                  type="text"
+                  value={
+                    sampah?.jumlah
+                      ? (/^\d+([.,]\d+)?$/.test(String(sampah.jumlah).trim())
+                          ? `${String(sampah.jumlah).trim()} btl`
+                          : sampah.jumlah)
+                      : ""
+                  }
+                  onChange={(e) => onSampahChange({ jumlah: e.target.value })}
+                  placeholder="cth: 250 btl"
+                  className="w-full bg-transparent outline-none p-0 text-[11px] text-emerald-400 font-bold text-center mt-1 h-4 leading-4 placeholder:text-slate-500 placeholder:font-normal"
+                />
+              </div>
+            ) : (
+              <div className="w-full flex flex-col items-center">
+                <p className="text-sm font-black text-white uppercase truncate w-full h-5 leading-5">{sampah?.nama || "-"}</p>
+                <p className="text-[9.5px] text-slate-400 font-bold uppercase h-3.5 leading-[14px]">
+                  {sampah?.area
+                    ? (String(sampah.area).trim().toLowerCase().startsWith("area")
+                        ? sampah.area
+                        : `Area ${String(sampah.area).trim()}`)
+                    : "Area -"}
+                </p>
+                <p className="text-[11px] text-emerald-400 font-bold mt-1 h-4 leading-4">
+                  {sampah?.jumlah
+                    ? (/^\d+([.,]\d+)?$/.test(String(sampah.jumlah).trim())
+                        ? `${String(sampah.jumlah).trim()} btl`
+                        : sampah.jumlah)
+                    : "-"}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     ),
   };
@@ -4715,6 +6837,12 @@ function buildBulananSlides({
   actionPlans,
   prevYearPerYL,
   archiveDetails,
+  coverFoto,
+  coverFotoName,
+  onUploadCoverFoto,
+  onRemoveCoverFoto,
+  sampah,
+  onSampahChange,
 }: {
   m: any;
   prevM: any;
@@ -4726,6 +6854,12 @@ function buildBulananSlides({
   actionPlans: ActionPlanItem[];
   prevYearPerYL?: any[] | null;
   archiveDetails?: MonthArchiveDetails | null;
+  coverFoto?: string;
+  coverFotoName?: string;
+  onUploadCoverFoto?: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onRemoveCoverFoto?: () => void;
+  sampah?: SampahTerbanyakRecord;
+  onSampahChange?: (patch: Partial<SampahTerbanyakRecord>) => void;
 }): SlideDef[] {
   const vsBulanLaluPct = m && prevM && prevM.akmPenjualan ? (m.akmPenjualan / prevM.akmPenjualan) * 100 : null;
 
@@ -4741,7 +6875,6 @@ function buildBulananSlides({
   const top3 = ylRanked.slice(0, 3);
   const jwp = m.jwp || archiveDetails?.hariKerja || 25;
 
-  // Kondisi YL (Distribusi Botol)
   const manualKondisi = m?.kondisiYL || {};
   const manualTotal =
     (Number(manualKondisi.kurang250) || 0) +
@@ -4789,7 +6922,7 @@ function buildBulananSlides({
   const plusList = (m.evaluasiPlus || []).filter((s: string) => s.trim());
   const minusList = (m.evaluasiMinus || []).filter((s: string) => s.trim());
 
-  // Data Target dari Menu Target di Arsip (Target Harian / Rata-Rata Tim, Bukan Akumulasi Botol)
+  // Data Target dari Menu Target di Arsip
   const arcTargetTim = archiveDetails?.targetTim;
   const tgtMenuTarget = (arcTargetTim && arcTargetTim.target > 0)
     ? arcTargetTim.target
@@ -4803,7 +6936,6 @@ function buildBulananSlides({
     ? arcTargetTim.thn_lalu
     : (m.salesPerYLTahunLalu ? m.salesPerYLTahunLalu * 10 : 0);
 
-  // Realisasi Rata-Rata Tim (btl/hari)
   const realisasiTimRata = archiveDetails?.rataHarian && archiveDetails.rataHarian > 0
     ? Math.round(archiveDetails.rataHarian)
     : m.salesPerYL
@@ -4814,7 +6946,6 @@ function buildBulananSlides({
 
   const realisasiSYL = m.salesPerYL || (realisasiTimRata > 0 ? Math.round(realisasiTimRata / 10) : 0);
 
-  // Komparasi 3 Arah vs Nilai Menu Target Arsip (Bukan Akumulasi Botol)
   const pctVsTarget = tgtMenuTarget > 0 ? (realisasiTimRata / tgtMenuTarget) * 100 : (m.persenCapaian || 100);
   const selisihTargetHarian = tgtMenuTarget > 0 ? (realisasiTimRata - tgtMenuTarget) : 0;
 
@@ -4827,266 +6958,10 @@ function buildBulananSlides({
   const isBBAman = (m.persenKembaliBotol || 0) <= 10;
   const isTgtTembus = pctVsTarget >= 100;
 
-  // Slide 1: Cover
-  const slide1: SlideDef = {
-    eyebrow: "Laporan Bulanan",
-    title: `Laporan ${monthLabel}`,
-    node: <SlideTitle sub={`${tku} · Tahun ${tahun}`}>{monthLabel}</SlideTitle>,
-  };
-
-  // Slide 2: Hasil Pencapaian Bulan yang Dipilih (Ringkasan Komprehensif)
-  const slide2: SlideDef = {
-    eyebrow: "Hasil Pencapaian Tim",
-    title: `Pencapaian Kinerja — ${monthLabel}`,
-    speakerNotes: "Ringkasan komprehensif pencapaian bulanan: AKM penjualan, rata-rata tim, komparasi target menu archive (target harian, bulan lalu, tahun lalu), hari kerja (JWP), absensi, serta kesegaran kembali botol.",
-    node: (
-      <div className="space-y-2 w-full max-w-4xl mx-auto">
-        {/* Baris 1: 3 Indikator Utama */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 sm:gap-2">
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
-            <span className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">AKM Penjualan</span>
-            <div className="my-0.5">
-              <p className="text-base sm:text-xl font-black text-white">{fmtNum(m.akmPenjualan)} <span className="text-[10px] font-semibold text-slate-400">btl</span></p>
-              <p className="text-[10px] text-slate-400">Rata Tim: <strong className="text-slate-200">{fmtNum(realisasiTimRata)} btl/hr</strong></p>
-            </div>
-            <div className={`inline-flex items-center gap-1 text-[9.5px] font-black px-1.5 py-0.5 rounded-md w-fit ${
-              isTgtTembus ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"
-            }`}>
-              {isTgtTembus ? "✓ Tembus Target" : "Kurang Target"} ({fmtPct(pctVsTarget)}%)
-            </div>
-          </div>
-
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
-            <span className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Rata-Rata Tim & S/YL</span>
-            <div className="my-0.5">
-              <p className="text-base sm:text-xl font-black text-white">{fmtNum(realisasiTimRata)} <span className="text-[10px] font-semibold text-slate-400">btl/hr</span></p>
-              <p className="text-[10px] text-slate-400">S/YL: <strong className="text-orange-400">{fmtNum(realisasiSYL)} btl/hr</strong></p>
-            </div>
-            <span className="text-[9.5px] font-bold text-slate-500">Standar Mandiri: ≥ 250 btl/hr</span>
-          </div>
-
-          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
-            <span className="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider">Kembali Botol (BB)</span>
-            <div className="my-0.5">
-              <p className={`text-base sm:text-xl font-black ${isBBAman ? "text-emerald-400" : "text-red-400"}`}>
-                {fmtPct(m.persenKembaliBotol)}%
-              </p>
-              <p className="text-[10px] text-slate-400">AKM Retur: <strong className="text-slate-200">{fmtNum(m.akmKembaliBotol)} btl</strong></p>
-            </div>
-            <span className={`text-[9.5px] font-black px-1.5 py-0.5 rounded-md w-fit ${
-              isBBAman ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
-            }`}>
-              {isBBAman ? "Aman (≤ 10%)" : "Perhatian (> 10%)"}
-            </span>
-          </div>
-        </div>
-
-        {/* Baris 2: Komparasi 3 Arah (Nilai dari Menu Target di Archive, Bukan Akumulasi) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 sm:gap-2">
-          <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-2 sm:p-2.5">
-            <div className="flex items-center justify-between mb-0.5">
-              <p className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider">1. vs Target</p>
-              <span className="text-[8.5px] text-slate-500 font-mono">Archive</span>
-            </div>
-            <p className={`text-base sm:text-lg font-black ${isTgtTembus ? "text-emerald-400" : "text-amber-400"}`}>
-              {fmtPct(pctVsTarget)}%
-            </p>
-            <div className="mt-0.5 text-[9.5px] sm:text-[10px] space-y-0.2 text-slate-300">
-              <p>Target: <span className="font-bold text-white">{tgtMenuTarget > 0 ? `${fmtNum(tgtMenuTarget)} btl/hr` : "-"}</span></p>
-              <p>Selisih: <span className={`font-bold ${selisihTargetHarian >= 0 ? "text-emerald-400" : "text-amber-400"}`}>
-                {tgtMenuTarget > 0 ? `${selisihTargetHarian >= 0 ? "+" : ""}${fmtNum(selisihTargetHarian)} btl/hr` : "-"}
-              </span></p>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-2 sm:p-2.5">
-            <div className="flex items-center justify-between mb-0.5">
-              <p className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider">2. vs Bulan Lalu</p>
-              <span className="text-[8.5px] text-slate-500 font-mono">Archive</span>
-            </div>
-            <p className={`text-base sm:text-lg font-black ${
-              pctVsBulanLalu >= 100 ? "text-emerald-400" : "text-amber-400"
-            }`}>
-              {tgtMenuBlnLalu > 0 ? `${fmtPct(pctVsBulanLalu)}%` : "-"}
-            </p>
-            <div className="mt-0.5 text-[9.5px] sm:text-[10px] space-y-0.2 text-slate-300">
-              <p>Bln Lalu: <span className="font-bold text-white">{tgtMenuBlnLalu > 0 ? `${fmtNum(tgtMenuBlnLalu)} btl/hr` : "-"}</span></p>
-              <p>Selisih: <span className={`font-bold ${
-                selisihBulanLaluHarian >= 0 ? "text-emerald-400" : "text-red-400"
-              }`}>
-                {tgtMenuBlnLalu > 0 ? `${selisihBulanLaluHarian >= 0 ? "+" : ""}${fmtNum(selisihBulanLaluHarian)} btl/hr` : "-"}
-              </span></p>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-2 sm:p-2.5">
-            <div className="flex items-center justify-between mb-0.5">
-              <p className="text-[9.5px] font-black uppercase text-slate-400 tracking-wider">3. vs Tahun Lalu</p>
-              <span className="text-[8.5px] text-slate-500 font-mono">Archive</span>
-            </div>
-            <p className={`text-base sm:text-lg font-black ${
-              pctVsTahunLalu >= 100 ? "text-emerald-400" : "text-amber-400"
-            }`}>
-              {tgtMenuThnLalu > 0 ? `${fmtPct(pctVsTahunLalu)}%` : "-"}
-            </p>
-            <div className="mt-0.5 text-[9.5px] sm:text-[10px] space-y-0.2 text-slate-300">
-              <p>Thn Lalu: <span className="font-bold text-white">{tgtMenuThnLalu > 0 ? `${fmtNum(tgtMenuThnLalu)} btl/hr` : "-"}</span></p>
-              <p>Selisih: <span className={`font-bold ${
-                selisihTahunLaluHarian >= 0 ? "text-emerald-400" : "text-amber-400"
-              }`}>
-                {tgtMenuThnLalu > 0 ? `${selisihTahunLaluHarian >= 0 ? "+" : ""}${fmtNum(selisihTahunLaluHarian)} btl/hr` : "-"}
-              </span></p>
-            </div>
-          </div>
-        </div>
-
-        {/* Baris 3: Disiplin, JWP, dan Absensi */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 sm:gap-2">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-2.5 py-1.5">
-            <span className="text-[9.5px] text-slate-400 font-bold uppercase block">Hari Kerja (JWP)</span>
-            <span className="text-xs sm:text-sm font-black text-white">{fmtNum(jwp)} <span className="text-[10px] font-normal text-slate-400">hari aktif</span></span>
-          </div>
-
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-2.5 py-1.5">
-            <span className="text-[9.5px] text-slate-400 font-bold uppercase block">Absen & Frekuensi</span>
-            <span className="text-xs sm:text-sm font-black text-amber-400">
-              {m.absen?.jumlahYL || 0} YL <span className="text-[10px] font-normal text-slate-400">({m.absen?.frekuensi || 0}x izin)</span>
-            </span>
-          </div>
-
-          <div className="col-span-2 sm:col-span-1 bg-slate-900/60 border border-slate-800 rounded-xl px-2.5 py-1.5">
-            <span className="text-[9.5px] text-slate-400 font-bold uppercase block">% Area Tercover</span>
-            <span className="text-xs sm:text-sm font-black text-emerald-400">{fmtPct(m.persenAreaTercover, 0)}% <span className="text-[10px] font-normal text-slate-400">terlayani</span></span>
-          </div>
-        </div>
-      </div>
-    ),
-  };
-
-  // Slide 3: Dampak Absensi (Sederhana & Ramah Ibu-ibu Yakult Lady)
-  const totalYLAbsen = m.absen?.jumlahYL || 0;
-  const totalFrekuensiAbsen = m.absen?.frekuensi || 0;
-  const rataDailyLoss = Math.round(m.ratarataPenjualanYL || m.salesPerYL || 280);
-  const totalBotolLoss = totalFrekuensiAbsen * rataDailyLoss;
-  const totalPakLoss = Math.round(totalBotolLoss / 5);
-
-  const slide3: SlideDef = {
-    eyebrow: "Semangat Kehadiran & Kekeluargaan Tim",
-    title: `Kehadiran & Dampak Absensi — ${monthLabel}`,
-    speakerNotes: "Disampaikan secara ramah dan kekeluargaan. Mengingatkan betapa berharganya sapaan dan kehadiran Ibu-ibu bagi pelanggan setia serta pentingnya saling membantu antar rekan bila terpaksa izin.",
-    node: (
-      <div className="space-y-2.5 w-full max-w-2xl mx-auto">
-        {totalFrekuensiAbsen === 0 ? (
-          <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-2xl p-5 text-center">
-            <div className="w-12 h-12 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-2.5">
-              <CheckCircle2 className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-black text-white">Alhamdulillah, 100% Kehadiran Disiplin!</h3>
-            <p className="text-xs sm:text-sm text-slate-300 mt-1.5 leading-relaxed">
-              Luar biasa seluruh Ibu-ibu Yakult Lady hadir aktif dan kompak di bulan <strong>{monthLabel}</strong> tanpa ada hari izin atau sakit.
-              Pelanggan setia selalu terlayani dengan senyuman hangat setiap hari!
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* 3 Kartu Visual Simpel */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
-              <div className="bg-slate-900/90 border border-amber-500/30 rounded-xl p-2.5 text-center">
-                <span className="text-[9.5px] font-bold uppercase text-amber-400 tracking-wider">Total Hari Izin/Sakit</span>
-                <p className="text-xl sm:text-2xl font-black text-amber-400 mt-0.5">{totalFrekuensiAbsen} <span className="text-[10px] text-slate-400">Hari</span></p>
-                <p className="text-[9.5px] text-slate-400 mt-0.5">dari {totalYLAbsen} Ibu YL</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 text-center">
-                <span className="text-[9.5px] font-bold uppercase text-slate-400 tracking-wider">Rata-Rata / Hari</span>
-                <p className="text-xl sm:text-2xl font-black text-white mt-0.5">~{fmtNum(rataDailyLoss)} <span className="text-[10px] text-slate-400">Btl</span></p>
-                <p className="text-[9.5px] text-slate-400 mt-0.5">~{Math.round(rataDailyLoss / 5)} Pak / hari</p>
-              </div>
-
-              <div className="bg-slate-900/90 border border-red-500/30 rounded-xl p-2.5 text-center">
-                <span className="text-[9.5px] font-bold uppercase text-red-400 tracking-wider">Botol Terlewatkan</span>
-                <p className="text-xl sm:text-2xl font-black text-red-400 mt-0.5">~{fmtNum(totalBotolLoss)} <span className="text-[10px] text-slate-400">Btl</span></p>
-                <p className="text-[9.5px] text-red-300 font-bold mt-0.5">~{fmtNum(totalPakLoss)} Pak Yakult</p>
-              </div>
-            </div>
-
-            {/* 3 Pesan Hangat untuk Ibu-ibu YL */}
-            <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-2.5 space-y-1.5 text-left">
-              <div className="flex items-start gap-2">
-                <span className="text-base shrink-0">🌸</span>
-                <div>
-                  <p className="text-[11px] font-black text-white">Pelanggan Menantikan Sapaan Ibu</p>
-                  <p className="text-[10px] text-slate-400 leading-snug">
-                    Setiap hari pelanggan di rumah, pasar, dan sekolah menantikan senyuman Ibu. Bila Ibu tidak hadir, mereka rindu dan botol sehatnya terlewatkan.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2">
-                <span className="text-base shrink-0">🔄</span>
-                <div>
-                  <p className="text-[11px] font-black text-white">Kirim Tambahan Hari Berikutnya</p>
-                  <p className="text-[10px] text-slate-400 leading-snug">
-                    Saat Ibu YL sudah masuk kembali, antarkan botol tambahan atau kirim dobel ke pelanggan untuk menutup botol yang sempat terlewat.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2">
-                <span className="text-base shrink-0">💖</span>
-                <div>
-                  <p className="text-[11px] font-black text-white">Kesehatan Ibu adalah Yang Utama</p>
-                  <p className="text-[10px] text-slate-400 leading-snug">
-                    Istirahat cukup, minum Yakult setiap hari untuk daya tahan tubuh, agar besok bisa kembali beraktivitas dengan riang gembira.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-    ),
-  };
-
-  // Slide 4: Top 3 Yakult Lady
-  const slide4: SlideDef = {
-    eyebrow: "Apresiasi Performa",
-    title: "Top 3 Yakult Lady",
-    speakerNotes: "Beri tepuk tangan dan apresiasi meriah bagi 3 Ibu Yakult Lady dengan capaian tertinggi bulan ini!",
-    node: (
-      <div className="space-y-2 w-full max-w-xl mx-auto">
-        <BigStat label="S/YL (Sales per Yakult Lady)" value={`${fmtNum(m.salesPerYL)} btl/hr`} sub={`Tahun lalu: ${fmtNum(m.salesPerYLTahunLalu)}`} />
-        {top3.length > 0 && (
-          <>
-            <p className="text-slate-400 text-[9.5px] uppercase font-bold text-center mb-2 mt-3 tracking-widest">
-              Podium Yakult Lady Terbaik
-            </p>
-            <div className="flex justify-center items-end gap-3 sm:gap-6">
-              {top3.map((r, i) => (
-                <div key={r.area} className={`text-center flex-1 max-w-[130px] ${i === 0 ? "order-2 -mt-3" : i === 1 ? "order-1" : "order-3"}`}>
-                  <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-black text-base mb-1.5 mx-auto shadow-lg ${
-                    i === 0 ? "bg-amber-400 text-slate-900 shadow-amber-400/30 ring-4 ring-amber-400/20" : i === 1 ? "bg-slate-300 text-slate-900" : "bg-amber-700 text-white"
-                  }`}>
-                    <Trophy className="w-5 h-5" />
-                  </div>
-                  <p className="text-xs sm:text-sm font-black text-white truncate">{r.nama}</p>
-                  <p className="text-[9.5px] text-orange-400 font-bold uppercase tracking-wider">Area {r.area}</p>
-                  <p className="text-[11px] text-slate-300 font-bold mt-0.5">{fmtNum(r.penjualan)} btl</p>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    ),
-  };
-
-  // Slide 5: Rata-Rata YL vs Tahun Lalu (Seluruh 10 YL Terlihat Lengkap)
-  const ylComparison10 = [...perYL].map((yl) => {
+  // Data YL vs Tahun Lalu (untuk analisa slide 11)
+  const ylComparison = [...perYL].map((yl) => {
     const areaStr = String(yl.area || "");
     const nama = cleanYlName(yl.nama || "");
-
-    // Ambil data per YL dari menu target di archive
     const arcYl = archiveDetails?.perYL?.[areaStr];
     const jwpVal = jwp > 0 ? jwp : 25;
     const salesRaw = yl.penjualan?.[MONTHS[monthIndex]];
@@ -5096,23 +6971,6 @@ function buildBulananSlides({
         ? Math.round(salesRaw / jwpVal)
         : 0;
 
-    // Rata2 bulan lalu
-    const prevMonthIdx = monthIndex - 1;
-    let rataBlnLalu = 0;
-    if (prevMonthIdx >= 0 && prevM) {
-      const prevJwp = prevM.jwp && prevM.jwp > 0 ? prevM.jwp : 25;
-      const prevSalesRaw = yl.penjualan?.[MONTHS[prevMonthIdx]];
-      if (prevSalesRaw) {
-        rataBlnLalu = Math.round(prevSalesRaw / prevJwp);
-      }
-    }
-
-    // Target YL dari menu target archive
-    const targetYL = arcYl?.targetYL && arcYl.targetYL > 0
-      ? Math.round(arcYl.targetYL)
-      : 0;
-
-    // Rata2 tahun lalu dari menu target archive
     let rataThn = 0;
     if (arcYl?.tahunLaluYL && arcYl.tahunLaluYL > 0) {
       rataThn = Math.round(arcYl.tahunLaluYL);
@@ -5123,109 +6981,269 @@ function buildBulananSlides({
         rataThn = prevRaw ? Math.round(prevRaw / jwpVal) : Math.round(prevMatch.rataRata || 0);
       }
     }
-    // Fallback realistis jika arsip tahun lalu belum ada
     if (rataThn === 0 && rataIni > 0) {
       rataThn = Math.round(rataIni * 0.95);
     }
 
-    const selisih = rataIni - rataThn;
-    const pctYoY = rataThn > 0 ? (rataIni / rataThn) * 100 : 0;
-
     return {
       area: areaStr,
       nama,
-      targetYL,
       rataIni,
-      rataBlnLalu,
       rataThn,
-      selisih,
-      pctYoY,
+      selisih: rataIni - rataThn,
+      pctYoY: rataThn > 0 ? (rataIni / rataThn) * 100 : 0,
     };
   }).sort((a, b) => b.rataIni - a.rataIni);
 
-  const timTargetSum = ylComparison10.reduce((s, x) => s + x.targetYL, 0);
-  const timTotalIni = ylComparison10.reduce((s, x) => s + x.rataIni, 0);
-  const timTotalThn = ylComparison10.reduce((s, x) => s + x.rataThn, 0);
-  const timTotalBlnLalu = ylComparison10.reduce((s, x) => s + (x.rataBlnLalu || 0), 0);
-  const timRataIni = ylComparison10.length > 0 ? Math.round(timTotalIni / ylComparison10.length) : 0;
-  const timRataThn = ylComparison10.length > 0 ? Math.round(timTotalThn / ylComparison10.length) : 0;
-  const timRataBlnLalu = ylComparison10.length > 0 ? Math.round(timTotalBlnLalu / ylComparison10.length) : 0;
-  const timSelisih = timTotalIni - timTotalThn;
-  const timPctYoY = timTotalThn > 0 ? (timTotalIni / timTotalThn) * 100 : 0;
+  // Identifikasi YL yang turun vs tahun lalu (selisih negatif)
+  const ylTurun = ylComparison.filter((yl) => yl.selisih < 0);
+  const ylNaik = ylComparison.filter((yl) => yl.selisih > 0);
+  const ylStabil = ylComparison.filter((yl) => yl.selisih === 0);
 
-  // Split 10 YL menjadi 2 kolom berdampingan (5 di kiri, 5 di kanan) agar seluruh 10 YL muat utuh 100% di layar tanpa terpotong
-  const col1 = ylComparison10.slice(0, 5);
-  const col2 = ylComparison10.slice(5, 10);
+  // Data sektor untuk analisa - menggunakan warna berbeda untuk setiap sektor
+  const sectorsDataAvailable = !!(archiveDetails?.sectors && archiveDetails.sectors.length > 0);
+  const sectorsRaw = sectorsDataAvailable
+    ? archiveDetails!.sectors!.map((sec, i) => ({
+        ...sec,
+        color: resolveSectorColor(sec.key, sec.label, i)
+      }))
+    : [
+        { key: "rmh" as const, label: "Rumah", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.523), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.523), pct: 52.3, yo: 0, om: 0, os: 0, yt: 0, color: SECTOR_COLORS.rumah },
+        { key: "psr" as const, label: "Pasar", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.075), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.075), pct: 7.5, yo: 0, om: 0, os: 0, yt: 0, color: SECTOR_COLORS.pasar },
+        { key: "skh" as const, label: "Sekolah", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.064), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.064), pct: 6.4, yo: 0, om: 0, os: 0, yt: 0, color: SECTOR_COLORS.sekolah },
+        { key: "ktr" as const, label: "Kantor", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.027), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.027), pct: 2.7, yo: 0, om: 0, os: 0, yt: 0, color: SECTOR_COLORS.kantor },
+        { key: "tk" as const, label: "Toko", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.080), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.080), pct: 8.0, yo: 0, om: 0, os: 0, yt: 0, color: SECTOR_COLORS.toko },
+        { key: "ib" as const, label: "Instant Buyer (IB)", isFixedCustomer: false, akm: Math.round((m.akmPenjualan || 75000) * 0.232), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.232), pct: 23.2, yo: 0, om: 0, os: 0, yt: 0, color: SECTOR_COLORS.ib },
+      ];
 
-  const renderYLSubTable = (ylList: typeof ylComparison10, startRank: number) => (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/90 overflow-hidden shadow-md">
-      <table className="w-full text-left border-collapse text-[10px] sm:text-[11px]">
-        <thead>
-          <tr className="bg-slate-800/90 text-[8.5px] sm:text-[9px] uppercase tracking-wider text-slate-400 border-b border-slate-700/80 whitespace-nowrap">
-            <th className="py-1 px-1 text-center w-5">#</th>
-            <th className="py-1 px-1.5">Area & Nama</th>
-            {timTargetSum > 0 && <th className="py-1 px-1 text-right">Target</th>}
-            <th className="py-1 px-1 text-right">Rata {monthLabel.slice(0, 3)}</th>
-            <th className="py-1 px-1 text-right">Th.Lalu</th>
-            <th className="py-1 px-1 text-right">Selisih</th>
-            <th className="py-1 px-1 text-right">% YoY</th>
-            <th className="py-1 px-1 text-center w-12">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800/60">
-          {ylList.map((yl, idx) => {
-            const isNaik = yl.selisih > 0;
-            const isSama = yl.selisih === 0;
-            return (
-              <tr key={yl.area} className="hover:bg-slate-800/40 transition-colors whitespace-nowrap">
-                <td className="py-1 px-1 text-center font-bold text-slate-500 text-[9px]">
-                  {startRank + idx}
-                </td>
-                <td className="py-1 px-1.5 font-bold text-white truncate max-w-[85px] sm:max-w-[130px]">
-                  <span className="text-[9px] font-mono text-orange-400 mr-1">{yl.area}</span>
-                  {yl.nama}
-                </td>
-                {timTargetSum > 0 && (
-                  <td className="py-1 px-1 text-right font-medium text-slate-300 text-[9.5px]">
-                    {yl.targetYL > 0 ? `${fmtNum(yl.targetYL)}` : "-"}
-                  </td>
-                )}
-                <td className="py-1 px-1 text-right font-black text-white text-[10px] sm:text-[11px]">
-                  {fmtNum(yl.rataIni)} <span className="text-[8px] font-normal text-slate-400">btl</span>
-                </td>
-                <td className="py-1 px-1 text-right font-medium text-slate-400 text-[9.5px]">
-                  {fmtNum(yl.rataThn)}
-                </td>
-                <td className={`py-1 px-1 text-right font-bold text-[9.5px] sm:text-[10px] ${
-                  isNaik ? "text-emerald-400" : isSama ? "text-slate-400" : "text-red-400"
-                }`}>
-                  {yl.selisih > 0 ? "+" : ""}{fmtNum(yl.selisih)}
-                </td>
-                <td className={`py-1 px-1 text-right font-black text-[9.5px] sm:text-[10px] ${
-                  yl.pctYoY >= 100 ? "text-emerald-400" : "text-amber-400"
-                }`}>
-                  {fmtPct(yl.pctYoY)}%
-                </td>
-                <td className="py-1 px-1 text-center">
-                  <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${
-                    isNaik
-                      ? "bg-emerald-500/20 text-emerald-400"
-                      : isSama
-                        ? "bg-slate-700 text-slate-300"
-                        : "bg-red-500/20 text-red-400"
-                  }`}>
-                    {isNaik ? "↑ Naik" : isSama ? "= Tetap" : "↓ Turun"}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+  // Cari YL dengan penjualan rumah < 50%
+  const ylDenganRumahRendah = perYL.filter((yl) => {
+    const areaStr = String(yl.area || "");
+    const rmhPct = archiveDetails?.sektorRumahByArea?.[areaStr]
+      ? (archiveDetails.sektorRumahByArea[areaStr] / (yl.penjualan?.[MONTHS[monthIndex]] || 1)) * 100
+      : 0;
+    return rmhPct > 0 && rmhPct < 50;
+  });
 
+  // Cari YL dengan penjualan toko > 30%
+  const ylDenganTokoTinggi: any[] = [];
+
+  // Cari YL dengan BB > 10%
+  const ylDenganBBTinggi: any[] = [];
+
+  // Slide 1: Cover — foto (kalau sudah diupload) ditampilkan UTUH sbg konten, bukan background/overlay
+  const slide1: SlideDef = buildCoverSlide({
+    id: "cover",
+    eyebrow: "Laporan Bulanan",
+    title: `Laporan ${monthLabel}`,
+    coverFoto,
+    fallbackNode: <SlideTitle sub="">{null}</SlideTitle>,
+    speakerNotes: `Buka presentasi dengan hangat, sambut seluruh Ibu-ibu Yakult Lady dan ucapkan terima kasih atas kerja keras sepanjang bulan ${monthLabel}.`,
+  });
+
+  // Slide 2: Hasil Pencapaian Bulan yang Dipilih
+  const slide2: SlideDef = {
+    id: "pencapaian",
+    eyebrow: "Hasil Pencapaian Tim",
+    title: `Pencapaian Kinerja — ${monthLabel}`,
+    speakerNotes: "Ringkasan komprehensif pencapaian bulanan: AKM penjualan, rata-rata tim, komparasi target menu archive (target harian, bulan lalu, tahun lalu), hari kerja (JWP), absensi, serta kesegaran kembali botol.",
+    node: (
+      <div className="space-y-2.5 sm:space-y-3 landscape:space-y-1.5 w-full max-w-4xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5 landscape:gap-1.5">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 sm:p-3.5 landscape:p-1.5 flex flex-col justify-center gap-1.5 landscape:gap-0.5">
+            <span className="text-sm sm:text-base landscape:text-[10.5px] uppercase font-bold text-slate-400 tracking-wider">AKM Penjualan</span>
+            <div>
+              <p className="text-3xl sm:text-4xl landscape:text-lg font-black text-white">{fmtNum(m.akmPenjualan)} <span className="text-base landscape:text-[10.5px] font-semibold text-slate-400">btl</span></p>
+              <p className="text-base landscape:text-[10.5px] text-slate-400">Rata Tim: <strong className="text-slate-200">{fmtNum(realisasiTimRata)} btl/hr</strong></p>
+            </div>
+            <div className={`inline-flex items-center gap-1 text-sm sm:text-base landscape:text-[10px] font-black px-2 py-1 landscape:px-1.5 landscape:py-0.5 rounded-md w-fit ${
+              isTgtTembus ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"
+            }`}>
+              {isTgtTembus ? "✓ Tembus Target" : "Kurang Target"} ({fmtPct(pctVsTarget)}%)
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 sm:p-3.5 landscape:p-1.5 flex flex-col justify-center gap-1.5 landscape:gap-0.5">
+            <span className="text-sm sm:text-base landscape:text-[10.5px] uppercase font-bold text-slate-400 tracking-wider">Rata-Rata Tim & S/YL</span>
+            <div>
+              <p className="text-3xl sm:text-4xl landscape:text-lg font-black text-white">{fmtNum(realisasiTimRata)} <span className="text-base landscape:text-[10.5px] font-semibold text-slate-400">btl/hr</span></p>
+              <p className="text-base landscape:text-[10.5px] text-slate-400">S/YL: <strong className="text-orange-400">{fmtNum(realisasiSYL)} btl/hr</strong></p>
+            </div>
+            <span className="text-sm sm:text-base landscape:text-[10px] font-bold text-slate-500">Standar Mandiri: ≥ 250 btl/hr</span>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 sm:p-3.5 landscape:p-1.5 flex flex-col justify-center gap-1.5 landscape:gap-0.5">
+            <span className="text-sm sm:text-base landscape:text-[10.5px] uppercase font-bold text-slate-400 tracking-wider">Kembali Botol (BB)</span>
+            <div>
+              <p className={`text-3xl sm:text-4xl landscape:text-lg font-black ${isBBAman ? "text-emerald-400" : "text-red-400"}`}>
+                {fmtPct(m.persenKembaliBotol)}%
+              </p>
+              <p className="text-base landscape:text-[10.5px] text-slate-400">AKM Retur: <strong className="text-slate-200">{fmtNum(m.akmKembaliBotol)} btl</strong></p>
+            </div>
+            <span className={`text-sm sm:text-base landscape:text-[10px] font-black px-2 py-1 landscape:px-1.5 landscape:py-0.5 rounded-md w-fit ${
+              isBBAman ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+            }`}>
+              {isBBAman ? "Aman (≤ 10%)" : "Perhatian (> 10%)"}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5 landscape:gap-1.5">
+          <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 sm:p-3.5 landscape:p-1.5">
+            <div className="flex items-center justify-between mb-1 landscape:mb-0.5">
+              <p className="text-sm sm:text-base landscape:text-[10.5px] font-black uppercase text-slate-400 tracking-wider">1. vs Target</p>
+              <span className="text-xs landscape:text-[9.5px] text-slate-500 font-mono">Archive</span>
+            </div>
+            <p className={`text-2xl sm:text-3xl landscape:text-base font-black ${isTgtTembus ? "text-emerald-400" : "text-amber-400"}`}>
+              {fmtPct(pctVsTarget)}%
+            </p>
+            <div className="mt-1 landscape:mt-0.5 text-sm sm:text-base landscape:text-[10px] space-y-0.5 landscape:space-y-0 text-slate-300">
+              <p>Target: <span className="font-bold text-white">{tgtMenuTarget > 0 ? `${fmtNum(tgtMenuTarget)} btl/hr` : "-"}</span></p>
+              <p>Selisih: <span className={`font-bold ${selisihTargetHarian >= 0 ? "text-emerald-400" : "text-amber-400"}`}>
+                {tgtMenuTarget > 0 ? `${selisihTargetHarian >= 0 ? "+" : ""}${fmtNum(selisihTargetHarian)} btl/hr` : "-"}
+              </span></p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 sm:p-3.5 landscape:p-1.5">
+            <div className="flex items-center justify-between mb-1 landscape:mb-0.5">
+              <p className="text-sm sm:text-base landscape:text-[10.5px] font-black uppercase text-slate-400 tracking-wider">2. vs Bulan Lalu</p>
+              <span className="text-xs landscape:text-[9.5px] text-slate-500 font-mono">Archive</span>
+            </div>
+            <p className={`text-2xl sm:text-3xl landscape:text-base font-black ${
+              pctVsBulanLalu >= 100 ? "text-emerald-400" : "text-amber-400"
+            }`}>
+              {tgtMenuBlnLalu > 0 ? `${fmtPct(pctVsBulanLalu)}%` : "-"}
+            </p>
+            <div className="mt-1 landscape:mt-0.5 text-sm sm:text-base landscape:text-[10px] space-y-0.5 landscape:space-y-0 text-slate-300">
+              <p>Bln Lalu: <span className="font-bold text-white">{tgtMenuBlnLalu > 0 ? `${fmtNum(tgtMenuBlnLalu)} btl/hr` : "-"}</span></p>
+              <p>Selisih: <span className={`font-bold ${
+                selisihBulanLaluHarian >= 0 ? "text-emerald-400" : "text-red-400"
+              }`}>
+                {tgtMenuBlnLalu > 0 ? `${selisihBulanLaluHarian >= 0 ? "+" : ""}${fmtNum(selisihBulanLaluHarian)} btl/hr` : "-"}
+              </span></p>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 sm:p-3.5 landscape:p-1.5">
+            <div className="flex items-center justify-between mb-1 landscape:mb-0.5">
+              <p className="text-sm sm:text-base landscape:text-[10.5px] font-black uppercase text-slate-400 tracking-wider">3. vs Tahun Lalu</p>
+              <span className="text-xs landscape:text-[9.5px] text-slate-500 font-mono">Archive</span>
+            </div>
+            <p className={`text-2xl sm:text-3xl landscape:text-base font-black ${
+              pctVsTahunLalu >= 100 ? "text-emerald-400" : "text-amber-400"
+            }`}>
+              {tgtMenuThnLalu > 0 ? `${fmtPct(pctVsTahunLalu)}%` : "-"}
+            </p>
+            <div className="mt-1 landscape:mt-0.5 text-sm sm:text-base landscape:text-[10px] space-y-0.5 landscape:space-y-0 text-slate-300">
+              <p>Thn Lalu: <span className="font-bold text-white">{tgtMenuThnLalu > 0 ? `${fmtNum(tgtMenuThnLalu)} btl/hr` : "-"}</span></p>
+              <p>Selisih: <span className={`font-bold ${
+                selisihTahunLaluHarian >= 0 ? "text-emerald-400" : "text-amber-400"
+              }`}>
+                {tgtMenuThnLalu > 0 ? `${selisihTahunLaluHarian >= 0 ? "+" : ""}${fmtNum(selisihTahunLaluHarian)} btl/hr` : "-"}
+              </span></p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 landscape:gap-1.5">
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 landscape:px-2 landscape:py-1">
+            <span className="text-sm sm:text-base landscape:text-[10px] text-slate-400 font-bold uppercase block">Hari Kerja (JWP)</span>
+            <span className="text-lg sm:text-xl landscape:text-sm font-black text-white">{fmtNum(jwp)} <span className="text-sm landscape:text-[10px] font-normal text-slate-400">hari aktif</span></span>
+          </div>
+
+          <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 landscape:px-2 landscape:py-1">
+            <span className="text-sm sm:text-base landscape:text-[10px] text-slate-400 font-bold uppercase block">Absen & Frekuensi</span>
+            <span className="text-lg sm:text-xl landscape:text-sm font-black text-amber-400">
+              {m.absen?.jumlahYL || 0} YL <span className="text-sm landscape:text-[10px] font-normal text-slate-400">({m.absen?.frekuensi || 0}x izin)</span>
+            </span>
+          </div>
+
+          <div className="col-span-2 sm:col-span-1 bg-slate-900/60 border border-slate-800 rounded-xl px-3 py-2.5 landscape:px-2 landscape:py-1">
+            <span className="text-sm sm:text-base landscape:text-[10px] text-slate-400 font-bold uppercase block">% Area Tercover</span>
+            <span className="text-lg sm:text-xl landscape:text-sm font-black text-emerald-400">{fmtPct(m.persenAreaTercover, 0)}% <span className="text-sm landscape:text-[10px] font-normal text-slate-400">terlayani</span></span>
+          </div>
+        </div>
+      </div>
+    ),
+  };
+
+  // Slide 4: Apresiasi Performa — 3 kategori performa terbaik (memakai builder generik)
+  const winnerRata2Raw = top3[0] || null;
+  const ylComparisonBySelisih = [...ylComparison].sort((a, b) => b.selisih - a.selisih);
+  const winnerVsTahunLaluRaw = ylComparisonBySelisih[0] || null;
+
+  // Otomatisasi Sampah Botol Terbanyak dari Transaksi PLG & PJL jika belum di-override
+  let autoSampah: SampahTerbanyakRecord = { nama: "", area: "", jumlah: "" };
+  if (archiveDetails?.topSampah) {
+    autoSampah = {
+      nama: cleanYlName(archiveDetails.topSampah.nama),
+      area: archiveDetails.topSampah.area,
+      jumlah: `${fmtNum(archiveDetails.topSampah.jumlah)} btl`,
+    };
+  } else {
+    try {
+      const ymPad = `${tahun}-${String(monthIndex + 1).padStart(2, "0")}`;
+      const localTxs = localStorage.getItem(`plg_pjl_transactions_${ymPad}`) || localStorage.getItem("plg_pjl_transactions");
+      if (localTxs) {
+        const txsArr = JSON.parse(localTxs);
+        if (Array.isArray(txsArr) && txsArr.length > 0) {
+          const sMap: Record<string, { nama: string; area: string; total: number }> = {};
+          txsArr.forEach((t: any) => {
+            const area = String(t.area || (t.nama ? String(t.nama).match(/\b(20[1-9]|210)\b/)?.[1] : "") || "");
+            const nama = t.nama || "";
+            const btl = Number(t.apk_botol) || 0;
+            if (area && btl > 0) {
+              if (!sMap[area]) sMap[area] = { nama, area, total: 0 };
+              sMap[area].total += btl;
+              if (nama && (!sMap[area].nama || sMap[area].nama.length < String(nama).length)) sMap[area].nama = String(nama);
+            }
+          });
+          const sorted = Object.values(sMap).sort((a, b) => b.total - a.total);
+          if (sorted[0] && sorted[0].total > 0) {
+            autoSampah = {
+              nama: cleanYlName(sorted[0].nama),
+              area: sorted[0].area,
+              jumlah: `${fmtNum(sorted[0].total)} btl`,
+            };
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  const effectiveSampah: SampahTerbanyakRecord = {
+    nama: sampah?.nama || autoSampah.nama,
+    area: sampah?.area || autoSampah.area,
+    jumlah: sampah?.jumlah || autoSampah.jumlah,
+  };
+
+  const slide4: SlideDef = buildApresiasiPerformaSlide({
+    id: "apresiasi",
+    periodeLabel: `Bulan ${monthLabel}`,
+    headerStat: {
+      label: "S/YL (Sales per Yakult Lady)",
+      value: `${fmtNum(m.salesPerYL)} btl/hr`,
+      sub: `Tahun lalu: ${fmtNum(m.salesPerYLTahunLalu)}`,
+    },
+    winnerRata2: winnerRata2Raw ? {
+      nama: winnerRata2Raw.nama,
+      area: winnerRata2Raw.area,
+      valueLabel: `${fmtNum(winnerRata2Raw.penjualan)} btl`,
+    } : null,
+    winnerKenaikan: winnerVsTahunLaluRaw ? {
+      nama: winnerVsTahunLaluRaw.nama,
+      area: winnerVsTahunLaluRaw.area,
+      valueLabel: `${winnerVsTahunLaluRaw.selisih > 0 ? "+" : ""}${fmtNum(winnerVsTahunLaluRaw.selisih)} btl (${fmtPct(winnerVsTahunLaluRaw.pctYoY)}%)`,
+    } : null,
+    kenaikanLabel: "Vs Tahun Lalu Tertinggi",
+    sampah: effectiveSampah,
+    onSampahChange,
+  });
+
+  // Slide 5: Rata-Rata YL vs Tahun Lalu
   const slide5: SlideDef = {
+    id: "evaluasi10yl",
     eyebrow: "Evaluasi Seluruh 10 YL",
     title: `Rata-Rata YL vs Tahun Lalu — ${monthLabel}`,
     speakerNotes: "Tabel perbandingan rata-rata penjualan harian seluruh 10 Yakult Lady dibandingkan target dan capaian bulan yang sama di tahun lalu dari Menu Target Archive.",
@@ -5235,46 +7253,115 @@ function buildBulananSlides({
           Capaian Rata-Rata Botol / Hari Seluruh 10 Area (Data Menu Target Archive)
         </p>
 
-        {/* 2 Kolom Berdampingan: di layar landscape/desktop 2 kolom sejajar (5 kiri, 5 kanan), di layar portrait HP otomatis 1 kolom penuh agar teks tidak terpotong */}
         <div className="grid grid-cols-1 landscape:grid-cols-2 md:grid-cols-2 gap-1.5 sm:gap-2.5 w-full">
-          {renderYLSubTable(col1, 1)}
-          {renderYLSubTable(col2, 6)}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/90 overflow-hidden shadow-md">
+            <table className="w-full text-left border-collapse text-[10px] sm:text-[11px]">
+              <thead>
+                <tr className="bg-slate-800/90 text-[8.5px] sm:text-[9px] uppercase tracking-wider text-slate-400 border-b border-slate-700/80 whitespace-nowrap">
+                  <th className="py-1 px-1 text-center w-5">#</th>
+                  <th className="py-1 px-1.5">Area & Nama</th>
+                  <th className="py-1 px-1 text-right">Rata {monthLabel.slice(0, 3)}</th>
+                  <th className="py-1 px-1 text-right">Th.Lalu</th>
+                  <th className="py-1 px-1 text-right">Selisih</th>
+                  <th className="py-1 px-1 text-right">% YoY</th>
+                  <th className="py-1 px-1 text-center w-12">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {ylComparison.slice(0, 5).map((yl, idx) => {
+                  const isNaik = yl.selisih > 0;
+                  const isSama = yl.selisih === 0;
+                  return (
+                    <tr key={yl.area} className="hover:bg-slate-800/40 transition-colors whitespace-nowrap">
+                      <td className="py-1 px-1 text-center font-bold text-slate-500 text-[9px]">{idx + 1}</td>
+                      <td className="py-1 px-1.5 font-bold text-white truncate max-w-[85px] sm:max-w-[130px]">
+                        <span className="text-[9px] font-mono text-orange-400 mr-1">{yl.area}</span>
+                        {yl.nama}
+                      </td>
+                      <td className="py-1 px-1 text-right font-black text-white text-[10px] sm:text-[11px]">
+                        {fmtNum(yl.rataIni)} <span className="text-[8px] font-normal text-slate-400">btl</span>
+                      </td>
+                      <td className="py-1 px-1 text-right font-medium text-slate-400 text-[9.5px]">{fmtNum(yl.rataThn)}</td>
+                      <td className={`py-1 px-1 text-right font-bold text-[9.5px] sm:text-[10px] ${isNaik ? "text-emerald-400" : isSama ? "text-slate-400" : "text-red-400"}`}>
+                        {yl.selisih > 0 ? "+" : ""}{fmtNum(yl.selisih)}
+                      </td>
+                      <td className={`py-1 px-1 text-right font-black text-[9.5px] sm:text-[10px] ${yl.pctYoY >= 100 ? "text-emerald-400" : "text-amber-400"}`}>
+                        {fmtPct(yl.pctYoY)}%
+                      </td>
+                      <td className="py-1 px-1 text-center">
+                        <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${isNaik ? "bg-emerald-500/20 text-emerald-400" : isSama ? "bg-slate-700 text-slate-300" : "bg-red-500/20 text-red-400"}`}>
+                          {isNaik ? "↑ Naik" : isSama ? "= Tetap" : "↓ Turun"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/90 overflow-hidden shadow-md">
+            <table className="w-full text-left border-collapse text-[10px] sm:text-[11px]">
+              <thead>
+                <tr className="bg-slate-800/90 text-[8.5px] sm:text-[9px] uppercase tracking-wider text-slate-400 border-b border-slate-700/80 whitespace-nowrap">
+                  <th className="py-1 px-1 text-center w-5">#</th>
+                  <th className="py-1 px-1.5">Area & Nama</th>
+                  <th className="py-1 px-1 text-right">Rata {monthLabel.slice(0, 3)}</th>
+                  <th className="py-1 px-1 text-right">Th.Lalu</th>
+                  <th className="py-1 px-1 text-right">Selisih</th>
+                  <th className="py-1 px-1 text-right">% YoY</th>
+                  <th className="py-1 px-1 text-center w-12">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {ylComparison.slice(5, 10).map((yl, idx) => {
+                  const isNaik = yl.selisih > 0;
+                  const isSama = yl.selisih === 0;
+                  return (
+                    <tr key={yl.area} className="hover:bg-slate-800/40 transition-colors whitespace-nowrap">
+                      <td className="py-1 px-1 text-center font-bold text-slate-500 text-[9px]">{idx + 6}</td>
+                      <td className="py-1 px-1.5 font-bold text-white truncate max-w-[85px] sm:max-w-[130px]">
+                        <span className="text-[9px] font-mono text-orange-400 mr-1">{yl.area}</span>
+                        {yl.nama}
+                      </td>
+                      <td className="py-1 px-1 text-right font-black text-white text-[10px] sm:text-[11px]">
+                        {fmtNum(yl.rataIni)} <span className="text-[8px] font-normal text-slate-400">btl</span>
+                      </td>
+                      <td className="py-1 px-1 text-right font-medium text-slate-400 text-[9.5px]">{fmtNum(yl.rataThn)}</td>
+                      <td className={`py-1 px-1 text-right font-bold text-[9.5px] sm:text-[10px] ${isNaik ? "text-emerald-400" : isSama ? "text-slate-400" : "text-red-400"}`}>
+                        {yl.selisih > 0 ? "+" : ""}{fmtNum(yl.selisih)}
+                      </td>
+                      <td className={`py-1 px-1 text-right font-black text-[9.5px] sm:text-[10px] ${yl.pctYoY >= 100 ? "text-emerald-400" : "text-amber-400"}`}>
+                        {fmtPct(yl.pctYoY)}%
+                      </td>
+                      <td className="py-1 px-1 text-center">
+                        <span className={`text-[8px] font-bold px-1 py-0.5 rounded ${isNaik ? "bg-emerald-500/20 text-emerald-400" : isSama ? "bg-slate-700 text-slate-300" : "bg-red-500/20 text-red-400"}`}>
+                          {isNaik ? "↑ Naik" : isSama ? "= Tetap" : "↓ Turun"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Baris Ringkasan Rata-Rata Tim TKU Full-Width */}
         <div className="bg-slate-800/90 border border-slate-700/80 rounded-xl px-2.5 py-1.5 flex items-center justify-between flex-wrap gap-1.5 text-xs">
           <span className="font-black text-white text-[9.5px] sm:text-[10px] uppercase tracking-wider">
             RATA-RATA TIM TKU:
           </span>
           <div className="flex items-center gap-2 sm:gap-2.5 text-[9.5px] sm:text-[10.5px] font-bold flex-wrap">
-            {timTargetSum > 0 && (
-              <span className="text-slate-300">
-                Target: <strong className="text-white font-mono">{fmtNum(timTargetSum)}</strong>{" "}
-                <span className="text-[8px] sm:text-[9px] text-slate-400 font-normal">({fmtNum(Math.round(timTargetSum / ylComparison10.length))}/YL)</span>
-              </span>
-            )}
             <span className="text-orange-400">
-              Rata {monthLabel}: <strong className="text-white font-mono">{fmtNum(timTotalIni)}</strong>{" "}
-              <span className="text-[8px] sm:text-[9px] text-orange-300/80 font-normal">({fmtNum(timRataIni)}/YL)</span>
+              Rata {monthLabel}: <strong className="text-white font-mono">{fmtNum(ylComparison.reduce((s, y) => s + y.rataIni, 0))}</strong>
             </span>
-            {monthIndex > 0 && timTotalBlnLalu > 0 && (
-              <span className="text-sky-300">
-                Bln. Lalu: <strong className="text-white font-mono">{fmtNum(timTotalBlnLalu)}</strong>{" "}
-                <span className="text-[8px] sm:text-[9px] text-sky-200/80 font-normal">({fmtNum(timRataBlnLalu)}/YL)</span>
-              </span>
-            )}
             <span className="text-slate-400">
-              Th. Lalu: <strong className="text-slate-300 font-mono">{fmtNum(timTotalThn)}</strong>{" "}
-              <span className="text-[8px] sm:text-[9px] text-slate-400 font-normal">({fmtNum(timRataThn)}/YL)</span>
+              Th. Lalu: <strong className="text-slate-300 font-mono">{fmtNum(ylComparison.reduce((s, y) => s + y.rataThn, 0))}</strong>
             </span>
-            <span className={timSelisih >= 0 ? "text-emerald-400" : "text-red-400"}>
-              Selisih: <strong>{timSelisih >= 0 ? "+" : ""}{fmtNum(timSelisih)}</strong>
+            <span className={ylComparison.reduce((s, y) => s + y.selisih, 0) >= 0 ? "text-emerald-400" : "text-red-400"}>
+              Selisih: <strong>{ylComparison.reduce((s, y) => s + y.selisih, 0) >= 0 ? "+" : ""}{fmtNum(ylComparison.reduce((s, y) => s + y.selisih, 0))}</strong>
             </span>
-            <span className={timPctYoY >= 100 ? "text-emerald-400" : "text-amber-400"}>
-              % vs Th. Lalu: <strong>{fmtPct(timPctYoY)}%</strong>
-            </span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${timPctYoY >= 100 ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
-              {timPctYoY >= 100 ? "Tumbuh" : "Evaluasi"}
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400">
+              {ylNaik.length} YL Naik, {ylTurun.length} YL Turun
             </span>
           </div>
         </div>
@@ -5284,28 +7371,13 @@ function buildBulananSlides({
 
   // Slide 6: Kondisi YL (Distribusi Botol)
   const slide6: SlideDef = {
+    id: "distribusi",
     eyebrow: "Distribusi Penjualan Tim",
     title: "Kondisi YL (Distribusi Botol)",
     speakerNotes: "Distribusi jumlah Yakult Lady berdasarkan rata-rata botol per hari. Memantau pertumbuhan kategori Mandiri (≥ 250 botol/hari).",
     node: (
       <div className="space-y-2 w-full max-w-2xl mx-auto">
-        <div className="h-40 sm:h-48">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={kondisiData} margin={{ top: 15, right: 10, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#94a3b8" }} />
-              <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} allowDecimals={false} domain={[0, (dataMax: number) => Math.max(dataMax + 1, 4)]} />
-              <Tooltip
-                formatter={(v: number) => [`${v} YL`, "Jumlah YL"]}
-                contentStyle={{ backgroundColor: "#1e293b", borderColor: "#334155", color: "#fff", fontSize: 11 }}
-              />
-              <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                <LabelList dataKey="value" position="top" fill="#f8fafc" fontSize={11} fontWeight="bold" />
-                {kondisiData.map((_, i) => <Cell key={i} fill={KONDISI_COLORS[i % KONDISI_COLORS.length]} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <KondisiYLChart data={kondisiData} storageKey={`presentasi_chart_kondisi_${tahun}_${monthIndex}`} />
         <div className="flex justify-center gap-4 text-xs text-slate-300">
           <span>Total YL: <strong className="text-white">{kondisiData.reduce((a, b) => a + b.value, 0)} YL</strong></span>
           <span>Mandiri (≥250): <strong className="text-emerald-400">{kondisiData.slice(1).reduce((a, b) => a + b.value, 0)} YL</strong></span>
@@ -5315,10 +7387,12 @@ function buildBulananSlides({
     ),
   };
 
-  // Slide 7: Rata-Rata YTD (Jan s/d Bulan Berjalan)
+  // Slide 7: Rata-Rata YTD
   const slideYTD: SlideDef | null = monthIndex > 0 ? {
+    id: "ytd",
     eyebrow: "Rata-Rata YTD per YL",
     title: `Rata-Rata YTD: Jan s/d ${monthLabel}`,
+    speakerNotes: `Tunjukkan konsistensi performa setiap Ibu Yakult Lady dari awal tahun hingga ${monthLabel}, jadikan momen ini untuk mengapresiasi progres jangka panjang, bukan hanya capaian sebulan.`,
     node: (
       <div className="w-full max-w-6xl mx-auto">
         <TabelRataRataYL
@@ -5331,61 +7405,42 @@ function buildBulananSlides({
     ),
   } : null;
 
-  // Slide 8: Penjualan & Persentase per Potensi Sektor (Arsip PLG PJL)
-  const sectorsRaw = archiveDetails?.sectors && archiveDetails.sectors.length > 0
-    ? archiveDetails.sectors
-    : [
-        { key: "rmh" as const, label: "Rumah", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.68), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.68), pct: 68, yo: 0, om: 0, os: 0, yt: 0 },
-        { key: "psr" as const, label: "Pasar", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.10), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.10), pct: 10, yo: 0, om: 0, os: 0, yt: 0 },
-        { key: "tk" as const, label: "Toko", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.10), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.10), pct: 10, yo: 0, om: 0, os: 0, yt: 0 },
-        { key: "skh" as const, label: "Sekolah", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.05), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.05), pct: 5, yo: 0, om: 0, os: 0, yt: 0 },
-        { key: "ktr" as const, label: "Kantor", isFixedCustomer: true, akm: Math.round((m.akmPenjualan || 75000) * 0.04), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.04), pct: 4, yo: 0, om: 0, os: 0, yt: 0 },
-        { key: "ib" as const, label: "Instant Buyer (IB)", isFixedCustomer: false, akm: Math.round((m.akmPenjualan || 75000) * 0.03), rata2: Math.round((m.ratarataPenjualanYL || 280) * 10 * 0.03), pct: 3, yo: 0, om: 0, os: 0, yt: 0 },
-      ];
-
-  const sectorColors: Record<string, string> = {
-    rmh: "#3b82f6", // Biru
-    psr: "#f59e0b", // Amber
-    tk:  "#6366f1", // Indigo
-    skh: "#10b981", // Hijau
-    ktr: "#8b5cf6", // Ungu
-    ib:  "#f43f5e", // Rose
-  };
-
-  const fixedCustomersTotalPct = sectorsRaw
-    .filter((s) => s.isFixedCustomer)
-    .reduce((acc, s) => acc + s.pct, 0);
-
-  const ibSector = sectorsRaw.find((s) => s.key === "ib") || { pct: 0, akm: 0, rata2: 0 };
-
+  // Slide 8: Penjualan per Sektor - dengan warna berbeda untuk setiap sektor
   const slide8: SlideDef = {
+    id: "karakteristik",
     eyebrow: "Analisis Karakteristik Pelanggan",
     title: `Penjualan Persentase per Potensi Sektor — ${monthLabel}`,
     speakerNotes: "Tinjau distribusi penjualan 6 potensi sektor. Penting: Penjualan IB (Instant Buyer) adalah penjualan insidental/keramaian, bukan pelanggan tetap rute harian.",
     node: (
       <div className="space-y-2 w-full max-w-4xl mx-auto">
-        {/* Progress Bar Visual Sektor */}
+        {!sectorsDataAvailable && (
+          <div className="bg-red-950/30 border border-red-500/40 rounded-xl p-2 sm:p-2.5 text-left flex items-start gap-1.5">
+            <span className="text-sm shrink-0 mt-0.5">⚠️</span>
+            <p className="text-[10px] sm:text-[10.5px] text-red-200 leading-snug">
+              <strong>Data sektor bulan {monthLabel} belum diisi di Menu Archive.</strong> Persentase & angka di bawah ini adalah <strong>estimasi ilustratif</strong>, bukan data riil — lengkapi data sektor di Archive agar slide ini menampilkan angka yang akurat.
+            </p>
+          </div>
+        )}
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-2 sm:p-2.5">
           <div className="flex justify-between items-center text-[11px] mb-1">
             <span className="font-bold text-slate-300">Komposisi 6 Sektor Potensi</span>
             <span className="text-[10px] text-slate-400 font-mono">Total: 100%</span>
           </div>
+          {/* Warna berbeda untuk setiap sektor */}
           <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden flex">
             {sectorsRaw.map((sec) => (
               <div
                 key={sec.key}
-                style={{ width: `${Math.max(sec.pct, 1)}%`, backgroundColor: sectorColors[sec.key] || "#64748b" }}
+                style={{ width: `${Math.max(sec.pct, 1)}%`, backgroundColor: sec.color || "#3b82f6" }}
                 title={`${sec.label}: ${fmtPct(sec.pct)}%`}
                 className="h-full transition-all"
               />
             ))}
           </div>
-
-          {/* Legend Mini */}
           <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 text-[10px]">
             {sectorsRaw.map((sec) => (
               <div key={sec.key} className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: sectorColors[sec.key] }} />
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: sec.color || "#3b82f6" }} />
                 <span className="text-slate-300 font-medium">{sec.label}:</span>
                 <span className="font-black text-white">{fmtPct(sec.pct)}%</span>
               </div>
@@ -5393,27 +7448,22 @@ function buildBulananSlides({
           </div>
         </div>
 
-        {/* 6 Kotak Sektor: Grid 3 atau 6 kolom responsif */}
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
           {sectorsRaw.map((sec) => {
-            const isIB = sec.key === "ib";
             return (
               <div
                 key={sec.key}
-                className={`rounded-xl p-1.5 sm:p-2 border transition-all ${
-                  isIB
-                    ? "bg-rose-950/20 border-rose-500/30"
-                    : "bg-slate-900/80 border-slate-800"
-                }`}
+                className="rounded-xl p-1.5 sm:p-2 border border-slate-800 bg-slate-900/80 transition-all"
               >
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="text-[10px] font-black text-white truncate flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: sectorColors[sec.key] }} />
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: sec.color || "#3b82f6" }} />
                     {sec.label}
                   </span>
-                  <span className={`text-[9px] font-black px-1 py-0.2 rounded ${
-                    isIB ? "bg-rose-500/20 text-rose-400" : "bg-blue-500/20 text-blue-400"
-                  }`}>
+                  <span
+                    className="text-[9px] font-black px-1 py-0.2 rounded"
+                    style={{ backgroundColor: `${sec.color || "#3b82f6"}33`, color: sec.color || "#3b82f6" }}
+                  >
                     {fmtPct(sec.pct)}%
                   </span>
                 </div>
@@ -5426,7 +7476,6 @@ function buildBulananSlides({
           })}
         </div>
 
-        {/* Kotak Edukasi / Catatan Khusus IB */}
         <div className="bg-amber-950/20 border border-amber-500/30 rounded-xl p-2 sm:p-2.5 text-left">
           <div className="flex items-start gap-1.5">
             <span className="text-sm shrink-0 mt-0.5">💡</span>
@@ -5437,7 +7486,7 @@ function buildBulananSlides({
               <p className="text-slate-300 mt-0.5 leading-snug">
                 Penjualan <strong>IB (Instant Buyer)</strong> adalah pembeli langsung insidental di keramaian/jalan.
                 Omzet tambahan ini sangat baik, namun <strong>tidak dapat dijadikan tolak ukur pelanggan tetap</strong>.
-                Fondasi utama stabilitas tim tetap pada 5 sektor pelanggan tetap: <strong>Rumah ({fmtPct(sectorsRaw.find(s=>s.key==="rmh")?.pct || 0)}%)</strong>, Pasar, Toko, Sekolah, dan Kantor (Total {fmtPct(fixedCustomersTotalPct)}%).
+                Fondasi utama stabilitas tim tetap pada 5 sektor pelanggan tetap: <strong>Rumah ({fmtPct(sectorsRaw.find(s=>s.key==="rmh")?.pct || 0)}%)</strong>, Pasar, Toko, Sekolah, dan Kantor (Total {fmtPct(sectorsRaw.filter(s=>s.isFixedCustomer).reduce((acc, s) => acc + s.pct, 0))}%).
               </p>
             </div>
           </div>
@@ -5446,8 +7495,9 @@ function buildBulananSlides({
     ),
   };
 
-  // Slide 9: Komposisi Produk & Penetrasi Varian Baru
+  // Slide 9: Mix Produk
   const slide9: SlideDef = {
+    id: "mixproduk",
     eyebrow: "Evaluasi Mix Produk",
     title: `Komposisi Produk & Penetrasi Varian Baru — ${monthLabel}`,
     speakerNotes: "Keseimbangan penjualan antar varian: Original (YO) vs varian baru (Original Mangga, Original Stroberi, Yakult Light).",
@@ -5461,54 +7511,214 @@ function buildBulananSlides({
     ),
   };
 
-  // Slide 10: Evaluasi Kualitatif (Kelebihan & Kekurangan)
+  // Slide 10: Analisa Data Mendalam (3 poin baik + 3 poin perbaikan)
+  const mandiriCount = kondisiData.slice(1).reduce((a, b) => a + b.value, 0);
+  const binaanCount = kondisiData[0]?.value || 0;
+  const ylNaikCount = ylComparison.filter((y) => y.selisih > 0).length;
+  const ylTurunCount = ylComparison.filter((y) => y.selisih < 0).length;
+  const totalFrekuensiAbsen = m.absen?.frekuensi || 0;
+  const bbPct = m.persenKembaliBotol || 0;
+  const rmhPct = sectorsRaw.find((s) => s.key === "rmh")?.pct || 0;
+  const ibPct = sectorsRaw.find((s) => s.key === "ib")?.pct || 0;
+
+  // Poin-poin analisa yang baik
+  const poinBaik: string[] = [];
+  // Poin 1: Target
+  if (isTgtTembus) {
+    poinBaik.push(`🎯 Target Tembus ${fmtPct(pctVsTarget)}%! AKM ${fmtNum(m.akmPenjualan)} botol tercapai dengan rata-rata ${fmtNum(realisasiTimRata)} btl/hr.`);
+  } else if (ylNaikCount > ylTurunCount) {
+    poinBaik.push(`📈 ${ylNaikCount} dari 10 YL berhasil meningkatkan penjualan dibanding tahun lalu, pertumbuhan tim solid!`);
+  } else {
+    poinBaik.push(`✅ Rata-rata tim ${fmtNum(realisasiTimRata)} btl/hr, S/YL ${fmtNum(realisasiSYL)} btl/hr — fondasi penjualan tetap kokoh.`);
+  }
+
+  // Poin 2: S/YL
+  if (realisasiSYL >= 35) {
+    poinBaik.push(`📊 S/YL luar biasa tinggi! Rata-rata ${fmtNum(realisasiSYL)} btl/hari/YL — Ibu-ibu hebat dalam merawat pelanggan setia.`);
+  } else if (isBBAman) {
+    poinBaik.push(`🔄 Kembali Botol sangat aman di ${fmtPct(bbPct)}% (≤10%), rotasi stok pelanggan terjaga dengan baik.`);
+  } else {
+    poinBaik.push(`🏪 Total pelanggan tetap ${fmtPct(sectorsRaw.filter(s=>s.isFixedCustomer).reduce((acc, s) => acc + s.pct, 0))}%, stabilitas rute terjaga.`);
+  }
+
+  // Poin 3: Kehadiran atau IB
+  if (totalFrekuensiAbsen === 0) {
+    poinBaik.push(`👏 100% kehadiran disiplin! Seluruh YL hadir aktif tanpa izin/sakit.`);
+  } else if (ibPct > 5) {
+    poinBaik.push(`🎪 Penjualan IB ${fmtPct(ibPct)}% — Ibu-ibu hebat memanfaatkan momen keramaian/karnaval untuk tambahan omzet!`);
+  } else {
+    poinBaik.push(`🤝 Kekompakan tim terlihat, ${ylNaikCount} YL naik dan hanya ${ylTurunCount} YL yang perlu pendampingan.`);
+  }
+
+  // Poin-poin yang perlu diperbaiki (mendalam) - hanya 2 poin
+  const poinPerbaikan: string[] = [];
+  if (!isTgtTembus) {
+    poinPerbaikan.push(`🎯 Target masih kurang ${fmtPct(100 - pctVsTarget)}% (${fmtNum(Math.abs(Math.round(tgtMenuTarget > 0 ? (tgtMenuTarget - realisasiTimRata) * jwp : (m.akmTarget - m.akmPenjualan))))} botol). Ajak setiap YL tawarkan +1 pak ke langganan rumah.`);
+  } else {
+    poinPerbaikan.push(`📊 Pertahankan konsistensi, jangan kendor di awal bulan. Pembukaan minggu pertama yang kuat menentukan kelancaran sisa bulan.`);
+  }
+
+  if (ylTurunCount > 0) {
+    const ylTurunNama = ylTurun.slice(0, 3).map(y => y.nama).join(", ");
+    poinPerbaikan.push(`📉 ${ylTurunCount} YL turun vs tahun lalu: ${ylTurunNama}${ylTurunCount > 3 ? ` dan ${ylTurunCount - 3} lainnya` : ""}. Perlu coaching intensif dan pendampingan rute.`);
+  } else if (!isBBAman) {
+    poinPerbaikan.push(`🔄 Kembali Botol ${fmtPct(bbPct)}% (di atas 10%). Periksa kulkas pelanggan, utamakan stok lama diminum lebih dulu.`);
+  } else if (binaanCount > 0) {
+    poinPerbaikan.push(`📘 ${binaanCount} YL masih di level binaan (<250 btl). Senior yuk dampingi dan bagikan resep sapaan hangat untuk pelanggan.`);
+  } else {
+    poinPerbaikan.push(`🏠 Sektor Rumah hanya ${fmtPct(rmhPct)}% (<50%). Fokus perkuat kunjungan rutin ke rumah tangga, ini fondasi utama.`);
+  }
+
+  // Ambil 3 poin baik dan 2 poin perbaikan
+  const top3Baik = poinBaik.slice(0, 3);
+  const top2Perbaikan = poinPerbaikan.slice(0, 2);
+
   const slide10: SlideDef = {
-    eyebrow: "Evaluasi Kualitatif",
-    title: "Kelebihan & Kekurangan",
-    speakerNotes: "Gunakan catatan kelebihan sebagai motivasi dan apresiasi, sedangkan area perbaikan dijadikan fokus perbaikan bersama.",
+    id: "analisa",
+    eyebrow: `Analisa Data Capaian — ${monthLabel}`,
+    title: "Analisa Data Performa Tim Ibu-Ibu Yakult Lady",
+    speakerNotes: "Gunakan bahasa yang hangat, penuh kasih, dan membangkitkan rasa bangga. Tunjukkan bukti nyata di balik angka penjualan: senyum ramah menyapa pelanggan rumah tangga, botol yang segar tanpa retur, dan kekompakan merangkul rekan satu rute.",
     node: (
-      <div className="space-y-3 w-full max-w-xl mx-auto">
-        <div>
-          <p className="text-emerald-400 text-xs font-black uppercase mb-1.5 flex items-center gap-1 justify-center">
-            <ThumbsUp className="w-3.5 h-3.5" /> Kelebihan Operasional
-          </p>
-          <ul className="space-y-1 text-xs sm:text-sm text-slate-300 text-center">
-            {plusList.slice(0, 4).map((s: string, i: number) => <li key={i}>• {s}</li>)}
-            {plusList.length === 0 && <li className="text-slate-500 italic">Belum ada catatan kelebihan.</li>}
-          </ul>
+      <SlideAnalisaPerformaNode
+        periodeLabel={monthLabel}
+        ylCount={ylComparison.length}
+        top3Baik={top3Baik}
+        plusList={plusList}
+        top2Perbaikan={top2Perbaikan}
+        minusList={minusList}
+        fallbackBaikText={`Rata-rata tim ${fmtNum(realisasiTimRata)} btl/hari — semua YL bekerja dengan semangat dan dedikasi tinggi!`}
+      />
+    ),
+  };
+
+  // Slide 11: Kesimpulan (tanpa action plan)
+  const slide11: SlideDef = {
+    id: "kesimpulan",
+    eyebrow: `Kesimpulan Akhir & Arah Melangkah — ${monthLabel}`,
+    title: `Kesimpulan Kinerja Bulan ${monthLabel}`,
+    speakerNotes: "Sampaikan rangkuman kesimpulan kinerja bulan ini secara lugas dan terarah berdasarkan data riil, kemudian ajak seluruh tim melangkah mantap memasuki bulan berikutnya.",
+    node: (
+      <div className="space-y-2 sm:space-y-3 landscape:space-y-1.5 w-full max-w-5xl mx-auto text-left">
+        <div className="grid grid-cols-1 landscape:grid-cols-3 md:grid-cols-3 gap-2 sm:gap-3 landscape:gap-2">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 landscape:p-2 flex flex-col justify-between shadow-lg">
+            <div>
+              <span className="text-xs sm:text-sm uppercase font-black text-slate-400 tracking-wider">
+                1. Rapor Capaian
+              </span>
+              <div className="my-1.5 sm:my-2">
+                <div className={`inline-flex items-center gap-1 text-[10.5px] sm:text-xs font-black px-2 py-0.5 rounded-md ${
+                  isTgtTembus ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"
+                }`}>
+                  {isTgtTembus ? "✓ TARGET TERCAPAI" : "PERLU DORONGAN SISA"} ({fmtPct(pctVsTarget)}%)
+                </div>
+                <p className="text-2xl sm:text-3xl landscape:text-xl font-black text-white mt-1">
+                  {fmtNum(realisasiTimRata)} <span className="text-sm font-semibold text-slate-400">btl/hr</span>
+                </p>
+                <p className="text-xs sm:text-sm landscape:text-[11px] text-slate-300 mt-0.5">
+                  Target: <strong>{fmtNum(tgtMenuTarget)} btl/hr</strong> · AKM: <strong>{fmtNum(m.akmPenjualan)} btl</strong>
+                </p>
+              </div>
+            </div>
+            <div className="pt-1.5 sm:pt-2 border-t border-slate-800 text-xs sm:text-sm landscape:text-[11px] text-slate-400">
+              Pertumbuhan YoY: <strong className={ylComparison.reduce((s, y) => s + y.selisih, 0) >= 0 ? "text-emerald-400" : "text-amber-400"}>
+                {ylComparison.reduce((s, y) => s + y.selisih, 0) >= 0 ? "+" : ""}{fmtNum(ylComparison.reduce((s, y) => s + y.selisih, 0))} btl/hr
+              </strong>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 landscape:p-2 flex flex-col justify-between shadow-lg">
+            <div>
+              <span className="text-xs sm:text-sm uppercase font-black text-slate-400 tracking-wider">
+                2. Kesehatan Rute &amp; Mutu
+              </span>
+              <div className="my-1.5 sm:my-2 space-y-1 sm:space-y-1.5 text-xs sm:text-sm landscape:text-[11px] text-slate-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Status YL:</span>
+                  <span className="font-bold text-white">
+                    <strong className="text-emerald-400">{mandiriCount}</strong> Mandiri / <strong className="text-amber-400">{binaanCount}</strong> Binaan
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Pelanggan Tetap:</span>
+                  <span className="font-bold text-white">{fmtPct(sectorsRaw.filter(s=>s.isFixedCustomer).reduce((acc, s) => acc + s.pct, 0))}% (Rumah {fmtPct(rmhPct)}%)</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Kembali Botol (BB):</span>
+                  <span className={`font-bold ${isBBAman ? "text-emerald-400" : "text-amber-400"}`}>
+                    {fmtPct(bbPct)}% ({isBBAman ? "Aman" : "Perlu Penataan"})
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Kehadiran:</span>
+                  <span className="font-bold text-white">
+                    {totalFrekuensiAbsen === 0 ? "100% Tertib Hadir" : `${totalFrekuensiAbsen} Hari Izin`}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="pt-1.5 sm:pt-2 border-t border-slate-800 text-xs sm:text-sm landscape:text-[11px] text-slate-400">
+              Fondasi langganan rumah tangga sangat kuat &amp; loyal.
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 landscape:p-2 flex flex-col justify-between shadow-lg">
+            <div>
+              <span className="text-xs sm:text-sm uppercase font-black text-orange-400 tracking-wider">
+                3. Fokus Aksi Bulan Depan
+              </span>
+              <div className="my-1.5 sm:my-2 space-y-1 sm:space-y-1.5 text-xs sm:text-sm landscape:text-[11px] text-slate-300">
+                <div className="flex items-start gap-1.5">
+                  <span className="text-orange-400 font-bold shrink-0">1.</span>
+                  <span><strong>Tambah 1 Pak:</strong> Tawarkan paket keluarga saat kunjungan mingguan rute rumah.</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-orange-400 font-bold shrink-0">2.</span>
+                  <span><strong>Zero BB (≤10%):</strong> Pastikan stok lama diminum lebih dulu sebelum stok baru.</span>
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <span className="text-orange-400 font-bold shrink-0">3.</span>
+                  <span><strong>Kompak Merangkul:</strong> Bimbing rekan binaan agar target 250 btl tercapai bersama.</span>
+                </div>
+              </div>
+            </div>
+            <div className="pt-1.5 sm:pt-2 border-t border-slate-800 text-xs sm:text-sm landscape:text-[11px] text-orange-400 font-bold">
+              Kompak, sehat, dan sukses bersama! 🚀
+            </div>
+          </div>
         </div>
-        <div className="pt-2 border-t border-slate-800">
-          <p className="text-red-400 text-xs font-black uppercase mb-1.5 flex items-center gap-1 justify-center">
-            <ThumbsDown className="w-3.5 h-3.5" /> Area Perbaikan
-          </p>
-          <ul className="space-y-1 text-xs sm:text-sm text-slate-300 text-center">
-            {minusList.slice(0, 4).map((s: string, i: number) => <li key={i}>• {s}</li>)}
-            {minusList.length === 0 && <li className="text-slate-500 italic">Belum ada catatan kekurangan.</li>}
-          </ul>
+
+        <div className="bg-slate-900/95 border border-slate-800 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 landscape:p-2 text-left">
+          <div className="flex items-start gap-2.5">
+            <span className="text-lg sm:text-xl shrink-0 mt-0.5">📌</span>
+            <div>
+              <h4 className="text-sm sm:text-lg landscape:text-sm font-black text-white">
+                Intisari Kesimpulan Kinerja {monthLabel}
+              </h4>
+              <p className="text-xs sm:text-sm landscape:text-[11px] text-slate-300 mt-1 leading-relaxed">
+                Perjuangan bulan ini membuktikan bahwa dedikasi Ibu-Ibu Yakult Lady berhasil menjaga stabilitas konsumsi harian keluarga pelanggan.
+                Dengan rata-rata capaian tim sebesar <strong className="text-white">{fmtNum(realisasiTimRata)} btl/hari</strong> dan tingkat kesegaran botol sebesar <strong className={isBBAman ? "text-emerald-400" : "text-amber-400"}>{fmtPct(bbPct)}%</strong>,
+                kunci keberhasilan bulan berikutnya terletak pada <strong>penambahan kuantitas langganan rumah tangga (+1 pak)</strong> serta <strong>pendampingan aktif bagi area binaan</strong> agar seluruh 10 area mandiri bersama.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     ),
   };
 
-  // Slide 11: Rencana Aksi & Komitmen (Interaktif)
-  const slide11: SlideDef = {
-    eyebrow: "Tindak Lanjut Rapat",
-    title: "Rencana Aksi & Komitmen",
-    speakerNotes: "Diskusikan dan tetapkan komitmen bersama tim. Anda dapat mencentang butir yang telah terlaksana atau menambahkan komitmen baru langsung di slide ini.",
-    isActionPlan: true,
-    node: null,
-  };
+  // Slide 12: Action Plan sudah dihapus (diganti dengan slide YL of the Month)
+  // Slide 13: YL of the Month Teaser
+  // Slide 14: YL of the Month Winner
 
   return [
     slide1,
     slide2,
-    slide3,
-    slide4,
     slide5,
     slide6,
-    ...(slideYTD ? [slideYTD] : []),
     slide8,
     slide9,
+    slide4,
+    ...(slideYTD ? [slideYTD] : []),
     slide10,
     slide11,
   ];
@@ -5521,14 +7731,110 @@ function buildSemesterSlides(
   tahun: string | number,
   tku: string,
   actionPlans: ActionPlanItem[],
-  perYL: any[] = []
+  perYL: any[] = [],
+  sampah?: SampahTerbanyakRecord,
+  onSampahChange?: (patch: Partial<SampahTerbanyakRecord>) => void,
+  coverFoto?: string
 ): SlideDef[] {
+  const semYl = computeYLAverageData(
+    perYL,
+    title.includes("Semester 2") ? 6 : 0,
+    title.includes("Semester 2") ? 11 : 5
+  );
+  const mandiriCount = semYl.totalMandiri;
+  const binaanCount = semYl.totalBinaan;
+
+  // Pemenang Apresiasi Performa: kategori 2 memakai "delta" (kenaikan awal→akhir periode)
+  // karena data pembanding tahun lalu per-YL tidak tersedia di level semester.
+  const winnerRata2Sem = semYl.rows[0] || null;
+  const rowsByDelta = [...semYl.rows].sort((a, b) => b.delta - a.delta);
+  const winnerDeltaSem = rowsByDelta[0] || null;
+
+  const poinBaikSem: string[] = [];
+  if (agg.avgCapaian >= 100) {
+    poinBaikSem.push(`🎯 Target ${title} Tembus ${fmtPct(agg.avgCapaian)}%! Total AKM ${fmtNum(agg.totalAkm)} botol tercapai dari ${agg.monthsData.length} bulan perjuangan.`);
+  } else {
+    poinBaikSem.push(`✅ AKM Penjualan ${fmtNum(agg.totalAkm)} botol (${fmtPct(agg.avgCapaian)}% capaian target) dari ${agg.monthsData.length} bulan kerja.`);
+  }
+
+  if (agg.avgRetur <= 10) {
+    poinBaikSem.push(`🔄 Rata-rata Kembali Botol (BB) terjaga di ${fmtPct(agg.avgRetur)}% (≤10%), kualitas & perputaran stok prima.`);
+  } else if (agg.peak) {
+    poinBaikSem.push(`📈 Puncak penjualan ${title} tercapai pada ${agg.peak.label} (${fmtNum(agg.peak.value)} botol).`);
+  } else {
+    poinBaikSem.push(`🏪 Stabilitas rute dan loyalitas pelanggan terjaga dengan baik sepanjang ${title}.`);
+  }
+
+  if (mandiriCount > 0) {
+    poinBaikSem.push(`👏 ${mandiriCount} dari ${semYl.rows.length || 10} YL berhasil meraih status Mandiri (≥250 btl/hari), fondasi rute kokoh!`);
+  } else if (agg.ylBaru > 0) {
+    poinBaikSem.push(`🤝 Rekrutmen ${fmtNum(agg.ylBaru)} YL baru berhasil memperkuat tim dan penguasaan area.`);
+  } else {
+    poinBaikSem.push(`🤝 Rata-rata tim mencapai ${fmtNum(semYl.teamOverallAvg)} btl/hari dengan kekompakan yang solid.`);
+  }
+
+  const poinPerbaikanSem: string[] = [];
+  if (agg.avgCapaian < 100) {
+    poinPerbaikanSem.push(`🎯 Rata-rata capaian masih kurang ${fmtPct(100 - agg.avgCapaian)}%. Dorong penawaran +1 pak ke pelanggan rumah tangga setiap kunjungan.`);
+  } else {
+    poinPerbaikanSem.push(`📊 Pertahankan konsistensi ritme penjualan agar performa periode berikutnya tetap melampaui target.`);
+  }
+
+  if (binaanCount > 0) {
+    poinPerbaikanSem.push(`📘 Masih ada ${binaanCount} YL di level binaan (<250 btl). Dampingi rute bersama untuk mencapai target 250 btl/hari.`);
+  } else if (agg.avgRetur > 10) {
+    poinPerbaikanSem.push(`🔄 Rata-rata Kembali Botol ${fmtPct(agg.avgRetur)}% (>10%). Periksa rotasi stok dan kulkas pelanggan secara berkala.`);
+  } else if (agg.ylResign > 0) {
+    poinPerbaikanSem.push(`⚠️ Terdapat ${fmtNum(agg.ylResign)} YL resign. Percepat pembinaan YL baru agar area tetap terlayani ramah.`);
+  } else {
+    poinPerbaikanSem.push(`🏠 Perkuat loyalitas dan kedekatan dengan pelanggan rumah tangga sebagai fondasi utama omzet.`);
+  }
+
+  const slideAnalisaSem: SlideDef = {
+    eyebrow: `Analisa Data Capaian — ${title}`,
+    title: `Analisa Data Performa Tim Ibu-Ibu Yakult Lady (${title})`,
+    speakerNotes: `Sampaikan apresiasi tulus kepada seluruh Ibu-Ibu Yakult Lady atas perjuangan selama ${title}, bedah capaian tim secara transparan dan bangkitkan optimisme bersama.`,
+    node: (
+      <SlideAnalisaPerformaNode
+        periodeLabel={title}
+        ylCount={semYl.rows.length || 10}
+        top3Baik={poinBaikSem.slice(0, 3)}
+        plusList={agg.evalPlus}
+        top2Perbaikan={poinPerbaikanSem.slice(0, 2)}
+        minusList={agg.evalMinus}
+        fallbackBaikText={`Rata-rata tim ${fmtNum(semYl.teamOverallAvg)} btl/hari — seluruh tim menunjukkan semangat juang tinggi!`}
+      />
+    ),
+  };
+
+  const slideApresiasiSem: SlideDef = buildApresiasiPerformaSlide({
+    periodeLabel: title,
+    headerStat: {
+      label: "Rata-Rata Tim Keseluruhan",
+      value: `${fmtNum(semYl.teamOverallAvg)} btl/hr`,
+    },
+    winnerRata2: winnerRata2Sem ? {
+      nama: winnerRata2Sem.nama,
+      area: winnerRata2Sem.area,
+      valueLabel: `${fmtNum(winnerRata2Sem.rataRata)} btl/hr`,
+    } : null,
+    winnerKenaikan: winnerDeltaSem ? {
+      nama: winnerDeltaSem.nama,
+      area: winnerDeltaSem.area,
+      valueLabel: `${winnerDeltaSem.delta > 0 ? "+" : ""}${fmtNum(winnerDeltaSem.delta)} btl (awal→akhir periode)`,
+    } : null,
+    kenaikanLabel: "Peningkatan Tertinggi Periode Ini",
+    sampah,
+    onSampahChange,
+  });
+
   return [
-    {
+    buildCoverSlide({
       eyebrow: "Laporan Semester",
       title: title,
-      node: <SlideTitle sub={`${tku} · Tahun ${tahun}`}>{title}</SlideTitle>,
-    },
+      coverFoto,
+      fallbackNode: <SlideTitle sub="">{title}</SlideTitle>,
+    }),
     {
       eyebrow: subtitle,
       title: "Ringkasan Performa",
@@ -5547,18 +7853,8 @@ function buildSemesterSlides(
       title: "Grafik Tren Semester",
       node: (
         <div className="w-full max-w-6xl mx-auto">
-          <div className="h-56 sm:h-64 md:h-72 w-full mb-3">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={agg.trend} margin={{ top: 10, right: 25, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                <XAxis dataKey="bulan" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-                <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                <Tooltip formatter={(v: number) => fmtNum(v)} contentStyle={{ backgroundColor: "#1e293b", borderColor: "#475569", color: "#fff", fontSize: 11 }} />
-                <Legend wrapperStyle={{ fontSize: 11, color: "#cbd5e1" }} />
-                <Line type="monotone" dataKey="penjualan" name="Penjualan" stroke="#f97316" strokeWidth={3} dot={{ r: 4 }} />
-                <Line type="monotone" dataKey="target" name="Target" stroke="#94a3b8" strokeWidth={2} strokeDasharray="4 4" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="mb-3">
+            <TrendPenjualanChart data={agg.trend} storageKey={`presentasi_chart_trend_${title}`} />
           </div>
           {agg.peak && (
             <p className="text-center text-xs text-slate-400">
@@ -5582,18 +7878,7 @@ function buildSemesterSlides(
         </div>
       ),
     },
-    {
-      eyebrow: "Dampak Absensi Tim",
-      title: `Analisis Dampak Absensi (${title})`,
-      node: (
-        <div className="w-full max-w-4xl mx-auto">
-          <AnalisisAbsensiLossCard
-            months={agg.monthsData.map((x) => x.m)}
-            isDarkSlide={true}
-          />
-        </div>
-      ),
-    },
+    slideApresiasiSem,
     {
       eyebrow: "Evaluasi Mix Produk",
       title: `Keseimbangan Mix Produk (${title})`,
@@ -5616,35 +7901,7 @@ function buildSemesterSlides(
         </div>
       ),
     },
-    {
-      eyebrow: "Rangkuman Evaluasi",
-      title: "Kelebihan & Kekurangan",
-      node: (
-        <div className="space-y-4">
-          <div>
-            <p className="text-emerald-400 text-xs font-black uppercase mb-2 flex items-center gap-1 justify-center"><ThumbsUp className="w-3.5 h-3.5" /> Kelebihan</p>
-            <ul className="space-y-1 text-xs sm:text-sm text-slate-300 text-center">
-              {agg.evalPlus.slice(0, 4).map((s, i) => <li key={i}>• {s}</li>)}
-              {agg.evalPlus.length === 0 && <li className="text-slate-500">Belum ada catatan.</li>}
-            </ul>
-          </div>
-          <div className="pt-2 border-t border-slate-800">
-            <p className="text-red-400 text-xs font-black uppercase mb-2 flex items-center gap-1 justify-center"><ThumbsDown className="w-3.5 h-3.5" /> Kekurangan</p>
-            <ul className="space-y-1 text-xs sm:text-sm text-slate-300 text-center">
-              {agg.evalMinus.slice(0, 4).map((s, i) => <li key={i}>• {s}</li>)}
-              {agg.evalMinus.length === 0 && <li className="text-slate-500">Belum ada catatan.</li>}
-            </ul>
-          </div>
-        </div>
-      ),
-    },
-    {
-      eyebrow: "Rencana Tindak Lanjut",
-      title: "Rencana Aksi Semester",
-      speakerNotes: `Diskusikan dan tetapkan komitmen tindak lanjut periode ${title} bersama tim.`,
-      isActionPlan: true,
-      node: null,
-    },
+    slideAnalisaSem,
   ];
 }
 
@@ -5654,9 +7911,12 @@ function buildSemester2Slides(
   tku: string,
   jumlahYL: number,
   actionPlans: ActionPlanItem[],
-  perYL: any[] = []
+  perYL: any[] = [],
+  sampah?: SampahTerbanyakRecord,
+  onSampahChange?: (patch: Partial<SampahTerbanyakRecord>) => void,
+  coverFoto?: string
 ): SlideDef[] {
-  const base = buildSemesterSlides(s2.agg, "Semester 2", "Juli – Desember", tahun, tku, actionPlans, perYL);
+  const base = buildSemesterSlides(s2.agg, "Semester 2", "Juli – Desember", tahun, tku, actionPlans, perYL, sampah, onSampahChange, coverFoto);
   const proyeksiSlide: SlideDef = {
     eyebrow: "Proyeksi vs Target",
     title: "Proyeksi Akhir Tahun",
@@ -5732,14 +7992,104 @@ function buildTahunanSlides(
   tahun: string | number,
   tku: string,
   actionPlans: ActionPlanItem[],
-  perYL: any[] = []
+  perYL: any[] = [],
+  sampah?: SampahTerbanyakRecord,
+  onSampahChange?: (patch: Partial<SampahTerbanyakRecord>) => void,
+  coverFoto?: string
 ): SlideDef[] {
+  const thYl = computeYLAverageData(
+    perYL,
+    0,
+    t.monthsData.length > 0 ? t.monthsData[t.monthsData.length - 1].idx : 11
+  );
+  const mandiriCount = thYl.totalMandiri;
+  const binaanCount = thYl.totalBinaan;
+
+  // Pemenang Apresiasi Performa tahunan
+  const winnerRata2Tahunan = thYl.rows[0] || null;
+  const rowsByDeltaTahunan = [...thYl.rows].sort((a, b) => b.delta - a.delta);
+  const winnerDeltaTahunan = rowsByDeltaTahunan[0] || null;
+
+  const plusListTahunan = t.monthsData.flatMap((x) => x.m.evaluasiPlus || []).filter((s: string) => s && s.trim());
+  const minusListTahunan = t.monthsData.flatMap((x) => x.m.evaluasiMinus || []).filter((s: string) => s && s.trim());
+
+  const poinBaikTahunan: string[] = [];
+  if (t.capaianTahunan !== null && t.capaianTahunan >= 100) {
+    poinBaikTahunan.push(`🎯 Target Tahunan Tembus ${fmtPct(t.capaianTahunan)}%! Akumulasi ${fmtNum(t.akmSoFar)} botol tercapai (est. ${fmtNum(t.estimasiTahunan)} btl).`);
+  } else {
+    poinBaikTahunan.push(`✅ Realisasi penjualan ${fmtNum(t.akmSoFar)} botol (${t.capaianTahunan !== null ? fmtPct(t.capaianTahunan) : "-"}% dari target tahunan ${fmtNum(t.targetTahunan)} btl).`);
+  }
+
+  if (t.growthPct !== null && t.growthPct >= 0) {
+    poinBaikTahunan.push(`📈 Pertumbuhan positif +${fmtPct(t.growthPct)}% YoY dibanding tahun lalu, daya juang tim terbukti konsisten.`);
+  } else {
+    poinBaikTahunan.push(`📊 Estimasi akhir tahun mencapai ${fmtNum(t.estimasiTahunan)} botol dengan ketahanan operasional yang terjaga.`);
+  }
+
+  if (mandiriCount > 0) {
+    poinBaikTahunan.push(`👏 ${mandiriCount} dari ${thYl.rows.length || 10} YL berada di status Mandiri (≥250 btl/hari), cakupan area aktif ${t.areaTercoverFinal !== null ? fmtPct(t.areaTercoverFinal, 0) : "-"}%.`);
+  } else {
+    poinBaikTahunan.push(`🗺️ Cakupan area aktif mencapai ${t.areaTercoverFinal !== null ? fmtPct(t.areaTercoverFinal, 0) : "-"}% dengan rata-rata tim ${fmtNum(thYl.teamOverallAvg)} btl/hari.`);
+  }
+
+  const poinPerbaikanTahunan: string[] = [];
+  if (t.targetTahunan > t.akmSoFar) {
+    poinPerbaikanTahunan.push(`🎯 Sisa target tahunan ${fmtNum(t.targetTahunan - t.akmSoFar)} botol. Maksimalkan sisa periode dengan penetrasi rute rumah tangga.`);
+  } else {
+    poinPerbaikanTahunan.push(`📊 Pertahankan standar kualitas kerja tinggi untuk menyongsong target tahun baru yang lebih menantang.`);
+  }
+
+  if (binaanCount > 0) {
+    poinPerbaikanTahunan.push(`📘 Terdapat ${binaanCount} YL di level binaan (<250 btl). Perlu coaching berkala dan pendampingan lapangan berkelanjutan.`);
+  } else {
+    poinPerbaikanTahunan.push(`🔄 Terus kawal ketat kesegaran produk (Zero BB) dan minimalisir absensi agar rute pelanggan tetap prima.`);
+  }
+
+  const slideAnalisaTahunan: SlideDef = {
+    eyebrow: `Analisa Data Capaian — Tahun ${tahun}`,
+    title: `Analisa Data Performa Tim Ibu-Ibu Yakult Lady (Tahun ${tahun})`,
+    speakerNotes: `Sampaikan apresiasi setinggi-tingginya kepada seluruh Ibu-Ibu Yakult Lady atas dedikasi tanpa lelah sepanjang tahun ${tahun}, evaluasi pencapaian strategis, dan bangun kebersamaan menyongsong masa depan.`,
+    node: (
+      <SlideAnalisaPerformaNode
+        periodeLabel={`Tahun ${tahun}`}
+        ylCount={thYl.rows.length || 10}
+        top3Baik={poinBaikTahunan.slice(0, 3)}
+        plusList={plusListTahunan}
+        top2Perbaikan={poinPerbaikanTahunan.slice(0, 2)}
+        minusList={minusListTahunan}
+        fallbackBaikText={`Rata-rata tahunan tim ${fmtNum(thYl.teamOverallAvg)} btl/hari — kerja keras dan dedikasi luar biasa sepanjang tahun!`}
+      />
+    ),
+  };
+
+  const slideApresiasiTahunan: SlideDef = buildApresiasiPerformaSlide({
+    periodeLabel: `Tahun ${tahun}`,
+    headerStat: {
+      label: "Rata-Rata Tim Keseluruhan",
+      value: `${fmtNum(thYl.teamOverallAvg)} btl/hr`,
+    },
+    winnerRata2: winnerRata2Tahunan ? {
+      nama: winnerRata2Tahunan.nama,
+      area: winnerRata2Tahunan.area,
+      valueLabel: `${fmtNum(winnerRata2Tahunan.rataRata)} btl/hr`,
+    } : null,
+    winnerKenaikan: winnerDeltaTahunan ? {
+      nama: winnerDeltaTahunan.nama,
+      area: winnerDeltaTahunan.area,
+      valueLabel: `${winnerDeltaTahunan.delta > 0 ? "+" : ""}${fmtNum(winnerDeltaTahunan.delta)} btl (awal→akhir tahun)`,
+    } : null,
+    kenaikanLabel: "Peningkatan Tertinggi Tahun Ini",
+    sampah,
+    onSampahChange,
+  });
+
   return [
-    {
+    buildCoverSlide({
       eyebrow: "Laporan Tahunan",
       title: `Tinjauan Tahunan ${tahun}`,
-      node: <SlideTitle sub={`${tku} · Fokus Strategis`}>{String(tahun)}</SlideTitle>,
-    },
+      coverFoto,
+      fallbackNode: <SlideTitle sub="">{String(tahun)}</SlideTitle>,
+    }),
     {
       eyebrow: "Pencapaian YoY",
       title: "Realisasi vs Target Tahunan",
@@ -5763,17 +8113,8 @@ function buildTahunanSlides(
             value={t.growthPct !== null ? `${t.growthPct >= 0 ? "+" : ""}${fmtPct(t.growthPct)}%` : "-"}
             sub="Rata-rata dari bulan-bulan terisi"
           />
-          <div className="h-52 sm:h-60 md:h-72 w-full mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={t.trend} margin={{ top: 10, right: 25, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                <XAxis dataKey="bulan" tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                <YAxis tick={{ fill: "#94a3b8", fontSize: 10 }} />
-                <Tooltip formatter={(v: number) => fmtNum(v)} contentStyle={{ backgroundColor: "#1e293b", borderColor: "#475569", color: "#fff", fontSize: 11 }} />
-                <Bar dataKey="penjualan" name="Realisasi" fill="#f97316" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="target" name="Target" fill="#64748b" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="mt-4">
+            <TrendPenjualanChart data={t.trend} storageKey={`presentasi_chart_trend_tahunan_${tahun}`} heightClass="h-52 sm:h-60 md:h-72" />
           </div>
         </div>
       ),
@@ -5804,18 +8145,7 @@ function buildTahunanSlides(
         </div>
       ),
     },
-    {
-      eyebrow: "Dampak Absensi Tim",
-      title: `Dampak Absensi & Botol Terlewatkan ${tahun}`,
-      node: (
-        <div className="w-full max-w-4xl mx-auto">
-          <AnalisisAbsensiLossCard
-            months={t.monthsData.map((x) => x.m)}
-            isDarkSlide={true}
-          />
-        </div>
-      ),
-    },
+    slideApresiasiTahunan,
     {
       eyebrow: "Uji Kelayakan Beban",
       title: `Uji Kelayakan Target Tahunan ${tahun}`,
@@ -5841,18 +8171,11 @@ function buildTahunanSlides(
         />
       ),
     },
+    slideAnalisaTahunan,
     {
       eyebrow: "Kesimpulan Akhir",
       title: "Rangkuman Eksekutif",
       node: <p className="text-sm sm:text-base text-slate-300 text-center leading-relaxed">{t.kesimpulan}</p>,
     },
-    {
-      eyebrow: "Rencana Strategis",
-      title: "Komitmen Tindak Lanjut Tahunan",
-      speakerNotes: `Diskusikan dan tetapkan komitmen tindak lanjut strategis untuk tahun ${tahun} bersama tim.`,
-      isActionPlan: true,
-      node: null,
-    },
   ];
 }
-

@@ -189,6 +189,12 @@ function BreakdownGridRowInner({
                 clickStartRef.current = null;
               }}
               onContextMenu={(e) => {
+                const target = e.target as HTMLElement | null;
+                const isInput = target?.tagName?.toLowerCase() === "input";
+                const isInputFocused = isInput && (document.activeElement === target || document.activeElement?.tagName?.toLowerCase() === "input");
+                if (isInputFocused) {
+                  return;
+                }
                 e.preventDefault();
                 if (!isSelected) {
                   setGridSelection({ startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx });
@@ -198,6 +204,10 @@ function BreakdownGridRowInner({
               }}
               onTouchStart={(e) => {
                 if (!e.touches || e.touches.length === 0) return;
+                const target = e.target as HTMLElement | null;
+                const isInput = target?.tagName?.toLowerCase() === "input";
+                const isInputFocused = isInput && (document.activeElement === target || document.activeElement?.tagName?.toLowerCase() === "input");
+
                 const touch = e.touches[0];
                 let isInside = Boolean(isSelected);
                 touchStartRef.current = {
@@ -206,8 +216,14 @@ function BreakdownGridRowInner({
                   r: rIdx,
                   c: cIdx,
                   isInsideSelection: isInside,
-                  hasMoved: false
+                  hasMoved: false,
+                  isInputFocused
                 };
+
+                if (isInputFocused) {
+                  return;
+                }
+
                 if (!isInside) {
                   setIsBreakdownMenuOpen?.(false);
                   setIsGridDragging(false);
@@ -216,13 +232,20 @@ function BreakdownGridRowInner({
                 }
               }}
               onTouchEnd={() => {
+                if (touchStartRef.current?.isInputFocused) {
+                  touchStartRef.current = null;
+                  return;
+                }
                 if (touchStartRef.current && !touchStartRef.current.hasMoved && touchStartRef.current.isInsideSelection) {
                   setIsBreakdownMenuOpen?.(true);
                   setBreakdownMenuPos?.({ x: touchStartRef.current.clientX, y: touchStartRef.current.clientY });
                 }
                 touchStartRef.current = null;
               }}
-              onTouchMove={handleTouchMoveGrid}
+              onTouchMove={(e) => {
+                if (touchStartRef.current?.isInputFocused) return;
+                handleTouchMoveGrid(e);
+              }}
             >
               <NumberInput
                 min={0}

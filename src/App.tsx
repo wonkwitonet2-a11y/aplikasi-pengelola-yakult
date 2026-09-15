@@ -84,7 +84,7 @@ export default function App() {
   // Global Datasets
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(() => getFallbackDashboardData());
   const [evaluasiData, setEvaluasiData] = useState<EvaluasiData | null>(() => getFallbackEvaluasiData());
-  const [ylList, setYlList] = useState<any[]>([]);
+  const [ylList, setYlList] = useState<any[]>(() => getStoredYlList());
   const [scriptUrl, setScriptUrl] = useState<string>("");
   const [motivasiConfig, setMotivasiConfig] = useState<MotivasiConfig>(() => {
     try {

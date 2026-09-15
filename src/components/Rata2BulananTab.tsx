@@ -35,6 +35,13 @@ export interface MonthlyRata2Data {
   month: string; // "01"
   label: string; // "Januari 2025"
   updatedAt: string;
+  pembagi?: number;
+  jwp?: number;
+  salesPerYL?: number;
+  absen?: {
+    jumlahYL: number;
+    frekuensi: number;
+  };
   rows: Rata2Row[];
 }
 
@@ -98,12 +105,13 @@ const INITIAL_SAMPLES: Record<string, Rata2Row[]> = {
 
 interface Rata2BulananTabProps {
   ylList?: any[];
+  defaultYearMonth?: string;
 }
 
-export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
-  const [selectedYear, setSelectedYear] = useState<string>("2025");
-  const [selectedMonth, setSelectedMonth] = useState<string>("01");
-  const [activeYearMonth, setActiveYearMonth] = useState<string>("2025-01");
+export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananTabProps) {
+  const [selectedYear, setSelectedYear] = useState<string>(() => defaultYearMonth ? defaultYearMonth.split("-")[0] : "2025");
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => defaultYearMonth ? defaultYearMonth.split("-")[1] : "01");
+  const [activeYearMonth, setActiveYearMonth] = useState<string>(() => defaultYearMonth || "2025-01");
 
   const [savedMonthsList, setSavedMonthsList] = useState<string[]>(["2025-07", "2025-08", "2026-01"]);
   const [currentData, setCurrentData] = useState<MonthlyRata2Data | null>(null);
@@ -118,6 +126,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
   
   const [showPasteModal, setShowPasteModal] = useState<boolean>(false);
   const [pasteInputText, setPasteInputText] = useState<string>("");
+  const [internalCopiedText, setInternalCopiedText] = useState<string>("");
 
   // Process pasted string from Excel / Spreadsheet / TSV
   const processPastedText = useCallback((pastedText: string) => {
@@ -170,16 +179,19 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
     const header = "Area\tNama YL\tYO\tOM\tOS\tYT\tRata-Rata";
     const lines = rows.map(r => `${r.area}\t${r.nama}\t${r.yo}\t${r.om}\t${r.os}\t${r.yt}\t${r.totalRata2}`);
     const textToCopy = [header, ...lines].join("\n");
+    setInternalCopiedText(textToCopy);
     navigator.clipboard.writeText(textToCopy).then(() => {
       setStatusMsg("📋 Tabel Rata-Rata Bulanan berhasil disalin ke clipboard! Siap di-paste ke Excel.");
       setTimeout(() => setStatusMsg(""), 4000);
     }).catch(() => {
-      alert("Gagal menyalin data ke clipboard.");
+      // Masih berhasil tersimpan di memori internal app
+      setStatusMsg("📋 Tabel disalin ke memori aplikasi.");
+      setTimeout(() => setStatusMsg(""), 3000);
     });
   };
 
-  const handleInputCellPaste = (e: React.ClipboardEvent<HTMLInputElement>, startRowIdx: number, startField: "yo" | "om" | "os" | "yt") => {
-    const text = e.clipboardData.getData("text");
+  const handleInputCellPaste = (e: React.ClipboardEvent<HTMLInputElement>, startRowIdx: number, startField: "yo" | "om" | "os" | "yt" | "totalRata2") => {
+    const text = e.clipboardData.getData("text/plain") || e.clipboardData.getData("text");
     if (!text) return;
     e.preventDefault();
     processPastedText(text);
@@ -190,11 +202,17 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
       const text = await navigator.clipboard.readText();
       if (text) {
         processPastedText(text);
+      } else if (internalCopiedText) {
+        processPastedText(internalCopiedText);
       } else {
         setShowPasteModal(true);
       }
     } catch (e) {
-      setShowPasteModal(true);
+      if (internalCopiedText) {
+        processPastedText(internalCopiedText);
+      } else {
+        setShowPasteModal(true);
+      }
     }
   };
 
@@ -240,7 +258,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
         if (Array.isArray(sbIndex) && sbIndex.length > 0) {
           const merged = Array.from(new Set([...localIndex, ...sbIndex, "2025-07", "2025-08", "2026-01"])).sort().reverse();
           setSavedMonthsList(merged);
-          if (merged.length > 0) {
+          if (!defaultYearMonth && merged.length > 0) {
             const [y, m] = merged[0].split("-");
             setSelectedYear(y);
             setSelectedMonth(m);
@@ -252,7 +270,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
 
       const merged = Array.from(new Set([...localIndex, "2025-07", "2025-08", "2026-01"])).sort().reverse();
       setSavedMonthsList(merged);
-      if (merged.length > 0) {
+      if (!defaultYearMonth && merged.length > 0) {
         const [y, m] = merged[0].split("-");
         setSelectedYear(y);
         setSelectedMonth(m);
@@ -260,7 +278,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
       }
     };
     loadIndex();
-  }, []);
+  }, [defaultYearMonth]);
 
   // Helper to load data for a specific yearMonth
   const loadMonthData = async (ymKey: string) => {
@@ -352,12 +370,24 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
     setIsSaving(true);
     setStatusMsg(`⏳ Menyimpan data Rata-Rata Bulanan ${label} ke Supabase...`);
 
+    const sumTotalAll = editableRows.reduce((acc, r) => acc + (r.total || 0), 0);
+    const sumRata2All = editableRows.reduce((acc, r) => acc + (r.totalRata2 || 0), 0);
+    const activeCount = editableRows.length > 0 ? editableRows.length : 10;
+    const daysInMonth = new Date(parseInt(yr, 10) || 2026, parseInt(mo, 10) || 8, 0).getDate();
+    const safePembagi = currentData?.pembagi || (sumTotalAll > 0 && sumRata2All > 0 ? Math.round(sumTotalAll / sumRata2All) : daysInMonth);
+    const jwpVal = activeCount * safePembagi;
+    const salesPerYL = jwpVal > 0 ? Math.round(sumTotalAll / jwpVal) : (activeCount > 0 ? Math.round(sumRata2All / activeCount) : 0);
+
     const updatedData: MonthlyRata2Data = {
       yearMonth: ymKey,
       year: yr,
       month: mo,
       label,
       updatedAt: new Date().toISOString(),
+      pembagi: safePembagi,
+      jwp: jwpVal,
+      salesPerYL,
+      absen: currentData?.absen || { jumlahYL: 0, frekuensi: 0 },
       rows: editableRows
     };
 
@@ -597,7 +627,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
               Tabel Rekapitulasi Rata-Rata Penjualan Per Yakult Lady ({activeLabel})
             </p>
             {vsTahunLalu && (
-              <p className="text-[10px] text-emerald-300 mt-1 flex items-center gap-1.5">
+              <p className="text-[10px] text-emerald-300 mt-1 flex items-center gap-1.5 flex-wrap">
                 <span className="bg-emerald-700/60 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">
                   vs Tahun Lalu: {vsTahunLalu.persen !== null ? `${vsTahunLalu.persen}%` : "-"}
                 </span>
@@ -606,6 +636,33 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
                 </span>
               </p>
             )}
+            <div className="flex flex-wrap gap-2 mt-2 pt-1 border-t border-emerald-800/60 text-[10px]">
+              {(() => {
+                const sYr = parseInt(selectedYear, 10) || 2026;
+                const sMo = parseInt(selectedMonth, 10) || 8;
+                const calDays = new Date(sYr, sMo, 0).getDate();
+                const displayPembagi = currentData?.pembagi || (totals.totalRata2 > 0 && totals.total > 0 ? Math.round(totals.total / totals.totalRata2) : calDays);
+                const displayJwp = currentData?.jwp || ((editableRows.length || 10) * displayPembagi);
+                return (
+                  <>
+                    <span className="bg-emerald-800/80 text-emerald-200 px-2 py-0.5 rounded font-medium">
+                      Pembagi: <strong className="text-white">{displayPembagi} Hari</strong>
+                    </span>
+                    <span className="bg-emerald-800/80 text-emerald-200 px-2 py-0.5 rounded font-medium">
+                      JWP: <strong className="text-white">{displayJwp}</strong>
+                    </span>
+                  </>
+                );
+              })()}
+              <span className="bg-amber-500/20 border border-amber-400/30 text-amber-200 px-2 py-0.5 rounded font-bold">
+                S/YL: <strong className="text-white">{currentData?.salesPerYL || (totals.totalRata2 > 0 ? Math.round(totals.totalRata2 / (editableRows.length || 10)) : 0)} btl</strong>
+              </span>
+              {currentData?.absen && (currentData.absen.jumlahYL > 0 || currentData.absen.frekuensi > 0) && (
+                <span className="bg-rose-500/20 border border-rose-400/30 text-rose-200 px-2 py-0.5 rounded font-medium">
+                  Absen: <strong className="text-white">{currentData.absen.jumlahYL} YL ({currentData.absen.frekuensi} Hari)</strong>
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -738,6 +795,7 @@ export function Rata2BulananTab({ ylList = [] }: Rata2BulananTabProps) {
                         step="0.01"
                         value={row.totalRata2}
                         onChange={(e) => handleRowInputChange(idx, "totalRata2", e.target.value)}
+                        onPaste={(e) => handleInputCellPaste(e, idx, "totalRata2")}
                         className="w-full p-1 text-right bg-white border border-emerald-400 rounded text-xs font-black text-emerald-900 focus:ring-2 focus:ring-emerald-500 outline-none"
                       />
                     ) : (

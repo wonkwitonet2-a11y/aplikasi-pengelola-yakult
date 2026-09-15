@@ -210,7 +210,12 @@ export function getStoredBreakdownRealisasi(month?: string) {
     const raw = localStorage.getItem(`bd_realisasi_${currentM}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") return parsed;
+      if (parsed && typeof parsed === "object" && Object.keys(parsed).length > 0) return parsed;
+    }
+    const arcRaw = localStorage.getItem(`monthly_archive_${currentM}`);
+    if (arcRaw) {
+      const arcParsed = JSON.parse(arcRaw);
+      if (arcParsed && arcParsed.breakdownRealisasiMap) return arcParsed.breakdownRealisasiMap;
     }
   } catch (e) {
     console.warn("Failed to read local bd_realisasi:", e);
@@ -366,8 +371,38 @@ export function getFallbackDashboardData(month?: string): DashboardData {
 
 export function getFallbackEvaluasiData(month?: string): EvaluasiData {
   const currentM = month || new Date().toISOString().substring(0, 7);
+  const [yStr, mStr] = currentM.split("-");
+  const yNum = parseInt(yStr, 10);
+  const mNum = parseInt(mStr, 10);
+  const prevMonthKey = mNum === 1 
+    ? `${yNum - 1}-12` 
+    : `${yNum}-${String(mNum - 1).padStart(2, "0")}`;
+
   const ylList = getStoredYlList() || INITIAL_YL_LIST;
   const realMap = getStoredBreakdownRealisasi(currentM);
+  const prevRealMap = getStoredBreakdownRealisasi(prevMonthKey);
+
+  const getSalesFromRealMap = (map: any, areaKey: string, dayNum: number): number => {
+    let aData = map[areaKey];
+    if (!aData) {
+      const k = Object.keys(map).find(x => x === areaKey || x.startsWith(areaKey) || areaKey.startsWith(x));
+      if (k) aData = map[k];
+    }
+    const dObj = aData?.days?.[String(dayNum)];
+    if (!dObj) return 0;
+    return (Number(dObj.yo) || 0) + (Number(dObj.om) || 0) + (Number(dObj.os) || 0) + (Number(dObj.yt) || 0);
+  };
+
+  const getDateWithOffsetLocal = (baseMonth: string, baseDay: number, offsetDays: number) => {
+    const [ys, ms] = baseMonth.split("-");
+    const y = parseInt(ys, 10);
+    const mIdx = parseInt(ms, 10) - 1;
+    const d = new Date(y, mIdx, baseDay - offsetDays);
+    const resY = d.getFullYear();
+    const resM = String(d.getMonth() + 1).padStart(2, "0");
+    const resD = d.getDate();
+    return { monthKey: `${resY}-${resM}`, day: resD };
+  };
 
   const dataRows = ylList.map(y => {
     const area = y.area;
@@ -414,14 +449,33 @@ export function getFallbackEvaluasiData(month?: string): EvaluasiData {
     const rataOs = pembagi > 0 ? Math.round(ylOs / pembagi) : 0;
     const rataYt = pembagi > 0 ? Math.round(ylYt / pembagi) : 0;
 
+    // Rata2 Minggu Ini (offset 0..6)
+    let sumMingguIni = 0;
+    for (let i = 0; i < 7; i++) {
+      const dt = getDateWithOffsetLocal(currentM, pembagi, i);
+      const targetMap = dt.monthKey === currentM ? realMap : prevRealMap;
+      sumMingguIni += getSalesFromRealMap(targetMap, area, dt.day);
+    }
+    const rataMingguIni = Math.trunc(sumMingguIni / 7);
+
+    // Rata2 Minggu Lalu (offset 7..13)
+    let sumMingguLalu = 0;
+    for (let i = 0; i < 7; i++) {
+      const dt = getDateWithOffsetLocal(currentM, pembagi, 7 + i);
+      const targetMap = dt.monthKey === currentM ? realMap : prevRealMap;
+      sumMingguLalu += getSalesFromRealMap(targetMap, area, dt.day);
+    }
+    const rataMingguLalu = Math.trunc(sumMingguLalu / 7);
+    const vsMingguLaluPct = rataMingguLalu > 0 ? Math.trunc((rataMingguIni / rataMingguLalu) * 100) : 0;
+
     return [
       y.area,
       y.nama,
-      0,
+      rataMingguLalu,
       todayYo, todayOm, todayOs, todayYt, todayTotal,
       ylTotal,
       rataYo, rataOm, rataOs, rataYt, rata2Total,
-      0, 0,
+      rataMingguIni, vsMingguLaluPct,
       0, 0, 0, 0, 0, 0, 0, 0,
       0, 0,
       0, 0, 0, 0, 0, 0, 0
@@ -431,8 +485,10 @@ export function getFallbackEvaluasiData(month?: string): EvaluasiData {
   let totTodayYo = 0, totTodayOm = 0, totTodayOs = 0, totTodayYt = 0, totTodayTotal = 0;
   let totAkm = 0;
   let totRataYo = 0, totRataOm = 0, totRataOs = 0, totRataYt = 0, totRataTotal = 0;
+  let totRataMingguLalu = 0, totRataMingguIni = 0;
 
   dataRows.forEach(r => {
+    totRataMingguLalu += (r[2] as number) || 0;
     totTodayYo += (r[3] as number) || 0;
     totTodayOm += (r[4] as number) || 0;
     totTodayOs += (r[5] as number) || 0;
@@ -444,15 +500,19 @@ export function getFallbackEvaluasiData(month?: string): EvaluasiData {
     totRataOs += (r[11] as number) || 0;
     totRataYt += (r[12] as number) || 0;
     totRataTotal += (r[13] as number) || 0;
+    totRataMingguIni += (r[14] as number) || 0;
   });
+
+  const totVsMingguLalu = totRataMingguLalu > 0 ? Math.trunc((totRataMingguIni / totRataMingguLalu) * 100) : 0;
 
   const totalRow = [
     "TOTAL", "",
-    0,
+    totRataMingguLalu,
     totTodayYo, totTodayOm, totTodayOs, totTodayYt, totTodayTotal,
     totAkm,
     totRataYo, totRataOm, totRataOs, totRataYt, totRataTotal,
-    ...Array(18).fill(0)
+    totRataMingguIni, totVsMingguLalu,
+    ...Array(16).fill(0)
   ];
 
   const analisis = ylList.map((y, idx) => {
@@ -462,7 +522,7 @@ export function getFallbackEvaluasiData(month?: string): EvaluasiData {
       nama: y.nama,
       jualHariIni: (row[7] as number) || 0,
       rata2BulanBerjalan: (row[13] as number) || 0,
-      vsMingguLaluPct: 0,
+      vsMingguLaluPct: (row[15] as number) || 0,
       persenRumah: 0,
       persenRbVsPlg: 0,
       propagandaHariIni: 0,

@@ -12,6 +12,7 @@ import {
 import { Transaction, MotivasiConfig, cleanYlName } from "../types";
 import { safeFetchJson, parseJsonResponse } from "../lib/safeFetch";
 import { getStoredBreakdownPlan, getStoredBreakdownRealisasi } from "../lib/fallbackData";
+import { getStoredYlList } from "../lib/storage";
 import { NumberInput } from "./NumberInput";
 import { useSimpleGrid } from "./useSimpleGrid";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
@@ -92,16 +93,47 @@ export function YLView({
   onToggleTheme,
   globalMonth
 }: YLViewProps) {
-  const [activeTab, setActiveTab] = useState<"beranda" | "input" | "ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus" | "seragam" | "product_knowledge">("beranda");
+  const [activeTab, setActiveTab] = useState<"beranda" | "input" | "ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus" | "seragam" | "product_knowledge" | "tautan">("beranda");
   useTabHistory(activeTab, setActiveTab, "beranda");
 
   const currentYlInfo = useMemo(() => {
-    const areaPrefix = ylName.substring(0, 3).trim();
-    return ylList.find(y => 
-      (y.area && (y.area === areaPrefix || y.area === ylName || ylName.startsWith(y.area))) || 
-      (y.nama && (String(y.nama).toLowerCase() === String(ylName).toLowerCase() || String(y.nama).toLowerCase().includes(String(ylName).toLowerCase()) || String(ylName).toLowerCase().includes(String(y.nama).toLowerCase())))
-    ) || {};
+    const list = (ylList && ylList.length > 0) ? ylList : getStoredYlList();
+    const digitsMatch = ylName.match(/^\d+/) || ylName.match(/\b\d{3}\b/);
+    const areaDigits = digitsMatch ? digitsMatch[0] : "";
+    const cleanTargetName = cleanYlName(ylName).trim().toLowerCase();
+
+    return list.find(y => {
+      const yArea = String(y.area || "").trim();
+      const yNama = String(y.nama || "").trim().toLowerCase();
+      const cleanYNama = cleanYlName(y.nama || "").trim().toLowerCase();
+
+      if (areaDigits && yArea === areaDigits) return true;
+      if (yArea && (yArea === ylName.trim() || ylName.trim().startsWith(yArea))) return true;
+      if (yNama && (yNama === cleanTargetName || cleanTargetName.includes(yNama) || yNama.includes(cleanTargetName))) return true;
+      if (cleanYNama && (cleanYNama === cleanTargetName || cleanTargetName.includes(cleanYNama) || cleanYNama.includes(cleanTargetName))) return true;
+      return false;
+    }) || {};
   }, [ylName, ylList]);
+
+  const ylAreaCode = useMemo(() => {
+    if (currentYlInfo.area) return String(currentYlInfo.area).trim();
+    const digitsMatch = ylName.match(/\b\d{3}\b/) || ylName.match(/^\d+/);
+    if (digitsMatch) return digitsMatch[0];
+    const list = getStoredYlList();
+    const cleanTargetName = cleanYlName(ylName).trim().toLowerCase();
+    const found = list.find(y => {
+      const yNama = String(y.nama || "").trim().toLowerCase();
+      const cleanYNama = cleanYlName(y.nama || "").trim().toLowerCase();
+      return (yNama && (yNama === cleanTargetName || cleanTargetName.includes(yNama) || yNama.includes(cleanTargetName))) ||
+             (cleanYNama && (cleanYNama === cleanTargetName || cleanTargetName.includes(cleanYNama) || cleanYNama.includes(cleanTargetName)));
+    });
+    return found?.area ? String(found.area).trim() : "";
+  }, [currentYlInfo, ylName]);
+
+  const displayAreaNumber = useMemo(() => {
+    const raw = ylAreaCode || currentYlInfo.area || "";
+    return String(raw).replace(/^Area\s*/i, "").trim();
+  }, [ylAreaCode, currentYlInfo.area]);
 
   const isBirthday = useMemo(() => {
     let day, month;
@@ -339,11 +371,13 @@ export function YLView({
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (activeTab === "realisasi_potensi" && isEditRealisasi) {
-          navigator.clipboard.readText().then(text => {
-            handleRealisasiGridPaste(text);
-          }).catch(() => {
-            handleRealisasiGridPaste();
-          });
+          if (targetTag !== "input" && targetTag !== "textarea") {
+            navigator.clipboard.readText().then(text => {
+              handleRealisasiGridPaste(text);
+            }).catch(() => {
+              handleRealisasiGridPaste();
+            });
+          }
         }
       }
     };
@@ -393,7 +427,7 @@ export function YLView({
   
   // Fetch Breakdown & Realisasi for YL from Admin
   useEffect(() => {
-    const area = currentYlInfo.area || ylName.substring(0, 3).trim();
+    const area = ylAreaCode || currentYlInfo.area || ylName.substring(0, 3).trim();
     const month = selectedDate ? selectedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
     setIsBreakdownLoading(true);
     safeFetchJson(`/api/getBreakdownPlan?month=${month}`)
@@ -430,11 +464,11 @@ export function YLView({
       })
       .catch(err => console.error("Error loading YL breakdown plan & realisasi:", err))
       .finally(() => setIsBreakdownLoading(false));
-  }, [activeTab, ylName, selectedDate, currentYlInfo.area]);
+  }, [activeTab, ylName, selectedDate, currentYlInfo.area, ylAreaCode]);
 
   // Fetch Attention Note for current YL area
   useEffect(() => {
-    const area = currentYlInfo.area || ylName.substring(0, 3).trim();
+    const area = ylAreaCode || currentYlInfo.area || ylName.substring(0, 3).trim();
     setIsLoadingAttention(true);
     safeFetchJson("/api/getAttention")
       .then(res => {
@@ -446,7 +480,7 @@ export function YLView({
       })
       .catch(err => console.error("Error loading attention note:", err))
       .finally(() => setIsLoadingAttention(false));
-  }, [ylName, activeTab, currentYlInfo.area]);
+  }, [ylName, activeTab, currentYlInfo.area, ylAreaCode]);
 
   // YL Profile photo state
   const [ylFoto, setYlFoto] = useState<string>(() => {
@@ -642,7 +676,7 @@ export function YLView({
     }
 
     // Load matching target configuration
-    const area = currentYlInfo.area || ylName.substring(0, 3).trim();
+    const area = ylAreaCode || currentYlInfo.area || ylName.substring(0, 3).trim();
     safeFetchJson("/api/getSettingTargets").then(res => {
       if (res && res.targetYL && res.targetYL[area]) {
         setTargetVal(res.targetYL[area].target ?? 0);
@@ -654,7 +688,7 @@ export function YLView({
         setThnLaluVal(0);
       }
     });
-  }, [selectedDate, transactions, targetYL, ylName, currentYlInfo.area]);
+  }, [selectedDate, transactions, targetYL, ylName, currentYlInfo.area, ylAreaCode]);
 
 
   // Sector calculations
@@ -1036,7 +1070,7 @@ export function YLView({
                  </div>
                  <div>
                    <h1 className="text-sm sm:text-lg font-black tracking-tight leading-none uppercase">{cleanYlName(ylName)}</h1>
-                   <p className="text-[10px] sm:text-xs font-semibold text-red-200 mt-1">Area {ylName.substring(0, 3)}</p>
+                   <p className="text-[10px] sm:text-xs font-semibold text-red-200 mt-1">Area {displayAreaNumber || "-"}</p>
                  </div>
                </>
             )}
@@ -1116,7 +1150,7 @@ export function YLView({
                     <div className="min-w-0 flex-1">
                       <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-tight truncate">{cleanYlName(ylName)}</h2>
                       <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider block mt-0.5">
-                        {currentYlInfo.area || ylName.substring(0, 3)} • {currentYlInfo.kodeYl || "-"}
+                        {displayAreaNumber ? `Area ${displayAreaNumber}` : "-"} • {currentYlInfo.kodeYl || (displayAreaNumber ? `YL-${displayAreaNumber}` : "-")}
                       </span>
                       {/* Gelar / Tier Badge dipindah ke card Bio */}
                       <div className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/50 px-2 py-0.5 rounded-lg text-[9.5px] sm:text-[10px] font-extrabold mt-1">
@@ -1416,10 +1450,10 @@ export function YLView({
               <h2 className="text-sm font-black text-slate-800">4. Kunjungan, PB, & Sampah Botol</h2>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: "PLG (Target)", val: fPlg, set: setFPlg },
-                  { label: "RK (Kunjungan)", val: fRk, set: setFRk },
-                  { label: "RA (Aktif)", val: fRa, set: setFRa },
-                  { label: "RB (Beli)", val: fRb, set: setFRb },
+                  { label: "PLG (Pelanggan)", val: fPlg, set: setFPlg },
+                  { label: "RK (Rmh Kunjung)", val: fRk, set: setFRk },
+                  { label: "RA (Rmh Ada)", val: fRa, set: setFRa },
+                  { label: "RB (Rmh Beli)", val: fRb, set: setFRb },
                 ].map(row => (
                   <div key={row.label} className="space-y-1">
                     <span className="text-xs font-bold text-slate-500 block">{row.label}</span>
@@ -1479,21 +1513,21 @@ export function YLView({
                   </p>
                 </div>
                 <span className="text-[10px] sm:text-[11px] font-black bg-red-50 text-red-700 px-2.5 py-0.5 rounded-lg border border-red-200">
-                  Area {ylName.substring(0, 3)}
+                  Area {displayAreaNumber || "-"}
                 </span>
               </div>
 
               <div className="grid grid-cols-3 gap-2 sm:gap-2.5 text-center pt-0.5">
                 {/* 1. Target Bulan Ini */}
-                <div className="p-2 sm:p-2.5 bg-red-50/70 rounded-xl border border-red-200 flex flex-col justify-between">
+                <div className="p-2 sm:p-2.5 bg-slate-50 rounded-xl border border-slate-200 flex flex-col justify-between">
                   <div>
-                    <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-red-900 block tracking-wider">Target Bulan Ini</span>
-                    <p className="text-base sm:text-xl font-black text-red-700 leading-tight mt-0.5">
+                    <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-slate-600 block tracking-wider">Target Bulan Ini</span>
+                    <p className="text-base sm:text-xl font-black text-slate-800 leading-tight mt-0.5">
                       {Math.round(targetVal).toLocaleString("id-ID")}
-                      <span className="text-[9px] sm:text-[9.5px] font-bold text-red-600/80 block -mt-0.5">btl / hari</span>
+                      <span className="text-[9px] sm:text-[9.5px] font-bold text-slate-400 block -mt-0.5">btl / hari</span>
                     </p>
                   </div>
-                  <div className="mt-1.5 pt-1.5 border-t border-red-200/80 leading-tight">
+                  <div className="mt-1.5 pt-1.5 border-t border-slate-200 leading-tight">
                     <span className="text-[9px] text-slate-500 font-extrabold uppercase block">vs Target</span>
                     <p className={`text-xs sm:text-sm font-black ${targetVal > 0 && mRata2 >= targetVal ? "text-emerald-700" : "text-amber-700"}`}>
                       {getPctString(mRata2, targetVal)}
@@ -1663,24 +1697,24 @@ export function YLView({
               {/* Stat Card Jumlah PLG, RK, RA, dan RB */}
               <div className="grid grid-cols-4 gap-2">
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-center">
-                  <span className="text-[10px] text-slate-500 font-extrabold block uppercase">Jumlah PLG</span>
+                  <span className="text-[10px] text-slate-500 font-extrabold block uppercase">Jml PLG</span>
                   <span className="text-base sm:text-xl font-black text-slate-800">{mPlg.toLocaleString("id-ID")}</span>
                   <span className="text-[9px] text-slate-400 font-semibold block">Pelanggan</span>
                 </div>
                 <div className="bg-sky-50 p-2.5 rounded-xl border border-sky-200 text-center">
                   <span className="text-[10px] text-sky-700 font-extrabold block uppercase">Jumlah RK</span>
                   <span className="text-base sm:text-xl font-black text-sky-800">{mRk.toLocaleString("id-ID")}</span>
-                  <span className="text-[9px] text-sky-600/80 font-semibold block">Rencana Kunj.</span>
+                  <span className="text-[9px] text-sky-600/80 font-semibold block">Rumah Kunjung</span>
                 </div>
                 <div className="bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 text-center">
                   <span className="text-[10px] text-indigo-700 font-extrabold block uppercase">Jumlah RA</span>
                   <span className="text-base sm:text-xl font-black text-indigo-800">{mRa.toLocaleString("id-ID")}</span>
-                  <span className="text-[9px] text-indigo-600/80 font-semibold block">Realisasi Ada</span>
+                  <span className="text-[9px] text-indigo-600/80 font-semibold block">Rumah Ada</span>
                 </div>
                 <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 text-center">
                   <span className="text-[10px] text-emerald-700 font-extrabold block uppercase">Jumlah RB</span>
                   <span className="text-base sm:text-xl font-black text-emerald-800">{mRb.toLocaleString("id-ID")}</span>
-                  <span className="text-[9px] text-emerald-600/80 font-semibold block">Realisasi Beli</span>
+                  <span className="text-[9px] text-emerald-600/80 font-semibold block">Rumah Beli</span>
                 </div>
               </div>
 
@@ -2029,10 +2063,10 @@ export function YLView({
         )}
       
         {/* TAB POTENSI VS TEMBUS */}
-        {activeTab === "seragam" && <YLSeragamView onBack={() => setActiveTab("beranda")} />}
+        {activeTab === "seragam" && <YLSeragamView />}
 
         {/* PRODUCT KNOWLEDGE TAB */}
-                {activeTab === "product_knowledge" && <ProductKnowledgeView onBack={() => setActiveTab("beranda")} />}
+        {activeTab === "product_knowledge" && <ProductKnowledgeView />}
         {activeTab === "tautan" && <OfficialLinksViewer onBack={() => setActiveTab("beranda")} />}
 
         {activeTab === "potensi_tembus" && (

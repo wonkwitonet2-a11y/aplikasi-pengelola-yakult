@@ -11,9 +11,10 @@ interface AdminBentoMenuProps {
   currentMonthTotal: (perYL: Record<string, any>, key: "yo" | "om" | "os" | "yt") => number;
   activeGridMap: any;
   setActiveTab: (tab: any) => void;
+  selectedMonth?: string;
 }
 
-export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, activeGridMap, setActiveTab }: AdminBentoMenuProps) {
+export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, activeGridMap, setActiveTab, selectedMonth }: AdminBentoMenuProps) {
   const yo = currentMonthTotal(dashboardData?.perYL || {}, "yo");
   const om = currentMonthTotal(dashboardData?.perYL || {}, "om");
   const os = currentMonthTotal(dashboardData?.perYL || {}, "os");
@@ -33,11 +34,24 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
   const vsBln = baseBulanLalu > 0 ? (numRata / baseBulanLalu * 100).toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "0,0";
   const vsThn = baseTahunLalu > 0 ? (numRata / baseTahunLalu * 100).toLocaleString('id-ID', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "0,0";
 
-  // Menghitung bulan dan tahun (Indonesia)
-  const today = new Date();
+  // Menghitung bulan dan tahun (Indonesia) berdasarkan bulan yang dipilih di header
   const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-  const monthName = months[today.getMonth()];
-  const year = today.getFullYear();
+  const currentCalMonth = new Date().toISOString().substring(0, 7);
+  const targetMonthKey = selectedMonth || (dashboardData as any)?.month || currentCalMonth;
+  
+  let monthName = months[new Date().getMonth()];
+  let year = new Date().getFullYear();
+  let isCurrentMonth = true;
+
+  if (targetMonthKey && /^\d{4}-\d{2}$/.test(targetMonthKey)) {
+    const [yStr, mStr] = targetMonthKey.split('-');
+    const mIdx = parseInt(mStr, 10) - 1;
+    if (mIdx >= 0 && mIdx < 12) {
+      monthName = months[mIdx];
+    }
+    year = parseInt(yStr, 10);
+    isCurrentMonth = (targetMonthKey === currentCalMonth);
+  }
 
   return (
     <div className="bg-[#0F111E] -mx-4 -mt-4 px-4 pt-6 pb-20 min-h-screen relative font-sans overflow-hidden">
@@ -52,7 +66,9 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
         <div className="flex items-center justify-between mb-6 relative z-10">
           <div className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full bg-pink-500 shadow-[0_0_12px_rgba(236,72,153,1)]"></div>
-            <h2 className="text-slate-200 font-bold text-sm sm:text-base tracking-wide">Rekapitulasi Bulan Ini</h2>
+            <h2 className="text-slate-200 font-bold text-sm sm:text-base tracking-wide">
+              {isCurrentMonth ? "Rekapitulasi Bulan Ini" : `Rekapitulasi Bulan ${monthName}`}
+            </h2>
           </div>
           <div className="bg-cyan-900/40 border border-cyan-800/60 text-cyan-300 px-3.5 py-1.5 rounded-full text-[10px] sm:text-xs font-black shadow-inner">
             {monthName} {year}
@@ -123,7 +139,7 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
       <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-5 landscape:grid-cols-5 gap-2 sm:gap-3 relative z-10">
         {[
           { id: "evaluasi", label: "Evaluasi", icon: ClipboardCheck, from: "from-rose-500/20", to: "to-rose-900/40", border: "border-rose-500/20", iconBg: "bg-rose-500/20 text-rose-300" },
-          { id: "input_realisasi", label: "Penjualan", icon: Calculator, from: "from-blue-500/20", to: "to-blue-900/40", border: "border-blue-500/20", iconBg: "bg-blue-500/20 text-blue-300" },
+          { id: "input_realisasi", label: "LHPP & LPPBJ", icon: Calculator, from: "from-blue-500/20", to: "to-blue-900/40", border: "border-blue-500/20", iconBg: "bg-blue-500/20 text-blue-300" },
           { id: "product_knowledge", label: "Produk Knowledge", icon: Store, from: "from-purple-500/20", to: "to-purple-900/40", border: "border-purple-500/20", iconBg: "bg-purple-500/20 text-purple-300" },
           { id: "target_kompensasi", label: "Target & Kompensasi", icon: CircleDollarSign, from: "from-rose-500/20", to: "to-pink-900/40", border: "border-pink-500/20", iconBg: "bg-pink-500/20 text-pink-300" },
           { id: "seragam", label: "Seragam", icon: Shirt, from: "from-blue-500/20", to: "to-indigo-900/40", border: "border-indigo-500/20", iconBg: "bg-indigo-500/20 text-indigo-300" },
@@ -135,7 +151,6 @@ export function AdminBentoMenu({ dashboardData, targetTKU, currentMonthTotal, ac
           { id: "setting", label: "Pengaturan", icon: Link2, from: "from-purple-500/20", to: "to-fuchsia-900/40", border: "border-fuchsia-500/20", iconBg: "bg-fuchsia-500/20 text-fuchsia-300" },
           { id: "grafik", label: "Grafik Dasbor", icon: BarChart3, from: "from-emerald-500/20", to: "to-emerald-900/40", border: "border-emerald-500/20", iconBg: "bg-emerald-500/20 text-emerald-300" },
           { id: "lady", label: "Profil YL", icon: Users, from: "from-cyan-500/20", to: "to-cyan-900/40", border: "border-cyan-500/20", iconBg: "bg-cyan-500/20 text-cyan-300" },
-          { id: "rata2_bulanan", label: "Rata-rata", icon: TrendingUp, from: "from-orange-500/20", to: "to-orange-900/40", border: "border-orange-500/20", iconBg: "bg-orange-500/20 text-orange-300" },
           { id: "presentasi", label: "Presentasi", icon: BarChart3, from: "from-orange-500/20", to: "to-amber-900/40", border: "border-amber-500/20", iconBg: "bg-amber-500/20 text-amber-300" },
           { id: "archive", label: "Arsip", icon: Archive, from: "from-fuchsia-500/20", to: "to-fuchsia-900/40", border: "border-fuchsia-500/20", iconBg: "bg-fuchsia-500/20 text-fuchsia-300" },
         ].map(item => {

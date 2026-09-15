@@ -15,6 +15,11 @@ const DATA_FILE = path.join(process.cwd(), "data.json");
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Cloud Run and container health check endpoints
+app.get(["/health", "/healthz"], (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 // --- Supabase (database persisten) -----------------------------------------
 // Server ini yang menjadi satu-satunya jalur baca/tulis data aplikasi
 // (dashboard, ringkasan YL, evaluasi, transaksi, target, dst). Memakai tabel
@@ -63,17 +68,17 @@ function supabaseFetchWithTimeout(timeoutMs: number = 15000) {
   };
 }
 
-function createSupabaseClient(url: string, key: string) {
+function createSupabaseClient(url: string, key: string, timeoutMs: number = 30000) {
   return createClient(url, key, {
     auth: { persistSession: false },
-    global: { fetch: supabaseFetchWithTimeout(15000) as any }
+    global: { fetch: supabaseFetchWithTimeout(timeoutMs) as any }
   });
 }
 
 let supabase: any = null;
 if (isValidHttpUrlServer(SUPABASE_URL) && SUPABASE_SERVICE_KEY) {
   try {
-    supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, 30000);
   } catch (e: any) {
     console.warn("[Supabase] Gagal inisialisasi Supabase client di server:", e?.message || e);
     supabase = null;
@@ -85,6 +90,28 @@ if (!supabase) {
     "[Supabase] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY belum diset atau URL tidak valid — " +
     "server memakai data.json lokal."
   );
+}
+
+// ==========================================
+// 2. KLIEN SUPABASE MEDIA (AKUN KEDUA)
+// Khusus menyimpan foto YL, data seragam, motivasi, & aset berat
+// untuk menghemat kuota penyimpanan & egress pada akun utama.
+// ==========================================
+const SUPABASE_MEDIA_URL_DEFAULT = "https://wkwjmwxxdfxyfqaseuha.supabase.co";
+const SUPABASE_MEDIA_KEY_DEFAULT = "sb_publishable_ZPTUqIJyJzSTb0Jazx_7ZQ_J3ciuWIH";
+
+const SUPABASE_MEDIA_URL = formatSupabaseUrlServer(process.env.SUPABASE_MEDIA_URL || SUPABASE_MEDIA_URL_DEFAULT);
+const SUPABASE_MEDIA_KEY = (process.env.SUPABASE_MEDIA_SERVICE_ROLE_KEY || process.env.SUPABASE_MEDIA_KEY || process.env.SUPABASE_MEDIA_ANON_KEY || SUPABASE_MEDIA_KEY_DEFAULT).trim();
+
+let supabaseMedia: any = null;
+if (isValidHttpUrlServer(SUPABASE_MEDIA_URL) && SUPABASE_MEDIA_KEY) {
+  try {
+    supabaseMedia = createSupabaseClient(SUPABASE_MEDIA_URL, SUPABASE_MEDIA_KEY, 60000);
+    console.log("[Supabase Media] Secondary client diinisialisasi untuk:", SUPABASE_MEDIA_URL);
+  } catch (e: any) {
+    console.warn("[Supabase Media] Gagal inisialisasi client:", e?.message || e);
+    supabaseMedia = null;
+  }
 }
 
 // Initialize Gemini lazily
@@ -109,8 +136,6 @@ function getAI(apiKey?: string): GoogleGenAI {
 
 // DEFAULT KALIMAT MOTIVASI
 const DEFAULT_MOTIVASI = [
-  "Setiap botol yang terjual adalah langkah menuju target bulan ini!",
-  "Senyum ke pelanggan hari ini, rezeki mengikuti besok.",
   "Yakult Lady hebat bukan yang paling cepat, tapi yang paling konsisten.",
   "Capaian kecil tiap hari, jadi kemenangan besar tiap bulan.",
   "Semangat pagi ini menentukan hasil sore nanti!",
@@ -118,7 +143,54 @@ const DEFAULT_MOTIVASI = [
   "Jangan bandingkan hari ini dengan kemarin, kalahkan diri sendiri.",
   "Rute boleh sama, tapi semangat harus selalu baru.",
   "Kerja keras hari ini, bonus manis akhir bulan.",
-  "Satu sapaan ramah bisa membuka satu pelanggan baru."
+  "Satu sapaan ramah bisa membuka satu pelanggan baru.",
+  "Semangat menjalani hari ini dengan tulus dan penuh senyuman! 🌸",
+  "Fokus pada pelayanan terbaik, senyum tulus adalah kunci keakraban dengan pelanggan! 😊",
+  "Setiap botol Yakult membawa kesehatan dan kebahagiaan bagi keluarga Indonesia. 🍾",
+  "Usaha dan ketekunan hari ini adalah pijakan sukses esok hari. Terus melangkah! 💪",
+  "Jaga kesehatan dan selalu utamakan keselamatan dalam setiap rute aktivitas! 🛵✨",
+  "Ibu adalah kebanggaan keluarga, jangan pernah lupakan itu. 💐",
+  "Konsisten hari ini, panen hasil di kemudian hari. 🌾",
+  "Ibu pantas dapat yang terbaik atas semua kerja kerasnya. 🎁",
+  "Jangan takut lelah, karena itu tanda Ibu sedang berusaha. 💦",
+  "Setiap rumah yang Ibu datangi, ada cerita perjuangan yang indah. 🏠",
+  "Doa dan usaha Ibu hari ini, jawaban rezeki esok hari. 🤲",
+  "Ibu tak sendiri, Yakult Lady lain juga berjuang bersama. 🤝",
+  "Sukses kecil hari ini, awal dari sukses besar esok hari. 🌱",
+  "Yang penting bukan seberapa berat beban, tapi seberapa kuat Ibu memikulnya. 🎒",
+  "Ibu Yakult Lady, wajah senyum pembawa berkah tiap pagi. 😊",
+  "Panas terik bukan alasan untuk berhenti berjuang. 🔆",
+  "Rejeki sudah diatur, tugas Ibu hanya menjemputnya dengan semangat. 🙌",
+  "Ibu adalah tulang punggung yang tak pernah terlihat lelah di depan keluarga. 🌾",
+  "Setiap penolakan hari ini, latihan menuju keberhasilan besok. 💫",
+  "Bukan soal seberapa cepat, tapi seberapa konsisten Ibu melangkah. 🐢",
+  "Ibu layak bangga dengan setiap usaha yang dilakukan. 🌟",
+  "Ibu adalah contoh nyata kerja keras untuk anak-anak di rumah. 👨👩👧",
+  "Yakinlah, usaha Ibu tak pernah sia-sia. ✨",
+  "Setiap \"tidak\" hari ini, mendekatkan pada \"iya\" berikutnya. 🔄",
+  "Perjuangan Ibu hari ini, tabungan bahagia di masa depan. 💰",
+  "Ibu bukan pekerja biasa, tapi penjaga kesehatan keluarga orang lain. 🌷",
+  "Rezeki tak akan tertukar, teruslah berjalan dengan yakin. 🚶♀️",
+  "Hari ini berat, tapi Ibu lebih kuat dari itu. 🔥",
+  "Ibu inspirasi keluarga, jangan pernah ragukan diri sendiri. 💖",
+  "Rezeki Ibu ada di setiap langkah dan senyuman. 😊",
+  "Semangat pagi ini menentukan berkah hari ini, Bu! ☀️",
+  "Ibu adalah pahlawan kecil di setiap pintu rumah pelanggan. 🏡",
+  "Satu botol, sejuta manfaat. Terima kasih sudah berjuang, Bu! 🙏",
+  "Ibu bukan sekadar jualan, tapi membawa kesehatan untuk banyak keluarga. ✨",
+  "Lelah boleh, menyerah jangan. Semangat, Bu! 🌸",
+  "Setiap langkah Ibu hari ini adalah rezeki untuk keluarga tercinta. 💪",
+  "Terus percaya, rezeki Ibu sudah menunggu di depan sana. 🎯",
+  "Ibu hebat, karena tak pernah berhenti mencoba. 💛",
+  "Rasa lelah akan hilang, tapi hasil kerja keras akan selalu ada. 🌟",
+  "Ibu kuat menghadapi terik dan hujan demi senyum anak di rumah. ☔",
+  "Sekecil apapun langkah hari ini, tetap langkah maju. 👣",
+  "Ibu layak dihargai atas semua perjuangan yang tak terlihat. 🌸",
+  "Hari ini mungkin sulit, tapi Ibu sudah melalui yang lebih sulit dari ini. 💪",
+  "Ibu Yakult Lady, penjaga kesehatan sekaligus penjaga rezeki keluarga. 🌼",
+  "Ibu adalah bukti bahwa perempuan bisa jadi apa saja. 👩🌾",
+  "Semangat Ibu hari ini adalah bekal untuk hari-hari berikutnya. 🎒",
+  "Ibu berjalan bukan hanya dengan kaki, tapi dengan hati yang tulus. ❤️"
 ];
 
 const INITIAL_YL_LIST = [
@@ -191,9 +263,9 @@ const INITIAL_DATA = {
   motivasi: {
     list: [...DEFAULT_MOTIVASI],
     terpilih: [...DEFAULT_MOTIVASI],
-    intervalDetik: 30,
+    intervalDetik: 5,
     enabled: true,
-    chatbotName: "AI Jember 1 Pro",
+    chatbotName: "Zuzu",
     tkuName: "DP Jember 1"
   },
   seragam: { images: {}, schedules: {} }, kontes: {
@@ -247,6 +319,12 @@ function flushPendingWrite() {
 process.on("exit", flushPendingWrite);
 process.on("SIGINT", () => { flushPendingWrite(); process.exit(0); });
 process.on("SIGTERM", () => { flushPendingWrite(); process.exit(0); });
+process.on("unhandledRejection", (reason) => {
+  console.warn("[Process] Unhandled Rejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[Process] Uncaught Exception:", err);
+});
 
 // Pastikan field wajib selalu ada, baik data berasal dari Supabase maupun
 // dari data.json lokal (dev tanpa Supabase). Data contoh bulan 2026-07 hanya
@@ -396,7 +474,9 @@ let lastSavedDb: any = {};
 let isPersisting = false;
 let pendingDbSnapshot: any = null;
 
-const HEAVY_KEYS = new Set(["ylPhotos", "seragam"]);
+// Kunci data yang dikecualikan dari penyimpanan Supabase Utama (penjualan)
+// karena dipindahkan ke Supabase Media (Akun Kedua)
+const HEAVY_KEYS = new Set(["ylPhotos", "seragam", "motivasi", "motivationalQuote"]);
 let ylPhotosRemoteLoaded = false;
 let seragamRemoteLoaded = false;
 
@@ -404,12 +484,13 @@ let seragamRemoteLoaded = false;
 async function loadDataFromSupabase(): Promise<any | null> {
   if (!supabase) return null;
   try {
-    // 1. Cek apakah sudah ada data pecahan (kecualikan foto & seragam agar tidak boros egress saat startup)
+    // 1. Cek apakah sudah ada data pecahan (kecualikan foto, seragam, & motivasi agar tidak boros egress saat startup)
     const { data: splitData, error: splitError } = await (supabase.from("app_store") as any)
       .select("key, data")
       .like("key", "main_db_%")
       .neq("key", "main_db_ylPhotos")
-      .neq("key", "main_db_seragam");
+      .neq("key", "main_db_seragam")
+      .neq("key", "main_db_motivasi");
 
     if (splitError) {
       console.error("[Supabase] Gagal membaca data pecahan:", splitError.message);
@@ -421,6 +502,27 @@ async function loadDataFromSupabase(): Promise<any | null> {
         const prop = row.key.replace("main_db_", "");
         db[prop] = row.data;
       }
+
+      // Pastikan ylList tidak mengandung base64 foto (pindahkan ke ylPhotos jika ada)
+      if (Array.isArray(db.ylList)) {
+        let hasPhotoInYlList = false;
+        db.ylList.forEach((y: any) => {
+          if (y.foto) {
+            hasPhotoInYlList = true;
+            if (!db.ylPhotos) db.ylPhotos = {};
+            if (!db.ylPhotos[y.nama]) db.ylPhotos[y.nama] = y.foto;
+            delete y.foto;
+          }
+        });
+        if (hasPhotoInYlList) {
+          (supabase.from("app_store") as any).upsert([
+            { key: "main_db_ylList", data: db.ylList, updated_at: new Date().toISOString() }
+          ], { onConflict: "key" }).then(() => {
+            console.log("[Supabase] Sukses membersihkan foto dari main_db_ylList");
+          }).catch(() => {});
+        }
+      }
+
       lastSavedDb = JSON.parse(JSON.stringify(db)); // Simpan baseline untuk perbandingan
       return db;
     }
@@ -509,6 +611,163 @@ async function persistToSupabase(db: any) {
   isPersisting = false;
 }
 
+// ==========================================
+// PENGELOLA DATA SUPABASE MEDIA (AKUN KEDUA)
+// ==========================================
+
+// Memuat data foto, seragam, & motivasi dari Supabase Media
+async function loadMediaFromSupabaseMedia() {
+  if (!supabaseMedia) return;
+  try {
+    // 1. Muat ylPhotos
+    const { data: photoRow, error: photoErr } = await (supabaseMedia.from("app_store") as any)
+      .select("data")
+      .eq("key", "main_db_ylPhotos")
+      .maybeSingle();
+    if (!photoErr && photoRow && photoRow.data) {
+      if (!cachedDb.ylPhotos) cachedDb.ylPhotos = {};
+      cachedDb.ylPhotos = { ...cachedDb.ylPhotos, ...photoRow.data };
+      ylPhotosRemoteLoaded = true;
+      console.log("[Supabase Media] ylPhotos sukses dimuat dari Supabase Media.");
+    }
+
+    // 2. Muat seragam
+    const { data: seragamRow, error: seragamErr } = await (supabaseMedia.from("app_store") as any)
+      .select("data")
+      .eq("key", "main_db_seragam")
+      .maybeSingle();
+    if (!seragamErr && seragamRow && seragamRow.data) {
+      cachedDb.seragam = {
+        images: { ...(cachedDb.seragam?.images || {}), ...(seragamRow.data.images || {}) },
+        schedules: seragamRow.data.schedules || cachedDb.seragam?.schedules || {},
+        schedulesKaryawan: seragamRow.data.schedulesKaryawan || cachedDb.seragam?.schedulesKaryawan || {}
+      };
+      seragamRemoteLoaded = true;
+      console.log("[Supabase Media] seragam sukses dimuat dari Supabase Media.");
+    }
+
+    // 3. Muat motivasi
+    const { data: motRow, error: motErr } = await (supabaseMedia.from("app_store") as any)
+      .select("data")
+      .eq("key", "motivasi_config")
+      .maybeSingle();
+    if (!motErr && motRow && motRow.data) {
+      cachedDb.motivasi = { ...cachedDb.motivasi, ...motRow.data };
+      console.log("[Supabase Media] motivasi sukses dimuat dari Supabase Media.");
+    }
+  } catch (err: any) {
+    console.warn("[Supabase Media] Info status load media:", err?.message || err);
+  }
+}
+
+// Memindahkan aset media (foto, seragam, motivasi) dari Supabase Utama ke Supabase Media
+async function syncAndMigrateMediaToSecondary() {
+  if (!supabaseMedia) {
+    return { ok: false, message: "Client Supabase Media belum aktif." };
+  }
+
+  try {
+    // 1. Cek apakah tabel app_store sudah dibuat di Supabase Media
+    const { error: testErr } = await (supabaseMedia.from("app_store") as any).select("key").limit(1);
+    if (testErr) {
+      const isMissing = testErr.code === "42P01" || testErr.code === "PGRST205" || testErr.message?.includes("schema cache") || testErr.message?.includes("does not exist");
+      return {
+        ok: false,
+        tableMissing: isMissing,
+        message: isMissing
+          ? "Tabel 'public.app_store' belum dibuat di akun Supabase Media baru. Silakan buat tabel di SQL Editor Supabase baru."
+          : `Gagal mengakses Supabase Media: ${testErr.message}`
+      };
+    }
+
+    console.log("[Supabase Media] Tabel app_store terverifikasi! Memulai migrasi data media...");
+
+    // 2. Kumpulkan foto YL
+    let photos = cachedDb?.ylPhotos;
+    if ((!photos || Object.keys(photos).length === 0) && supabase) {
+      try {
+        const { data: rowP } = await (supabase.from("app_store") as any).select("data").eq("key", "main_db_ylPhotos").maybeSingle();
+        if (rowP?.data) photos = rowP.data;
+      } catch (e) {}
+    }
+    if (!photos || Object.keys(photos).length === 0) {
+      const local = buildDbFromLocal();
+      if (local?.ylPhotos) photos = local.ylPhotos;
+    }
+
+    // 3. Kumpulkan data seragam
+    let seragam = cachedDb?.seragam;
+    if ((!seragam || !seragam.images || Object.keys(seragam.images).length === 0) && supabase) {
+      try {
+        const { data: rowS } = await (supabase.from("app_store") as any).select("data").eq("key", "main_db_seragam").maybeSingle();
+        if (rowS?.data) seragam = rowS.data;
+      } catch (e) {}
+    }
+    if (!seragam || !seragam.images || Object.keys(seragam.images).length === 0) {
+      const local = buildDbFromLocal();
+      if (local?.seragam) seragam = local.seragam;
+    }
+
+    // 4. Kumpulkan motivasi
+    let motivasi = cachedDb?.motivasi;
+    if (!motivasi && supabase) {
+      try {
+        const { data: rowM } = await (supabase.from("app_store") as any).select("data").eq("key", "motivasi_config").maybeSingle();
+        if (rowM?.data) motivasi = rowM.data;
+      } catch (e) {}
+    }
+    if (!motivasi) {
+      const local = buildDbFromLocal();
+      if (local?.motivasi) motivasi = local.motivasi;
+    }
+
+    const migratedKeys: string[] = [];
+
+    if (photos && Object.keys(photos).length > 0) {
+      const { error: pErr } = await (supabaseMedia.from("app_store") as any).upsert(
+        [{ key: "main_db_ylPhotos", data: photos, updated_at: new Date().toISOString() }],
+        { onConflict: "key" }
+      );
+      if (!pErr) migratedKeys.push("main_db_ylPhotos");
+    }
+
+    if (seragam && (seragam.images || seragam.schedules)) {
+      const { error: sErr } = await (supabaseMedia.from("app_store") as any).upsert(
+        [{ key: "main_db_seragam", data: seragam, updated_at: new Date().toISOString() }],
+        { onConflict: "key" }
+      );
+      if (!sErr) migratedKeys.push("main_db_seragam");
+    }
+
+    if (motivasi) {
+      const { error: mErr } = await (supabaseMedia.from("app_store") as any).upsert(
+        [{ key: "motivasi_config", data: motivasi, updated_at: new Date().toISOString() }],
+        { onConflict: "key" }
+      );
+      if (!mErr) migratedKeys.push("motivasi_config");
+    }
+
+    // 5. Bersihkan Supabase Lama dari foto, seragam, motivasi agar akun lama 100% bebas dari media
+    if (supabase) {
+      const keysToDelete = ["main_db_ylPhotos", "main_db_seragam", "motivasi_config", "main_db_motivasi"];
+      await (supabase.from("app_store") as any).delete().in("key", keysToDelete).then(() => {
+        console.log("[Supabase Utama] Kunci media sukses dibersihkan dari akun Supabase lama:", keysToDelete);
+      }).catch((e: any) => {
+        console.warn("[Supabase Utama] Gagal membersihkan kunci media dari akun lama:", e?.message || e);
+      });
+    }
+
+    return { 
+      ok: true, 
+      migratedItems: migratedKeys, 
+      message: "Sukses! Seluruh data media (foto profil YL, jadwal seragam, motivasi) kini tersimpan di akun Supabase baru, dan akun lama 100% bersih dari media." 
+    };
+  } catch (err: any) {
+    console.error("[Supabase Media] Exception migrasi media:", err);
+    return { ok: false, message: err?.message || String(err) };
+  }
+}
+
 let dbReadyPromise: Promise<void> | null = null;
 
 // Dipanggil sekali sebelum server mulai melayani request.
@@ -517,19 +776,31 @@ let dbReadyPromise: Promise<void> | null = null;
 function ensureDbReady(): Promise<void> {
   if (!dbReadyPromise) {
     dbReadyPromise = (async () => {
-      const remote = await loadDataFromSupabase();
-      if (remote) {
-        // Lengkapi foto & seragam dari disk lokal (jika ada) tanpa membebani egress Supabase
-        const local = buildDbFromLocal();
-        if (!remote.ylPhotos && local.ylPhotos) remote.ylPhotos = local.ylPhotos;
-        if (!remote.seragam && local.seragam) remote.seragam = local.seragam;
-        cachedDb = normalizeDb(remote);
-      } else {
-        cachedDb = buildDbFromLocal();
-        if (supabase) {
-          // Supabase sudah dikonfigurasi tapi tabelnya masih kosong (baru
-          // pertama kali pakai) — simpan data awal ini supaya jadi acuan.
-          await persistToSupabase(cachedDb);
+      try {
+        const remote = await loadDataFromSupabase();
+        if (remote) {
+          // Lengkapi foto & seragam dari disk lokal (jika ada) tanpa membebani egress Supabase
+          const local = buildDbFromLocal();
+          if (!remote.ylPhotos && local.ylPhotos) remote.ylPhotos = local.ylPhotos;
+          if (!remote.seragam && local.seragam) remote.seragam = local.seragam;
+          cachedDb = normalizeDb(remote);
+        } else {
+          cachedDb = buildDbFromLocal();
+          if (supabase) {
+            // Supabase sudah dikonfigurasi tapi tabelnya masih kosong (baru
+            // pertama kali pakai) — simpan data awal ini supaya jadi acuan.
+            await persistToSupabase(cachedDb);
+          }
+        }
+
+        // Sinkronisasi data media dari Supabase Media (Akun Kedua)
+        if (supabaseMedia) {
+          await loadMediaFromSupabaseMedia();
+        }
+      } catch (err: any) {
+        console.error("[ensureDbReady] Error initializing database:", err?.message || err);
+        if (!cachedDb) {
+          cachedDb = buildDbFromLocal();
         }
       }
     })();
@@ -659,6 +930,28 @@ function calculateDashboardDP1(db: any, requestedMonth?: string) {
   });
 
   // Total penjualan tim, komposisi, dan rata-rata produk diambil dari akumulasi total REALISASI di menu "BD & Realisasi"
+  const totalSektor = sRmh + sPsr + sSkh + sKtr + sTk + sIb;
+  let persenRmh = totalSektor > 0 ? Number(((sRmh / totalSektor) * 100).toFixed(1)) : 0;
+  let persenTk = totalSektor > 0 ? Number(((sTk / totalSektor) * 100).toFixed(1)) : 0;
+
+  // Jika transaksi sektor pada bulan ini belum terisi, gunakan fallback dari transaksi yang ada
+  if (totalSektor === 0 && txs.length > 0) {
+    let fRmh = 0, fPsr = 0, fSkh = 0, fKtr = 0, fTk = 0, fIb = 0;
+    txs.forEach((t: any) => {
+      fRmh += (t.rmh_yo||0) + (t.rmh_om||0) + (t.rmh_os||0) + (t.rmh_yt||0);
+      fPsr += (t.psr_yo||0) + (t.psr_om||0) + (t.psr_os||0) + (t.psr_yt||0);
+      fSkh += (t.skh_yo||0) + (t.skh_om||0) + (t.skh_os||0) + (t.skh_yt||0);
+      fKtr += (t.ktr_yo||0) + (t.ktr_om||0) + (t.ktr_os||0) + (t.ktr_yt||0);
+      fTk += (t.tk_yo||0) + (t.tk_om||0) + (t.tk_os||0) + (t.tk_yt||0);
+      fIb += (t.ib_yo||0) + (t.ib_om||0) + (t.ib_os||0) + (t.ib_yt||0);
+    });
+    const fallbackTotal = fRmh + fPsr + fSkh + fKtr + fTk + fIb;
+    if (fallbackTotal > 0) {
+      persenRmh = Number(((fRmh / fallbackTotal) * 100).toFixed(1));
+      persenTk = Number(((fTk / fallbackTotal) * 100).toFixed(1));
+    }
+  }
+
   const realisasiAcc = getRealisasiAccumulation(db, currentMonth);
   const totalPenjualan = realisasiAcc.total;
         
@@ -857,6 +1150,16 @@ function calculateDashboardDP1(db: any, requestedMonth?: string) {
       toko: sTk,
       ib: sIb
     },
+    persenSektor: {
+      rmh: persenRmh,
+      tk: persenTk,
+      psr: totalSektor > 0 ? Number(((sPsr / totalSektor) * 100).toFixed(1)) : 0,
+      skh: totalSektor > 0 ? Number(((sSkh / totalSektor) * 100).toFixed(1)) : 0,
+      ktr: totalSektor > 0 ? Number(((sKtr / totalSektor) * 100).toFixed(1)) : 0,
+      ib: totalSektor > 0 ? Number(((sIb / totalSektor) * 100).toFixed(1)) : 0,
+    },
+    persenRmh,
+    persenTk,
     grafikHarian: {
       tanggal: graphDates,
       penjualan: graphPenjualan,
@@ -868,6 +1171,10 @@ function calculateDashboardDP1(db: any, requestedMonth?: string) {
 }
 
 // API ENDPOINTS
+
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 
 // 1. Script URL Configuration
 app.get("/api/getScriptUrl", (req, res) => {
@@ -921,6 +1228,79 @@ app.post("/api/saveSupabaseConfig", async (req, res) => {
   await saveData(db);
 
   res.json({ ok: true, url: cleanUrl, key: cleanKey });
+});
+
+// 1c. Supabase Media Configuration (Secondary Supabase untuk Foto & Konten Non-Penjualan)
+app.get("/api/getSupabaseMediaConfig", (req, res) => {
+  const db = loadData();
+  const url = db.supabaseMediaConfig?.url || SUPABASE_MEDIA_URL;
+  const key = db.supabaseMediaConfig?.key || SUPABASE_MEDIA_KEY;
+  res.json({ url, key });
+});
+
+app.post("/api/saveSupabaseMediaConfig", async (req, res) => {
+  const { url, key } = req.body;
+  const db = loadData();
+  const cleanUrl = formatSupabaseUrlServer(url || "");
+  const cleanKey = (key || "").trim();
+  db.supabaseMediaConfig = { url: cleanUrl, key: cleanKey };
+
+  if (cleanUrl && cleanKey) {
+    try {
+      supabaseMedia = createSupabaseClient(cleanUrl, cleanKey);
+      ylPhotosRemoteLoaded = false;
+      seragamRemoteLoaded = false;
+    } catch (e) {
+      console.warn("[Supabase Media] Gagal inisialisasi dari config:", e);
+      supabaseMedia = null;
+    }
+  } else {
+    supabaseMedia = null;
+  }
+
+  await saveData(db);
+  res.json({ ok: true, url: cleanUrl, key: cleanKey });
+});
+
+// Status kedua Supabase (Utama & Media)
+app.get("/api/getSupabaseStatus", async (req, res) => {
+  const primaryConfig = {
+    configured: !!supabase,
+    url: (process.env.SUPABASE_URL || "").substring(0, 30) + "..."
+  };
+
+  let mediaStatus = {
+    configured: !!supabaseMedia,
+    url: SUPABASE_MEDIA_URL,
+    tableReady: false,
+    message: ""
+  };
+
+  if (supabaseMedia) {
+    try {
+      const { error } = await (supabaseMedia.from("app_store") as any).select("key").limit(1);
+      if (!error) {
+        mediaStatus.tableReady = true;
+        mediaStatus.message = "Tabel 'app_store' aktif dan siap dipakai!";
+      } else {
+        mediaStatus.tableReady = false;
+        mediaStatus.message = "Tabel 'app_store' belum ditemukan. Buat tabel di SQL Editor Supabase baru.";
+      }
+    } catch (e: any) {
+      mediaStatus.tableReady = false;
+      mediaStatus.message = e?.message || "Gagal menguji tabel app_store";
+    }
+  } else {
+    mediaStatus.message = "Supabase Media client belum aktif";
+  }
+
+  res.json({ primary: primaryConfig, media: mediaStatus });
+});
+
+// Trigger migrasi manual foto, seragam, & motivasi ke Supabase Media baru
+app.post("/api/migrateMediaToSecondary", async (req, res) => {
+  const result = await syncAndMigrateMediaToSecondary();
+  res.json(result);
 });
 
 app.get("/api/verifyIntegrity", (req, res) => {
@@ -1431,17 +1811,34 @@ app.post("/api/saveGlobalMonth", async (req, res) => {
   res.json({ ok: true, globalMonth: db.globalMonth });
 });
 
+// Helper simpan konfigurasi motivasi ke Supabase Media (Akun Kedua)
+async function persistMotivasiToMedia(motivasiData: any) {
+  if (supabaseMedia) {
+    try {
+      const { error } = await (supabaseMedia.from("app_store") as any).upsert([
+        {
+          key: "motivasi_config",
+          data: motivasiData,
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: "key" });
+      if (!error && supabase) {
+        (supabase.from("app_store") as any).delete().in("key", ["motivasi_config", "main_db_motivasi"]).catch(() => {});
+        return;
+      }
+    } catch (e) {}
+  }
+}
+
 // 3. Floating Banner Motivasi
 app.get("/api/getMotivasi", async (req, res) => {
   const db = loadData();
   if (!db.motivasi) {
-    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 5, enabled: true, chatbotName: "Zuzu", tkuName: "DP Jember 1" };
   }
-  if (!db.motivasi.chatbotName) db.motivasi.chatbotName = "AI Jember 1 Pro";
+  if (!db.motivasi.chatbotName) db.motivasi.chatbotName = "Zuzu";
   if (!db.motivasi.tkuName) db.motivasi.tkuName = "DP Jember 1";
 
-  // Nama TKU & Chatbot murni dari data.json lokal — TIDAK ditimpa oleh data spreadsheet lagi,
-  // supaya nama yang sudah diganti user tidak balik ke default sendiri.
   res.json(db.motivasi);
 });
 
@@ -1450,7 +1847,7 @@ app.post("/api/saveMotivasi", async (req, res) => {
     const { list, terpilih, chatbotName, tkuName, intervalDetik, enabled } = req.body || {};
     const db = loadData();
     if (!db.motivasi) {
-      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 5, enabled: true, chatbotName: "Zuzu", tkuName: "DP Jember 1" };
     }
     if (list !== undefined && Array.isArray(list)) db.motivasi.list = list;
     if (terpilih !== undefined && Array.isArray(terpilih)) db.motivasi.terpilih = terpilih;
@@ -1459,6 +1856,7 @@ app.post("/api/saveMotivasi", async (req, res) => {
     if (intervalDetik !== undefined) db.motivasi.intervalDetik = intervalDetik;
     if (enabled !== undefined) db.motivasi.enabled = enabled;
     await saveData(db);
+    persistMotivasiToMedia(db.motivasi).catch(() => {});
 
     res.json({ ok: true, motivasi: db.motivasi });
   } catch (err: any) {
@@ -1472,11 +1870,12 @@ app.post("/api/saveChatbotName", async (req, res) => {
     const { name } = req.body || {};
     const db = loadData();
     if (!db.motivasi) {
-      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 5, enabled: true, chatbotName: "Zuzu", tkuName: "DP Jember 1" };
     }
-    const cleanName = name ? String(name).trim() : "AI Jember 1 Pro";
+    const cleanName = name ? String(name).trim() : "Zuzu";
     db.motivasi.chatbotName = cleanName;
     await saveData(db);
+    persistMotivasiToMedia(db.motivasi).catch(() => {});
 
     res.json({ ok: true, chatbotName: db.motivasi.chatbotName });
   } catch (err: any) {
@@ -1490,11 +1889,12 @@ app.post("/api/saveTkuName", async (req, res) => {
     const { name } = req.body || {};
     const db = loadData();
     if (!db.motivasi) {
-      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+      db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 5, enabled: true, chatbotName: "Zuzu", tkuName: "DP Jember 1" };
     }
     const cleanName = name ? String(name).trim() : "DP Jember 1";
     db.motivasi.tkuName = cleanName;
     await saveData(db);
+    persistMotivasiToMedia(db.motivasi).catch(() => {});
 
     res.json({ ok: true, tkuName: db.motivasi.tkuName });
   } catch (err: any) {
@@ -1507,10 +1907,11 @@ app.post("/api/saveMotivasiInterval", async (req, res) => {
   const { detik } = req.body;
   const db = loadData();
   if (!db.motivasi) {
-    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 5, enabled: true, chatbotName: "Zuzu", tkuName: "DP Jember 1" };
   }
   db.motivasi.intervalDetik = detik;
   await saveData(db);
+  persistMotivasiToMedia(db.motivasi).catch(() => {});
 
   res.json({ ok: true });
 });
@@ -1519,28 +1920,30 @@ app.post("/api/saveMotivasiEnabled", async (req, res) => {
   const { enabled } = req.body;
   const db = loadData();
   if (!db.motivasi) {
-    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 30, enabled: true, chatbotName: "AI Jember 1 Pro", tkuName: "DP Jember 1" };
+    db.motivasi = { list: [...DEFAULT_MOTIVASI], terpilih: [...DEFAULT_MOTIVASI], intervalDetik: 5, enabled: true, chatbotName: "Zuzu", tkuName: "DP Jember 1" };
   }
   db.motivasi.enabled = enabled;
   await saveData(db);
+  persistMotivasiToMedia(db.motivasi).catch(() => {});
 
   res.json({ ok: true });
 });
 
 app.post("/api/resetMotivasiDefault", async (req, res) => {
   const db = loadData();
-  const existingChatbotName = db.motivasi?.chatbotName || "AI Jember 1 Pro";
+  const existingChatbotName = db.motivasi?.chatbotName || "Zuzu";
   const existingTkuName = db.motivasi?.tkuName || "DP Jember 1";
 
   db.motivasi = {
     list: [...DEFAULT_MOTIVASI],
     terpilih: [...DEFAULT_MOTIVASI],
-    intervalDetik: 30,
+    intervalDetik: 5,
     enabled: true,
     chatbotName: existingChatbotName,
     tkuName: existingTkuName
   };
   await saveData(db);
+  persistMotivasiToMedia(db.motivasi).catch(() => {});
 
   res.json({ ok: true });
 });
@@ -1560,8 +1963,29 @@ app.get("/api/getSeragam", async (req, res) => {
   if (!db.seragam) db.seragam = { images: {}, schedules: {}, schedulesKaryawan: {} };
 
   const hasImages = db.seragam.images && Object.keys(db.seragam.images).length > 0;
-  // Lazy-load dari Supabase jika gambar belum ada di memori dan belum pernah dimuat
-  if (!hasImages && supabase && !seragamRemoteLoaded) {
+  
+  // 1. Lazy-load dari Supabase Media jika gambar belum ada di memori dan belum pernah dimuat
+  if (!hasImages && supabaseMedia && !seragamRemoteLoaded) {
+    try {
+      const { data: row, error } = await (supabaseMedia.from("app_store") as any)
+        .select("data")
+        .eq("key", "main_db_seragam")
+        .maybeSingle();
+      if (!error && row && row.data) {
+        db.seragam = {
+          images: { ...(db.seragam.images || {}), ...(row.data.images || {}) },
+          schedules: row.data.schedules || db.seragam.schedules || {},
+          schedulesKaryawan: row.data.schedulesKaryawan || db.seragam.schedulesKaryawan || {}
+        };
+        seragamRemoteLoaded = true;
+      }
+    } catch (err) {
+      console.warn("[Supabase Media] Gagal lazy-load seragam:", err);
+    }
+  }
+
+  // 2. Fallback ke Supabase Lama jika di Supabase Media belum ada
+  if (!hasImages && !seragamRemoteLoaded && supabase) {
     try {
       const { data: row } = await (supabase.from("app_store") as any)
         .select("data")
@@ -1573,8 +1997,8 @@ app.get("/api/getSeragam", async (req, res) => {
           schedules: row.data.schedules || db.seragam.schedules || {},
           schedulesKaryawan: row.data.schedulesKaryawan || db.seragam.schedulesKaryawan || {}
         };
+        seragamRemoteLoaded = true;
       }
-      seragamRemoteLoaded = true;
     } catch (err) {
       console.warn("[Supabase] Gagal lazy-load seragam:", err);
     }
@@ -1600,8 +2024,33 @@ app.post("/api/saveSeragam", async (req, res) => {
   
   safeWriteFile(DATA_FILE, JSON.stringify(cachedDb, null, 2));
 
-  // Simpan langsung ke Supabase tanpa memicu bulk update
-  if (supabase) {
+  // Simpan ke Supabase Media (Akun Baru)
+  let savedToMedia = false;
+  if (supabaseMedia) {
+    try {
+      const { error } = await (supabaseMedia.from("app_store") as any).upsert([
+        {
+          key: "main_db_seragam",
+          data: cachedDb.seragam,
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: "key" });
+      if (!error) {
+        savedToMedia = true;
+        // Bersihkan dari Supabase Lama agar akun lama bebas dari seragam
+        if (supabase) {
+          (supabase.from("app_store") as any).delete().eq("key", "main_db_seragam").catch(() => {});
+        }
+      } else {
+        console.warn("[Supabase Media] Gagal simpan seragam ke media Supabase:", error.message);
+      }
+    } catch (err) {
+      console.error("[Supabase Media] Exception save seragam:", err);
+    }
+  }
+
+  // Fallback cadangan ke Supabase Lama HANYA jika Supabase Media belum aktif / gagal
+  if (!savedToMedia && supabase) {
     try {
       await (supabase.from("app_store") as any).upsert([
         {
@@ -1611,7 +2060,7 @@ app.post("/api/saveSeragam", async (req, res) => {
         }
       ], { onConflict: "key" });
     } catch (err) {
-      console.error("[Supabase] Gagal menyimpan seragam ke Supabase:", err);
+      console.error("[Supabase] Gagal menyimpan seragam ke Supabase lama:", err);
     }
   }
 
@@ -2256,19 +2705,58 @@ app.get("/api/getLhppPdm", (req, res) => {
   if (!db.lhppPdm) db.lhppPdm = {};
   if (!db.lhppPdmYlm) db.lhppPdmYlm = {};
 
-  // Find previous saved day's pdmHariIni to populate PDM Sebelum
+  // Find previous saved day's pdmHariIni to populate PDM Sebelum (termasuk saat berganti bulan)
   let prevPdmMap: Record<string, { yo: number; om: number; os: number; yt: number }> = {};
-  for (let d = day - 1; d >= 1; d--) {
-    const prevKey = `${month}-${String(d).padStart(2, "0")}`;
-    if (db.lhppPdm[prevKey] && Object.keys(db.lhppPdm[prevKey]).length > 0) {
-      const dayData = db.lhppPdm[prevKey];
-      Object.keys(dayData).forEach((ylKey) => {
-        const hi = dayData[ylKey]?.pdmHariIni;
-        if (hi && (hi.yo > 0 || hi.om > 0 || hi.os > 0 || hi.yt > 0) && !prevPdmMap[ylKey]) {
-          prevPdmMap[ylKey] = hi;
-        }
-      });
+  let prevSourceDate: string | null = null;
+
+  // Dapatkan seluruh tanggal yang pernah tersimpan di lhppPdm sebelum tanggal saat ini (< dateKey)
+  // Tanggal berformat YYYY-MM-DD dapat diurutkan secara leksikografis (descending)
+  const allSavedDates = Object.keys(db.lhppPdm)
+    .filter((k) => /^\d{4}-\d{2}-\d{2}$/.test(k) && k < dateKey && Object.keys(db.lhppPdm[k] || {}).length > 0)
+    .sort()
+    .reverse();
+
+  // Telusuri mundur dari tanggal terdekat (baik di bulan yang sama maupun bulan sebelumnya)
+  for (const prevKey of allSavedDates) {
+    const dayData = db.lhppPdm[prevKey];
+    if (!dayData || typeof dayData !== "object") continue;
+
+    let hasAdded = false;
+    Object.keys(dayData).forEach((ylKey) => {
+      const hi = dayData[ylKey]?.pdmHariIni;
+      if (!prevPdmMap[ylKey] && hi && (hi.yo > 0 || hi.om > 0 || hi.os > 0 || hi.yt > 0)) {
+        prevPdmMap[ylKey] = {
+          yo: Number(hi.yo || 0),
+          om: Number(hi.om || 0),
+          os: Number(hi.os || 0),
+          yt: Number(hi.yt || 0)
+        };
+        hasAdded = true;
+      }
+    });
+
+    if (hasAdded && !prevSourceDate) {
+      prevSourceDate = prevKey;
     }
+  }
+
+  // Fallback: Jika ada YL yang pada hari transaksi terakhir PDM-nya 0 (habis terjual),
+  // masukkan juga dari hari transaksi terdekat agar tetap terpetakan
+  if (allSavedDates.length > 0) {
+    const nearestDate = allSavedDates[0];
+    const nearestData = db.lhppPdm[nearestDate] || {};
+    Object.keys(nearestData).forEach((ylKey) => {
+      if (!prevPdmMap[ylKey] && nearestData[ylKey]?.pdmHariIni) {
+        const hi = nearestData[ylKey].pdmHariIni;
+        prevPdmMap[ylKey] = {
+          yo: Number(hi.yo || 0),
+          om: Number(hi.om || 0),
+          os: Number(hi.os || 0),
+          yt: Number(hi.yt || 0)
+        };
+      }
+    });
+    if (!prevSourceDate) prevSourceDate = nearestDate;
   }
 
   const currentPdm = db.lhppPdm[dateKey] || null;
@@ -2281,7 +2769,8 @@ app.get("/api/getLhppPdm", (req, res) => {
     day,
     pdmYlm: currentPdmYlm,
     rowsData: currentPdm,
-    prevPdmMap
+    prevPdmMap,
+    prevSourceDate
   });
 });
 
@@ -2430,6 +2919,77 @@ app.post("/api/saveLhppPdm", async (req, res) => {
   }
 });
 
+// POST /api/deleteLhppPdm - Delete LHPP PDM data and clean associated transactions & Realisasi
+app.post("/api/deleteLhppPdm", async (req, res) => {
+  try {
+    const { month, day, tanggal } = req.body;
+    const db = loadData();
+
+    const dayNum = Number(day || 1);
+    const dayPadded = String(dayNum).padStart(2, "0");
+    const dateKey = tanggal || `${month}-${dayPadded}`;
+    const dayStr = String(dayNum);
+
+    // 1. Delete from db.lhppPdm & db.lhppPdmYlm & db.lhppRealisasi
+    if (db.lhppPdm) {
+      delete db.lhppPdm[dateKey];
+      delete db.lhppPdm[`${month}-${dayStr}`];
+    }
+    if (db.lhppPdmYlm) {
+      delete db.lhppPdmYlm[dateKey];
+      delete db.lhppPdmYlm[`${month}-${dayStr}`];
+    }
+    if (db.lhppRealisasi) {
+      delete db.lhppRealisasi[dateKey];
+      delete db.lhppRealisasi[`${month}-${dayStr}`];
+    }
+
+    // 2. Clear tot_* and bb_* from db.transactions for this date, then cleanEmptyTransactions
+    if (db.transactions && Array.isArray(db.transactions)) {
+      db.transactions.forEach((t: any) => {
+        const isMatch = t.tanggal === dateKey ||
+                        t.tanggal === `${month}-${dayPadded}` ||
+                        t.tanggal === `${month}-${dayStr}` ||
+                        (t.tanggal && t.tanggal.startsWith(`${month}-`) && t.tanggal.endsWith(`-${dayPadded}`));
+        if (isMatch) {
+          t.tot_yo = 0;
+          t.tot_om = 0;
+          t.tot_os = 0;
+          t.tot_yt = 0;
+          t.bb_yo = 0;
+          t.bb_om = 0;
+          t.bb_os = 0;
+          t.bb_yt = 0;
+        }
+      });
+    }
+
+    // 3. Clear db.breakdownRealisasi for this month and day
+    if (db.breakdownRealisasi && db.breakdownRealisasi[month]) {
+      Object.keys(db.breakdownRealisasi[month]).forEach((areaKey) => {
+        const areaData = db.breakdownRealisasi[month][areaKey];
+        if (areaData && areaData.days) {
+          if (areaData.days[dayStr]) {
+            delete areaData.days[dayStr];
+          }
+          if (areaData.days[dayPadded]) {
+            delete areaData.days[dayPadded];
+          }
+        }
+      });
+    }
+
+    cleanEmptyTransactions(db);
+
+    await saveData(db);
+
+    res.json({ ok: true, message: `✅ Data LHPP dan transaksi tanggal ${dateKey} berhasil dihapus.` });
+  } catch (err: any) {
+    console.error("Error in deleteLhppPdm:", err);
+    res.status(500).json({ ok: false, error: err?.message || "Gagal menghapus data LHPP" });
+  }
+});
+
 app.post("/api/saveTargetYL", async (req, res) => {
   const { nama, bulan, target, bln_lalu, thn_lalu, e6 } = req.body;
   const db = loadData();
@@ -2454,6 +3014,92 @@ app.post("/api/saveTargetYL", async (req, res) => {
   res.json({ ok: true, targetYL: db.targetYL });
 });
 
+// Cache memory untuk breakdownRealisasi dari arsip Supabase (menghemat egress dan mempercepat respon)
+const archiveBreakdownCache = new Map<string, any>();
+
+async function getMonthBreakdownRealisasiMap(db: any, monthKey: string): Promise<any> {
+  // 1. Cek di memori db.breakdownRealisasi
+  if (db.breakdownRealisasi && db.breakdownRealisasi[monthKey] && Object.keys(db.breakdownRealisasi[monthKey]).length > 0) {
+    return db.breakdownRealisasi[monthKey];
+  }
+  // 2. Cek di archiveBreakdownCache
+  if (archiveBreakdownCache.has(monthKey)) {
+    return archiveBreakdownCache.get(monthKey);
+  }
+  // 3. Cek di Supabase app_store
+  if (supabase) {
+    try {
+      const { data: arcRow } = await (supabase.from("app_store") as any)
+        .select("data")
+        .eq("key", `monthly_archive_${monthKey}`)
+        .maybeSingle();
+      if (arcRow && arcRow.data && arcRow.data.breakdownRealisasiMap) {
+        archiveBreakdownCache.set(monthKey, arcRow.data.breakdownRealisasiMap);
+        if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
+        if (!db.breakdownRealisasi[monthKey]) db.breakdownRealisasi[monthKey] = arcRow.data.breakdownRealisasiMap;
+        return arcRow.data.breakdownRealisasiMap;
+      }
+      const { data: bdRow } = await (supabase.from("app_store") as any)
+        .select("data")
+        .eq("key", `bd_realisasi_${monthKey}`)
+        .maybeSingle();
+      if (bdRow && bdRow.data) {
+        archiveBreakdownCache.set(monthKey, bdRow.data);
+        if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
+        if (!db.breakdownRealisasi[monthKey]) db.breakdownRealisasi[monthKey] = bdRow.data;
+        return bdRow.data;
+      }
+    } catch (err) {
+      console.warn(`[Supabase] Gagal mengambil arsip breakdown untuk ${monthKey}:`, err);
+    }
+  }
+  return {};
+}
+
+function getDateWithOffset(baseMonth: string, baseDay: number, offsetDays: number): { monthKey: string; day: number; dateStr: string } {
+  const [yStr, mStr] = baseMonth.split("-");
+  const y = parseInt(yStr, 10);
+  const mIdx = parseInt(mStr, 10) - 1;
+  const d = new Date(y, mIdx, baseDay - offsetDays);
+  const resY = d.getFullYear();
+  const resM = String(d.getMonth() + 1).padStart(2, "0");
+  const resD = d.getDate();
+  const monthKey = `${resY}-${resM}`;
+  const dateStr = `${monthKey}-${String(resD).padStart(2, "0")}`;
+  return { monthKey, day: resD, dateStr };
+}
+
+function getSalesForDate(
+  monthMaps: Record<string, any>,
+  monthKey: string,
+  day: number,
+  area: string,
+  ylName: string,
+  dateStr: string,
+  transactions: any[]
+): number {
+  const mMap = monthMaps[monthKey];
+  if (mMap && mMap[area] && mMap[area].days && mMap[area].days[String(day)]) {
+    const dx = mMap[area].days[String(day)];
+    const val = (dx.yo || 0) + (dx.om || 0) + (dx.os || 0) + (dx.yt || 0);
+    if (val > 0) return val;
+  }
+  if (Array.isArray(transactions)) {
+    const tx = transactions.find((t: any) =>
+      t.tanggal === dateStr && (
+        t.nama === ylName ||
+        (area && t.area && String(t.area) === String(area)) ||
+        (area && t.nama && t.nama.startsWith(area))
+      )
+    );
+    if (tx) {
+      const val = (tx.tot_yo || 0) + (tx.tot_om || 0) + (tx.tot_os || 0) + (tx.tot_yt || 0);
+      if (val > 0) return val;
+    }
+  }
+  return 0;
+}
+
 // 6. Evaluasi Harian
 app.get("/api/getEvaluasi", async (req, res) => {
   const { month } = req.query;
@@ -2463,7 +3109,24 @@ app.get("/api/getEvaluasi", async (req, res) => {
   const ylList = db.ylList || INITIAL_YL_LIST;
   const names = ylList.map((y: any) => y.nama);
   
-  const breakdownRealisasiMonth = (db.breakdownRealisasi && db.breakdownRealisasi[currentMonth]) || {};
+  // Hitung bulan sebelumnya jika rentang minggu berjalan melintasi batas bulan
+  const [yStr, mStr] = currentMonth.split("-");
+  const yNum = parseInt(yStr, 10);
+  const mNum = parseInt(mStr, 10);
+  const prevMonthKey = mNum === 1 
+    ? `${yNum - 1}-12` 
+    : `${yNum}-${String(mNum - 1).padStart(2, "0")}`;
+
+  const [currentMonthMap, prevMonthMap] = await Promise.all([
+    getMonthBreakdownRealisasiMap(db, currentMonth),
+    getMonthBreakdownRealisasiMap(db, prevMonthKey)
+  ]);
+
+  const breakdownRealisasiMonth = (db.breakdownRealisasi && db.breakdownRealisasi[currentMonth]) || currentMonthMap || {};
+  const monthMaps: Record<string, any> = {
+    [currentMonth]: breakdownRealisasiMonth,
+    [prevMonthKey]: prevMonthMap || {}
+  };
   const plgPjlManual = db.plgPjlManual || {};
 
   const tableData = names.map(name => {
@@ -2480,25 +3143,21 @@ app.get("/api/getEvaluasi", async (req, res) => {
     const hariIniDateStr = currentMonth + "-" + String(pembagi).padStart(2, '0');
     let latestTx = ylTxs.find((t: any) => t.tanggal === hariIniDateStr) || {};
     
-    // Rata2 Minggu Ini (7 days ending at pembagi)
+    // Rata2 Minggu Ini (7 hari berjalan s/d hari ini / pembagi: offset 0..6)
+    // Jika pembagi < 7, otomatis mengambil sisa harinya dari arsip bulan lalu
     let sumMingguIni = 0;
     for (let i = 0; i < 7; i++) {
-      let d = pembagi - i;
-      if (d > 0 && areaData && areaData.days && areaData.days[String(d)]) {
-        let dx = areaData.days[String(d)];
-        sumMingguIni += (dx.yo||0) + (dx.om||0) + (dx.os||0) + (dx.yt||0);
-      }
+      const dt = getDateWithOffset(currentMonth, pembagi, i);
+      sumMingguIni += getSalesForDate(monthMaps, dt.monthKey, dt.day, area, name, dt.dateStr, db.transactions);
     }
     const rataMingguIni = Math.trunc(sumMingguIni / 7);
 
-    // Rata2 Minggu Lalu (7 days before that)
+    // Rata2 Minggu Lalu (7 hari sebelum periode minggu ini: offset 7..13)
+    // Mampu melintasi batas bulan dengan mengambil data dari arsip bulan lalu
     let sumMingguLalu = 0;
     for (let i = 0; i < 7; i++) {
-      let d = pembagi - 7 - i;
-      if (d > 0 && areaData && areaData.days && areaData.days[String(d)]) {
-        let dx = areaData.days[String(d)];
-        sumMingguLalu += (dx.yo||0) + (dx.om||0) + (dx.os||0) + (dx.yt||0);
-      }
+      const dt = getDateWithOffset(currentMonth, pembagi, 7 + i);
+      sumMingguLalu += getSalesForDate(monthMaps, dt.monthKey, dt.day, area, name, dt.dateStr, db.transactions);
     }
     const rataMingguLalu = Math.trunc(sumMingguLalu / 7);
 
@@ -2705,15 +3364,43 @@ app.post("/api/saveYlFoto", async (req, res) => {
   if (!db.ylPhotos) db.ylPhotos = {};
   db.ylPhotos[nama] = foto;
   
+  // Jangan menempelkan string base64 foto ke db.ylList agar main_db_ylList tetap ringan (menghemat egress Supabase)
   if (Array.isArray(db.ylList)) {
     const yl = db.ylList.find((y: any) => y.nama === nama || cleanYlName(y.nama) === cleanYlName(nama));
-    if (yl) yl.foto = foto;
+    if (yl && yl.foto) {
+      delete yl.foto;
+    }
   }
   
   safeWriteFile(DATA_FILE, JSON.stringify(db, null, 2));
 
-  // Simpan langsung ke Supabase tanpa memicu bulk update
-  if (supabase) {
+  // Simpan ke Supabase Media (Akun Baru)
+  let savedToMedia = false;
+  if (supabaseMedia) {
+    try {
+      const { error } = await (supabaseMedia.from("app_store") as any).upsert([
+        {
+          key: "main_db_ylPhotos",
+          data: db.ylPhotos,
+          updated_at: new Date().toISOString()
+        }
+      ], { onConflict: "key" });
+      if (!error) {
+        savedToMedia = true;
+        // Bersihkan dari Supabase Lama agar akun lama bebas dari foto
+        if (supabase) {
+          (supabase.from("app_store") as any).delete().eq("key", "main_db_ylPhotos").catch(() => {});
+        }
+      } else {
+        console.warn("[Supabase Media] Gagal simpan ylPhotos ke media Supabase:", error.message);
+      }
+    } catch (err) {
+      console.error("[Supabase Media] Exception save ylPhotos:", err);
+    }
+  }
+
+  // Fallback cadangan ke Supabase Lama HANYA jika Supabase Media belum aktif / gagal
+  if (!savedToMedia && supabase) {
     try {
       await (supabase.from("app_store") as any).upsert([
         {
@@ -2723,7 +3410,7 @@ app.post("/api/saveYlFoto", async (req, res) => {
         }
       ], { onConflict: "key" });
     } catch (err) {
-      console.error("[Supabase] Gagal menyimpan ylPhotos ke Supabase:", err);
+      console.error("[Supabase] Gagal menyimpan ylPhotos ke Supabase lama:", err);
     }
   }
 
@@ -2740,7 +3427,24 @@ app.get("/api/getYlFoto", async (req, res) => {
     if (yl && yl.foto) foto = yl.foto;
   }
 
-  // Lazy-load dari Supabase jika foto belum ada di memori dan belum pernah dimuat
+  // 1. Lazy-load dari Supabase Media jika foto belum ada di memori dan belum pernah dimuat
+  if (!foto && supabaseMedia && !ylPhotosRemoteLoaded) {
+    try {
+      const { data: row, error } = await (supabaseMedia.from("app_store") as any)
+        .select("data")
+        .eq("key", "main_db_ylPhotos")
+        .maybeSingle();
+      if (!error && row && row.data) {
+        db.ylPhotos = { ...db.ylPhotos, ...row.data };
+        foto = db.ylPhotos[nama] || "";
+        ylPhotosRemoteLoaded = true;
+      }
+    } catch (err) {
+      console.warn("[Supabase Media] Gagal lazy-load ylPhotos:", err);
+    }
+  }
+
+  // 2. Fallback ke Supabase Lama jika di Supabase Media belum ada
   if (!foto && supabase && !ylPhotosRemoteLoaded) {
     try {
       const { data: row } = await (supabase.from("app_store") as any)
@@ -2753,7 +3457,7 @@ app.get("/api/getYlFoto", async (req, res) => {
       }
       ylPhotosRemoteLoaded = true;
     } catch (err) {
-      console.warn("[Supabase] Gagal lazy-load ylPhotos:", err);
+      console.warn("[Supabase] Gagal lazy-load ylPhotos dari akun lama:", err);
     }
   }
 
@@ -3488,13 +4192,24 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // VITE MIDDLEWARE FOR DEVELOPMENT / STATIC SERVING FOR PRODUCTION
 async function startServer() {
-  // Ensure data store is initialized on boot (menunggu Supabase kalau sudah
-  // dikonfigurasi, atau fallback ke data.json lokal)
-  await ensureDbReady();
+  const isProduction =
+    process.env.NODE_ENV === "production" ||
+    (typeof __filename !== "undefined" && __filename.includes("server.cjs")) ||
+    (process.argv[1] && process.argv[1].includes("server.cjs"));
+
+  if (isProduction && process.env.NODE_ENV !== "production") {
+    process.env.NODE_ENV = "production";
+  }
+
+  // Ensure data store is initialized immediately in memory so server and API routes respond instantly
+  if (!cachedDb) {
+    cachedDb = buildDbFromLocal();
+  }
 
   const distPath = path.join(process.cwd(), "dist");
   const distIndexHtml = path.join(distPath, "index.html");
-  if (process.env.NODE_ENV !== "production") {
+
+  if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -3503,12 +4218,21 @@ async function startServer() {
   } else {
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(distIndexHtml);
+      if (fs.existsSync(distIndexHtml)) {
+        res.sendFile(distIndexHtml);
+      } else {
+        res.status(200).send("App is running");
+      }
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running in ${isProduction ? "production" : "development"} mode on http://localhost:${PORT}`);
+  });
+
+  // Load remote data from Supabase in background without blocking server listen or Cloud Run health checks
+  ensureDbReady().catch((err) => {
+    console.warn("[startServer] Non-blocking ensureDbReady sync error:", err);
   });
 }
 

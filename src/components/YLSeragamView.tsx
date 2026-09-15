@@ -15,7 +15,7 @@ const UNIFORMS = [
 ];
 const DEFAULT_DESC = "Belum ada jadwal, mungkin bajunya masih disetrika 😄";
 
-export default function YLSeragamView({ onBack }: { onBack: () => void }) {
+export default function YLSeragamView({ onBack }: { onBack?: () => void }) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [images, setImages] = useState<any>({});
   const [schedules, setSchedules] = useState<any>({});
@@ -89,15 +89,12 @@ export default function YLSeragamView({ onBack }: { onBack: () => void }) {
   const isToday = currentDate.toDateString() === new Date().toDateString();
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#Fdfbf7] dark:bg-slate-950 flex flex-col sm:max-w-md sm:mx-auto sm:border-x sm:border-slate-200 dark:border-slate-700">
+    <div className="flex flex-col sm:max-w-md sm:mx-auto bg-[#Fdfbf7] dark:bg-slate-950 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden my-2">
       <div className="flex items-center justify-between p-4 pb-2">
-        <button onClick={onBack} className="p-3 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 active:scale-95 transition-transform">
-          <ChevronLeft className="w-5 h-5 text-slate-700 dark:text-slate-300" />
-        </button>
         <h1 className="font-bold text-xl text-slate-800 dark:text-slate-100 flex items-center gap-2">
           Pakai Apa Ya? 👗
         </h1>
-        <button onClick={handleToday} className="p-3 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 active:scale-95 transition-transform">
+        <button onClick={handleToday} className="p-3 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 active:scale-95 transition-transform" title="Hari Ini">
           <Calendar className="w-5 h-5 text-blue-500" />
         </button>
       </div>

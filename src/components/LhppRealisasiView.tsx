@@ -14,7 +14,9 @@ import {
   Undo2,
   Redo2,
   Save,
-  Loader2
+  Loader2,
+  RefreshCw,
+  Trash2
 } from "lucide-react";
 
 export interface LhppRow {
@@ -82,6 +84,9 @@ function LhppRealisasiViewInner({
   const [msg, setMsg] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [prevSourceDate, setPrevSourceDate] = useState<string | null>(null);
+  const prevPdmMapRef = useRef<Record<string, { yo: number; om: number; os: number; yt: number }>>({});
 
   // Fetch data from server when date or month changes
   const loadDataFromServer = useCallback(async (month: string, day: number) => {
@@ -98,12 +103,14 @@ function LhppRealisasiViewInner({
         const activeYls = (ylList || []).filter((y: any) => y.status !== "Resign" && y.area !== "TKU");
         const rowsData = res.rowsData || {};
         const prevPdmMap = res.prevPdmMap || {};
+        prevPdmMapRef.current = prevPdmMap;
+        setPrevSourceDate(res.prevSourceDate || null);
 
         const newRows: LhppRow[] = activeYls.map((yl: any) => {
           const cleanName = cleanYlName(yl.nama || "");
           const savedYlData = rowsData[yl.area] || rowsData[cleanName] || rowsData[yl.nama] || null;
 
-          // PDM Sebelum (PDM YL) diambil otomatis dari PDM Hari Ini tanggal sebelumnya
+          // PDM Sebelum (PDM YL) diambil otomatis dari PDM Hari Ini tanggal sebelumnya (termasuk saat berganti bulan)
           const prevPdm = prevPdmMap[yl.area] || prevPdmMap[cleanName] || prevPdmMap[yl.nama] || { yo: 0, om: 0, os: 0, yt: 0 };
           const hasSavedPdmSebelum = savedYlData?.pdmSebelum && (savedYlData.pdmSebelum.yo > 0 || savedYlData.pdmSebelum.om > 0 || savedYlData.pdmSebelum.os > 0 || savedYlData.pdmSebelum.yt > 0);
 
@@ -128,6 +135,41 @@ function LhppRealisasiViewInner({
       setIsLoading(false);
     }
   }, [ylList]);
+
+  // Handler to manually pull / refresh PDM Sebelumnya from last transaction date (cross-month supported)
+  const handlePullPrevPdm = async () => {
+    setIsLoading(true);
+    try {
+      const res = await safeFetchJson<any>(`/api/getLhppPdm?month=${selectedMonth}&day=${selectedDay}`);
+      if (res && res.ok) {
+        const pMap = res.prevPdmMap || {};
+        prevPdmMapRef.current = pMap;
+        setPrevSourceDate(res.prevSourceDate || null);
+
+        recordHistory();
+        setRows(prevRows => prevRows.map(r => {
+          const cleanName = cleanYlName(r.nama || "");
+          const prev = pMap[r.area] || pMap[cleanName] || pMap[r.nama] || { yo: 0, om: 0, os: 0, yt: 0 };
+          return {
+            ...r,
+            pdmSebelum: { ...prev }
+          };
+        }));
+
+        const srcLabel = res.prevSourceDate 
+          ? res.prevSourceDate.split("-").reverse().join("-") 
+          : "hari sebelumnya";
+        setMsg(`✅ Berhasil mengambil data PDM Sebelumnya (sumber: ${srcLabel})`);
+        setTimeout(() => setMsg(""), 4000);
+      }
+    } catch (err) {
+      console.error("Gagal menarik PDM Sebelumnya:", err);
+      setMsg("❌ Gagal menarik data PDM Sebelumnya");
+      setTimeout(() => setMsg(""), 3000);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadDataFromServer(selectedMonth, selectedDay);
@@ -336,6 +378,45 @@ function LhppRealisasiViewInner({
       if (!isAutoSave) setMsg("❌ Gagal menyimpan data LHPP. Periksa koneksi jaringan.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Delete Handler: Delete LHPP, associated transactions, and clear Realisasi
+  const handleDeleteLhpp = async () => {
+    const formattedDate = `${selectedMonth}-${String(selectedDay).padStart(2, "0")}`;
+    const confirmMsg = `⚠️ KONFIRMASI HAPUS DATA LHPP\n\nApakah Anda yakin ingin MENGHAPUS seluruh data LHPP tanggal ${selectedDay} (${selectedMonth})?\n\nTindakan ini akan:\n1. Menghapus data input LHPP & PDM tanggal ${selectedDay}\n2. Menghapus transaksi penjualan harian YL tanggal ${formattedDate}\n3. Mengosongkan data Realisasi di menu Admin & YL untuk tanggal ${selectedDay}\n\nKlik [OK] untuk menghapus data.`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsDeleting(true);
+    setMsg("⏳ Sedang menghapus data LHPP dan membersihkan transaksi...");
+
+    try {
+      const res = await safeFetchJson<{ ok: boolean; message?: string; error?: string }>("/api/deleteLhppPdm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          month: selectedMonth,
+          day: selectedDay,
+          tanggal: formattedDate
+        })
+      });
+
+      if (res && res.ok) {
+        isDirtyRef.current = false;
+        setMsg(`✅ Data LHPP dan transaksi tanggal ${selectedDay} berhasil dihapus.`);
+        await loadDataFromServer(selectedMonth, selectedDay);
+        window.dispatchEvent(new Event("lhpp_saved"));
+        window.dispatchEvent(new Event("bd_realisasi_updated"));
+        setTimeout(() => setMsg(""), 4000);
+      } else {
+        setMsg(`⚠️ ${res?.error || "Gagal menghapus data LHPP."}`);
+      }
+    } catch (err: any) {
+      console.error("Failed to delete LHPP:", err);
+      setMsg("❌ Gagal menghapus data LHPP. Periksa koneksi jaringan.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -609,6 +690,18 @@ function LhppRealisasiViewInner({
           </div>
 
           <div className="flex items-center gap-1 ml-auto sm:ml-0">
+            {/* Tombol Ambil PDM Sebelumnya */}
+            <button
+              onClick={handlePullPrevPdm}
+              disabled={isLoading}
+              className="bg-amber-600 hover:bg-amber-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[10px] sm:text-[11px] px-2.5 py-1 rounded-lg shadow-2xs transition-all cursor-pointer flex items-center gap-1"
+              title={`Ambil data PDM dari hari sebelumnya (termasuk lintas bulan saat berganti bulan)${prevSourceDate ? ` [Sumber: ${prevSourceDate.split("-").reverse().join("-")}]` : ""}`}
+            >
+              <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">Ambil PDM Sebelumnya</span>
+              <span className="sm:hidden">Ambil PDM</span>
+            </button>
+
             {/* Tombol Simpan - Utama */}
             <button
               onClick={handleSaveLhpp}
@@ -618,6 +711,18 @@ function LhppRealisasiViewInner({
             >
               {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               <span>{isSaving ? "Menyimpan..." : "Simpan"}</span>
+            </button>
+
+            {/* Tombol Hapus Manual */}
+            <button
+              onClick={handleDeleteLhpp}
+              disabled={isDeleting || isSaving || isLoading}
+              className="bg-rose-600 hover:bg-rose-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[10px] sm:text-[11px] px-2.5 py-1 rounded-lg shadow-2xs transition-all cursor-pointer flex items-center gap-1"
+              title={`Hapus data LHPP tanggal ${selectedDay} secara menyeluruh (termasuk di Realisasi Admin & Transaksi YL)`}
+            >
+              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">{isDeleting ? "Menghapus..." : "Hapus LHPP"}</span>
+              <span className="sm:hidden">{isDeleting ? "Hapus..." : "Hapus"}</span>
             </button>
 
             <button
@@ -812,10 +917,31 @@ function LhppRealisasiViewInner({
                 </th>
                 <th
                   colSpan={4}
-                  className="p-2 text-center bg-slate-50 text-slate-600 border-r border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors font-extrabold tracking-wide"
-                  onClick={() => setSelection({ startR: 0, startC: 0, endR: Math.max(0, computedRows.length - 1), endC: 3 })}
+                  className="p-2 text-center bg-slate-50 text-slate-600 border-r border-slate-200 transition-colors font-extrabold tracking-wide"
                 >
-                  PDM SEBELUMNYA
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span
+                      className="cursor-pointer hover:underline"
+                      onClick={() => setSelection({ startR: 0, startC: 0, endR: Math.max(0, computedRows.length - 1), endC: 3 })}
+                      title="Klik untuk memilih seluruh kolom PDM Sebelumnya"
+                    >
+                      PDM SEBELUMNYA
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handlePullPrevPdm(); }}
+                      className="text-amber-700 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 p-0.5 rounded transition-all cursor-pointer inline-flex items-center gap-0.5 text-[9px] font-bold px-1"
+                      title={`Ambil / Perbarui data PDM dari tanggal sebelumnya (termasuk lintas bulan saat awal bulan)${prevSourceDate ? ` [Sumber: ${prevSourceDate.split("-").reverse().join("-")}]` : ""}`}
+                    >
+                      <RefreshCw className={`w-2.5 h-2.5 ${isLoading ? "animate-spin" : ""}`} />
+                      <span className="hidden md:inline">Ambil</span>
+                    </button>
+                  </div>
+                  {prevSourceDate && (
+                    <div className="text-[9px] font-mono font-bold text-emerald-700 mt-0.5 normal-case">
+                      sumber: {prevSourceDate.split("-").reverse().join("-")}
+                    </div>
+                  )}
                 </th>
                 <th
                   colSpan={4}

@@ -425,7 +425,7 @@ export function useSimpleGrid({
     };
   }, []);
 
-  const touchStartRef = React.useRef<{ x: number; y: number; r: number; c: number; isMoved: boolean; isInsideSelection: boolean } | null>(null);
+  const touchStartRef = React.useRef<{ x: number; y: number; r: number; c: number; isMoved: boolean; isInsideSelection: boolean; isInputFocused?: boolean } | null>(null);
 
   const getCellProps = useCallback(
     (r: number, c: number) => {
@@ -479,6 +479,12 @@ export function useSimpleGrid({
           clickStartRef.current = null;
         },
         onContextMenu: (e: React.MouseEvent) => {
+          const target = e.target as HTMLElement | null;
+          const isInput = target?.tagName?.toLowerCase() === "input";
+          const isInputFocused = isInput && (document.activeElement === target || document.activeElement?.tagName?.toLowerCase() === "input");
+          if (isInputFocused) {
+            return;
+          }
           e.preventDefault();
           const wasInside = isSelected(r, c);
           if (!wasInside) {
@@ -492,9 +498,17 @@ export function useSimpleGrid({
         },
         onTouchStart: (e: React.TouchEvent) => {
           if (!e.touches || e.touches.length === 0) return;
+          const target = e.target as HTMLElement | null;
+          const isInput = target?.tagName?.toLowerCase() === "input";
+          const isInputFocused = isInput && (document.activeElement === target || document.activeElement?.tagName?.toLowerCase() === "input");
+
           const touch = e.touches[0];
           const wasInsideSelection = isSelected(r, c);
-          touchStartRef.current = { x: touch.clientX, y: touch.clientY, r, c, isMoved: false, isInsideSelection: wasInsideSelection };
+          touchStartRef.current = { x: touch.clientX, y: touch.clientY, r, c, isMoved: false, isInsideSelection: wasInsideSelection, isInputFocused };
+
+          if (isInputFocused) {
+            return;
+          }
 
           if (e.shiftKey && selection) {
             setSelection(prev => (prev ? { ...prev, endR: r, endC: c } : { startR: r, startC: c, endR: r, endC: c }));
@@ -505,6 +519,7 @@ export function useSimpleGrid({
         },
         onTouchMove: (e: React.TouchEvent) => {
           if (!touchStartRef.current || !e.touches || e.touches.length === 0) return;
+          if (touchStartRef.current.isInputFocused) return;
           const touch = e.touches[0];
           const dx = Math.abs(touch.clientX - touchStartRef.current.x);
           const dy = Math.abs(touch.clientY - touchStartRef.current.y);
@@ -537,6 +552,12 @@ export function useSimpleGrid({
         },
         onTouchEnd: () => {
           if (touchStartRef.current) {
+            if (touchStartRef.current.isInputFocused) {
+              touchStartRef.current = null;
+              isDraggingRef.current = false;
+              setIsDragging(false);
+              return;
+            }
             if (!touchStartRef.current.isMoved) {
               if (touchStartRef.current.isInsideSelection) {
                 setIsMenuOpen(true);

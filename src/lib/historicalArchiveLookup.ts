@@ -262,7 +262,10 @@ export async function lookupPreviousYearData(
 
     const rataHarian = Math.round(totRata2);
     const ylCount = r2Data.rows.length || 10;
-    const salesPerYl = Math.round(totRata2 / ylCount);
+    const safePembagi = Number(r2Data.pembagi) || 25;
+    const salesPerYl = Number(r2Data.salesPerYL) || Math.round(totRata2 / ylCount);
+    const jwpVal = Number(r2Data.jwp) || (ylCount * safePembagi);
+    const akmPjl = Math.round(rataHarian * safePembagi);
 
     if (rataHarian > 0) {
       const res: PreviousYearData = {
@@ -275,12 +278,12 @@ export async function lookupPreviousYearData(
         monthLabel: mLabel,
         ratarataPenjualanTahunLalu: rataHarian,
         salesPerYLTahunLalu: salesPerYl,
-        akmPenjualanTahunLalu: Math.round(rataHarian * 25),
+        akmPenjualanTahunLalu: akmPjl,
         ratarataYOTahunLalu: Math.round(yoTot),
         ratarataOMTahunLalu: Math.round(omTot),
         ratarataOSTahunLalu: Math.round(osTot),
         ratarataYTTahunLalu: Math.round(ytTot),
-        jwpTahunLalu: 25,
+        jwpTahunLalu: jwpVal,
         jumlahYLTahunLalu: ylCount,
       };
       memoryCache[ymKey] = res;

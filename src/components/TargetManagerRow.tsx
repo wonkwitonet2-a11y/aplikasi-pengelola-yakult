@@ -44,6 +44,8 @@ function TargetManagerRowInner({
       <td {...getTargetCellProps(idx, 0)} className={`p-1.5 text-center border-r border-slate-300 ${getTargetCellProps(idx, 0).className}`}>
         <NumberInput
           min={0}
+          allowDecimal={true}
+          decimalPlaces={2}
           value={ylTgt.target}
           onPaste={(e) => {
             const text = e.clipboardData.getData("text/plain");
@@ -67,6 +69,8 @@ function TargetManagerRowInner({
       <td {...getTargetCellProps(idx, 1)} className={`p-1.5 text-center border-r border-slate-300 ${getTargetCellProps(idx, 1).className}`}>
         <NumberInput
           min={0}
+          allowDecimal={true}
+          decimalPlaces={2}
           value={ylTgt.bln_lalu}
           onPaste={(e) => {
             const text = e.clipboardData.getData("text/plain");
@@ -90,6 +94,8 @@ function TargetManagerRowInner({
       <td {...getTargetCellProps(idx, 2)} className={`p-1.5 text-center border-r border-slate-300 ${getTargetCellProps(idx, 2).className}`}>
         <NumberInput
           min={0}
+          allowDecimal={true}
+          decimalPlaces={2}
           value={ylTgt.thn_lalu}
           onPaste={(e) => {
             const text = e.clipboardData.getData("text/plain");

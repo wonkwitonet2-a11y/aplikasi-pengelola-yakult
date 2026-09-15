@@ -12,7 +12,7 @@ interface YlRealisasiPotensiTabProps {
   realisasiMenuPos?: { x: number; y: number } | null;
   handleRealisasiGridCopy: () => void;
   handleRealisasiGridCut: () => void;
-  handleRealisasiGridPaste: (text?: string) => void;
+  handleRealisasiGridPaste: (text?: string, overrideSelection?: GridSelection | null) => void;
   handleRealisasiGridClear: () => void;
   setRealisasiGridSelection: React.Dispatch<React.SetStateAction<GridSelection | null>>;
   handleToggleEditRealisasi: () => void;
@@ -211,7 +211,24 @@ function YlRealisasiPotensiTabInner({
                       const { className: selClassName, ...cellProps } = getRealisasiCellProps(rIdx, cIdx);
                       return (
                         <td {...cellProps} className={`${className.replace("font-bold", "font-normal")} ${selClassName || ""}`}>
-                          <input type="number" min="0" value={v||""} onChange={(e) => editChange(field, parseInt(e.target.value)||0)} onDragStart={(e) => e.preventDefault()} className="w-10 text-xs border border-slate-300 rounded p-1 text-center outline-none focus:ring-1 focus:ring-indigo-500 font-bold bg-transparent" />
+                          <input
+                            type="number"
+                            min="0"
+                            value={v || ""}
+                            onChange={(e) => editChange(field, parseInt(e.target.value) || 0)}
+                            onPaste={(e) => {
+                              const text = e.clipboardData.getData("text/plain");
+                              if (!text) return;
+                              e.preventDefault();
+                              const newSel = { startR: rIdx, startC: cIdx, endR: rIdx, endC: cIdx };
+                              setRealisasiGridSelection(newSel);
+                              setTimeout(() => {
+                                handleRealisasiGridPaste(text, newSel);
+                              }, 0);
+                            }}
+                            onDragStart={(e) => e.preventDefault()}
+                            className="w-10 text-xs border border-slate-300 rounded p-1 text-center outline-none focus:ring-1 focus:ring-indigo-500 font-bold bg-transparent"
+                          />
                         </td>
                       );
                     }

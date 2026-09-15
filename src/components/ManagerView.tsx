@@ -41,7 +41,6 @@ import { LhppRealisasiView } from "./LhppRealisasiView";
 import { NumberInput } from "./NumberInput";
 import { BreakdownGridRow } from "./BreakdownGridRow";
 import { TargetManagerRow } from "./TargetManagerRow";
-import { YlProfileRow } from "./YlProfileRow";
 import { ManagerDashboardTab } from "./ManagerDashboardTab";
 import { AdminBentoMenu } from "./AdminBentoMenu";
 import ProductKnowledgeView from "./ProductKnowledgeView";
@@ -94,11 +93,30 @@ interface ManagerViewProps {
 type BreakdownGridMap = Record<string, { pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> }>;
 
 import { ArchiveEditor } from "./archive/ArchiveEditor";
-import { OfficialLinksManager } from "./OfficialLinksManager";
 import { OfficialLinksViewer } from "./OfficialLinksViewer";
+import { lookupHistoricalTargetRealization, computeMonthlyRata2DataFromSnapshot } from "../lib/targetArchiveLookup";
 
 const SalesRecordTKU = React.lazy(() => import("./SalesRecordTKU"));
 const PresentasiView = React.lazy(() => import("./PresentasiView"));
+
+export const parseIndonesianDecimal = (val: string | number, decimalPlaces = 2): number => {
+  if (val === "" || val === null || val === undefined) return 0;
+  if (typeof val === "number") return Number(val.toFixed(decimalPlaces));
+  let strVal = val.toString().trim();
+  strVal = strVal.replace(/^[^\d-]+/, "");
+  if (strVal.includes(",") && strVal.includes(".")) {
+    strVal = strVal.replace(/\./g, "").replace(",", ".");
+  } else if (strVal.includes(",")) {
+    strVal = strVal.replace(",", ".");
+  } else if (strVal.includes(".")) {
+    const parts = strVal.split(".");
+    if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+      strVal = parts.join("");
+    }
+  }
+  const cleanNum = parseFloat(strVal.replace(/[^0-9.-]/g, ""));
+  return Math.max(0, isNaN(cleanNum) ? 0 : Number(cleanNum.toFixed(decimalPlaces)));
+};
 
 export const parseIndonesianNumber = (val: string | number): number => {
   if (val === "" || val === null || val === undefined) return 0;
@@ -136,10 +154,8 @@ export function ManagerView({
   theme,
   onToggleTheme
 }: ManagerViewProps) {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "grafik" | "rata2_bulanan" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "seragam" | "product_knowledge" | "presentasi" | "setting" | "tautan" | "archive" | "attention">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "grafik" | "input_realisasi" | "lhpp_realisasi" | "breakdown" | "target_kompensasi" | "evaluasi" | "plg_pjl" | "lady" | "kontes" | "seragam" | "product_knowledge" | "presentasi" | "setting" | "tautan" | "archive" | "attention">("dashboard");
   useTabHistory(activeTab, setActiveTab, "dashboard");
-
-  const [isNavMenuOpen, setIsNavMenuOpen] = useState<boolean>(false);
   
   // Breakdown Plan & Realisasi state (Manager)
   const [breakdownPlanMap, setBreakdownPlanMap] = useState<BreakdownGridMap>({});
@@ -162,23 +178,33 @@ export function ManagerView({
 
   useEffect(() => {
     if (activeTab === "evaluasi") {
-      safeFetchJson("/api/getEvaluasi").then(res => {
-        if (res && res.evaluasiData) setLocalEval(res.evaluasiData);
-        else if (res && res.dataRows) setLocalEval(res);
-        else setLocalEval(prev => prev || getFallbackEvaluasiData());
+      const qMonth = globalMonth || "";
+      safeFetchJson(`/api/getEvaluasi?month=${qMonth}`).then(res => {
+        if (res && res.evaluasiData) {
+          setLocalEval(res.evaluasiData);
+          if (isViewingHistoricalMonth) {
+            setHistoricalDataSnapshot((prev: any) => prev ? { ...prev, evaluasiData: res.evaluasiData } : prev);
+          }
+        } else if (res && res.dataRows) {
+          setLocalEval(res);
+        } else {
+          setLocalEval(prev => prev || getFallbackEvaluasiData(qMonth));
+        }
       }).catch(() => {
-        setLocalEval(prev => prev || getFallbackEvaluasiData());
+        setLocalEval(prev => prev || getFallbackEvaluasiData(qMonth));
       });
     }
-  }, [activeTab]);
+  }, [activeTab, globalMonth, isViewingHistoricalMonth]);
 
   const activeEval = localEval || evaluasiData;
 
-  const activeEvaluasiData = (isViewingHistoricalMonth && historicalDataSnapshot?.evaluasiData)
-    ? historicalDataSnapshot.evaluasiData
-    : (isViewingHistoricalMonth && historicalDataNotFound)
-      ? null
-      : activeEval;
+  const activeEvaluasiData = (isViewingHistoricalMonth && localEval)
+    ? localEval
+    : (isViewingHistoricalMonth && historicalDataSnapshot?.evaluasiData)
+      ? historicalDataSnapshot.evaluasiData
+      : (isViewingHistoricalMonth && historicalDataNotFound)
+        ? null
+        : activeEval;
 
   const [undoStack, setUndoStack] = useState<BreakdownGridMap[]>([]);
   const [redoStack, setRedoStack] = useState<BreakdownGridMap[]>([]);
@@ -195,6 +221,12 @@ export function ManagerView({
   const [sbKey, setSbKey] = useState<string>(() => getSupabaseCredentials().key);
   const [sbMsg, setSbMsg] = useState<string>("");
   const [isSbSyncing, setIsSbSyncing] = useState<boolean>(false);
+
+  // Supabase Media (Akun Kedua) State
+  const [mediaStatus, setMediaStatus] = useState<{ configured: boolean; url: string; tableReady: boolean; message: string } | null>(null);
+  const [isMigratingMedia, setIsMigratingMedia] = useState<boolean>(false);
+  const [mediaMigrationMsg, setMediaMigrationMsg] = useState<string>("");
+  const [showSqlGuide, setShowSqlGuide] = useState<boolean>(false);
 
   // Supabase Security & PIN Protection State
   const [supabasePin, setSupabasePin] = useState<string>(() => {
@@ -217,6 +249,7 @@ export function ManagerView({
       setIsSbUnlocked(true);
       setSbPinError("");
       setSbPinInput("");
+      fetchSupabaseMediaStatus();
     } else {
       setSbPinError("PIN Salah! Silakan periksa kembali PIN Anda.");
     }
@@ -378,6 +411,14 @@ export function ManagerView({
         if (snapshot.breakdownPlanMap) setBreakdownPlanMap(snapshot.breakdownPlanMap);
         if (snapshot.breakdownRealisasiMap) setBreakdownRealisasiMap(snapshot.breakdownRealisasiMap);
         if (snapshot.evaluasiData) setLocalEval(snapshot.evaluasiData);
+
+        // Muat data evaluasi lengkap dari server untuk bulan arsip ini agar vs Minggu Lalu akurat
+        safeFetchJson(`/api/getEvaluasi?month=${mKey}`).then(res => {
+          if (res && res.evaluasiData) {
+            setLocalEval(res.evaluasiData);
+            setHistoricalDataSnapshot((prev: any) => prev ? { ...prev, evaluasiData: res.evaluasiData } : prev);
+          }
+        }).catch(() => {});
       } else {
         setHistoricalDataSnapshot(null);
         setHistoricalDataNotFound(true);
@@ -428,6 +469,32 @@ export function ManagerView({
         console.error("Gagal mengambil data Pelanggan & Penjualan untuk diarsipkan:", plgErr);
       }
 
+      // Hitung otomatis data rata-rata bulanan (per YL & produk) sebelum diarsipkan
+      let calculatedRata2: any = null;
+      try {
+        calculatedRata2 = computeMonthlyRata2DataFromSnapshot(
+          { breakdownRealisasiMap, transactions: plgPjlTransactions, monthKey: mKey, ylList },
+          ylList,
+          mKey
+        );
+        // Simpan juga langsung ke key rata2_bulanan_${mKey} agar tab Rata-Rata Bulanan langsung terisi tanpa manual
+        await saveToSupabase(`rata2_bulanan_${mKey}`, calculatedRata2);
+        try {
+          localStorage.setItem(`rata2_bulanan_${mKey}`, JSON.stringify(calculatedRata2));
+          // Update index rata-rata bulanan
+          const rawIdx = localStorage.getItem("rata2_bulanan_index");
+          let r2Idx: string[] = rawIdx ? JSON.parse(rawIdx) : [];
+          if (!r2Idx.includes(mKey)) {
+            r2Idx.push(mKey);
+            r2Idx.sort().reverse();
+            localStorage.setItem("rata2_bulanan_index", JSON.stringify(r2Idx));
+            await saveToSupabase("rata2_bulanan_index", r2Idx);
+          }
+        } catch (e) {}
+      } catch (rErr) {
+        console.error("Gagal menghitung otomatis rata2 bulanan:", rErr);
+      }
+
       const snapshot = {
         monthKey: mKey,
         monthLabel: label,
@@ -441,7 +508,8 @@ export function ManagerView({
         kontesConfig: kontesConfig,
         ylList: ylList,
         transactions: plgPjlTransactions,
-        potensiTembus: plgPjlPotensiTembus
+        potensiTembus: plgPjlPotensiTembus,
+        rata2Data: calculatedRata2
       };
 
       const res = await saveToSupabase(`monthly_archive_${mKey}`, snapshot);
@@ -499,6 +567,30 @@ export function ManagerView({
       const snapTargetTKU = (isViewingHistoricalMonth && currentSnap?.targetTKU) ? currentSnap.targetTKU : targetTKU;
       const snapTargetYLMap = (isViewingHistoricalMonth && currentSnap?.targetYLMap) ? currentSnap.targetYLMap : targetYLMap;
 
+      // Hitung otomatis data rata-rata bulanan (per YL & produk) sebelum memperbarui arsip
+      let calculatedRata2: any = null;
+      try {
+        calculatedRata2 = computeMonthlyRata2DataFromSnapshot(
+          { breakdownRealisasiMap, transactions: plgPjlTransactions, monthKey: mKey, ylList },
+          ylList,
+          mKey
+        );
+        await saveToSupabase(`rata2_bulanan_${mKey}`, calculatedRata2);
+        try {
+          localStorage.setItem(`rata2_bulanan_${mKey}`, JSON.stringify(calculatedRata2));
+          const rawIdx = localStorage.getItem("rata2_bulanan_index");
+          let r2Idx: string[] = rawIdx ? JSON.parse(rawIdx) : [];
+          if (!r2Idx.includes(mKey)) {
+            r2Idx.push(mKey);
+            r2Idx.sort().reverse();
+            localStorage.setItem("rata2_bulanan_index", JSON.stringify(r2Idx));
+            await saveToSupabase("rata2_bulanan_index", r2Idx);
+          }
+        } catch (e) {}
+      } catch (rErr) {
+        console.error("Gagal menghitung otomatis rata2 bulanan saat update:", rErr);
+      }
+
       const snapshot = {
         monthKey: mKey,
         monthLabel: label,
@@ -512,7 +604,8 @@ export function ManagerView({
         kontesConfig: kontesConfig,
         ylList: ylList,
         transactions: plgPjlTransactions,
-        potensiTembus: plgPjlPotensiTembus
+        potensiTembus: plgPjlPotensiTembus,
+        rata2Data: calculatedRata2
       };
 
       const res = await saveToSupabase(`monthly_archive_${mKey}`, snapshot);
@@ -701,15 +794,56 @@ export function ManagerView({
       await saveToSupabase("yl_list", ylList);
       await saveToSupabase("target_tku", targetTKU);
       await saveToSupabase("target_yl", targetYLMap);
-      await saveToSupabase("motivasi_config", motivasiConfig);
       await saveToSupabase("kontes_config", kontesConfig);
       if (localEval) await saveToSupabase("evaluasi_data", localEval);
 
-      setSbMsg("🎉 SINKRONISASI SUKSES! Seluruh data tersimpan aman di Supabase Cloud.");
+      // Motivasi disimpan ke Supabase Media lewat server agar tidak membebani akun utama
+      try {
+        await fetch("/api/saveMotivasi", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(motivasiConfig)
+        });
+      } catch (e) {}
+
+      setSbMsg("🎉 SINKRONISASI SUKSES! Seluruh data transaksi tersimpan aman di Supabase Utama.");
     } catch (e: any) {
       setSbMsg("❌ Gagal sinkronisasi: " + e.message);
     } finally {
       setIsSbSyncing(false);
+    }
+  };
+
+  // Check Supabase Media status
+  const fetchSupabaseMediaStatus = async () => {
+    try {
+      const res = await safeFetchJson("/api/getSupabaseStatus");
+      if (res && res.media) {
+        setMediaStatus(res.media);
+      }
+    } catch (e) {}
+  };
+
+  // Migrate media assets to secondary Supabase
+  const handleMigrateMedia = async () => {
+    setIsMigratingMedia(true);
+    setMediaMigrationMsg("⏳ Memeriksa tabel dan memindahkan aset media (Foto, Seragam, Motivasi)...");
+    try {
+      const res = await fetch("/api/migrateMediaToSecondary", { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        setMediaMigrationMsg(`🎉 ${data.message}`);
+        await fetchSupabaseMediaStatus();
+      } else {
+        setMediaMigrationMsg(`⚠️ ${data.message}`);
+        if (!data.tableReady) {
+          setShowSqlGuide(true);
+        }
+      }
+    } catch (e: any) {
+      setMediaMigrationMsg(`❌ Gagal migrasi: ${e.message}`);
+    } finally {
+      setIsMigratingMedia(false);
     }
   };
 
@@ -1499,7 +1633,7 @@ export function ManagerView({
       updates.forEach(({ r, c, val }) => {
         const yl = activeYLsList[r];
         if (!yl) return;
-        const numVal = parseIndonesianNumber(val);
+        const numVal = parseIndonesianDecimal(val);
         const existing = next[yl.area] ?? { target: 0, bln_lalu: 0, thn_lalu: 0 };
         next[yl.area] = { ...existing, [fields[c]]: numVal };
       });
@@ -2159,6 +2293,91 @@ export function ManagerView({
     } finally {
       if (!silent) setIsSavingTarget(false);
     }
+  };
+
+  const [isFetchingArchiveTarget, setIsFetchingArchiveTarget] = useState(false);
+  const [archiveTargetMsg, setArchiveTargetMsg] = useState("");
+
+  const handleFetchTargetFromArchive = async () => {
+    const monthToUse = isViewingHistoricalMonth && selectedMonthlyArchive
+      ? selectedMonthlyArchive
+      : (globalMonth || new Date().toISOString().substring(0, 7));
+
+    setIsFetchingArchiveTarget(true);
+    setArchiveTargetMsg("");
+    try {
+      const activeYls = ylList.filter((y: any) => y.status !== "nonaktif");
+      const res = await lookupHistoricalTargetRealization(monthToUse, activeYls);
+
+      // 1. Update Target YL Map with 2-digit decimal averages
+      handleUpdateTargetYLMap((prev: any) => {
+        const next = { ...prev };
+        activeYls.forEach((yl: any) => {
+          const area = yl.area;
+          const prevEntry = next[area] || { target: 0, bln_lalu: 0, thn_lalu: 0 };
+          next[area] = {
+            ...prevEntry,
+            bln_lalu: res.bulanLalu.perYL[area] ?? prevEntry.bln_lalu,
+            thn_lalu: res.tahunLalu.perYL[area] ?? prevEntry.thn_lalu,
+          };
+        });
+        return next;
+      });
+
+      // 2. Update Target TKU for Tim
+      // Aturan spesifik user:
+      // "Tapi khusus yang kolom tim itu gak usah ada angka desimal. Tapi ambil dari total dan buang angka belakangnya dan gak usah di bulatkan. Misal 3550,90 jadinya 3550. Tapi untuk total 10 yl tsb itu tetep pakai koma ya."
+      handleUpdateTargetTKU((prev: any) => {
+        const next = { ...prev };
+
+        // Bulan Lalu
+        next.bln_lalu = res.bulanLalu.totalTim;
+        next.bln_lalu_yo = res.bulanLalu.produk.yo;
+        next.bln_lalu_om = res.bulanLalu.produk.om;
+        next.bln_lalu_os = res.bulanLalu.produk.os;
+        next.bln_lalu_yt = res.bulanLalu.produk.yt;
+
+        // Tahun Lalu
+        next.thn_lalu = res.tahunLalu.totalTim;
+        next.thn_lalu_yo = res.tahunLalu.produk.yo;
+        next.thn_lalu_om = res.tahunLalu.produk.om;
+        next.thn_lalu_os = res.tahunLalu.produk.os;
+        next.thn_lalu_yt = res.tahunLalu.produk.yt;
+
+        return next;
+      });
+
+      setArchiveTargetMsg(
+        `✅ Berhasil menarik realisasi rata-rata dari arsip!\n• Bulan Lalu (${res.bulanLalu.monthLabel}): Total 10 YL = ${res.bulanLalu.totalYLSpe.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Tim TKU = ${res.bulanLalu.totalTim.toLocaleString("id-ID")}\n• Tahun Lalu (${res.tahunLalu.monthLabel}): Total 10 YL = ${res.tahunLalu.totalYLSpe.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, Tim TKU = ${res.tahunLalu.totalTim.toLocaleString("id-ID")}`
+      );
+      setTimeout(() => setArchiveTargetMsg(""), 9000);
+    } catch (e: any) {
+      alert(`❌ Gagal mengambil data realisasi dari arsip: ${e.message}`);
+    } finally {
+      setIsFetchingArchiveTarget(false);
+    }
+  };
+
+  const handleSyncTargetTimFromYL = () => {
+    const activeYls = ylList.filter((y: any) => y.status !== "nonaktif");
+    const sumTarget = activeYls.reduce(
+      (sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.target) || 0),
+      0
+    );
+    const targetTimTrunc = Math.trunc(sumTarget);
+
+    handleUpdateTargetTKU((prev: any) => {
+      const next = { ...prev };
+      next.target = targetTimTrunc;
+      const other = (next.target_om || 0) + (next.target_os || 0) + (next.target_yt || 0);
+      next.target_yo = Math.max(0, targetTimTrunc - other);
+      return next;
+    });
+
+    setArchiveTargetMsg(
+      `⚡ Target Tim berhasil disinkronkan dari total target 10 YL: ${targetTimTrunc.toLocaleString("id-ID")} (angka desimal dibuang tanpa dibulatkan).`
+    );
+    setTimeout(() => setArchiveTargetMsg(""), 6000);
   };
 
   const handleSaveYlList = async (newList: any) => {
@@ -2889,29 +3108,16 @@ export function ManagerView({
               >
                 <RefreshCw className={`w-5 h-5 text-white ${isRefreshing ? "animate-spin" : ""}`} />
               </button>
-              <button
-                onClick={() => {
-                  if (activeTab !== "dashboard") {
-                    setActiveTab("dashboard");
-                  } else {
-                    setIsNavMenuOpen(!isNavMenuOpen);
-                  }
-                }}
-                className="flex bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-2.5 sm:px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer items-center gap-1.5"
-                title={activeTab !== "dashboard" ? "Kembali ke Dasbor" : "Buka Menu Navigasi (Garis Tiga)"}
-              >
-                {activeTab !== "dashboard" ? (
-                  <>
-                    <Home className="w-5 h-5 text-white" />
-                    <span className="hidden sm:inline font-extrabold">Dasbor</span>
-                  </>
-                ) : (
-                  <>
-                    <Menu className="w-5 h-5 text-white" />
-                    <span className="hidden sm:inline font-extrabold">Menu ☰</span>
-                  </>
-                )}
-              </button>
+              {activeTab !== "dashboard" && (
+                <button
+                  onClick={() => setActiveTab("dashboard")}
+                  className="flex bg-red-700 hover:bg-red-600 active:scale-95 text-white font-extrabold text-xs px-2.5 sm:px-3.5 py-2 rounded-xl border border-red-500 shadow-md transition-all cursor-pointer items-center gap-1.5"
+                  title="Kembali ke Dasbor"
+                >
+                  <Home className="w-5 h-5 text-white" />
+                  <span className="hidden sm:inline font-extrabold">Dasbor</span>
+                </button>
+              )}
               <button
                 onClick={onLogout}
                 className="bg-slate-900/80 hover:bg-slate-950 text-slate-100 text-xs font-bold px-3 py-2 rounded-xl border border-slate-700 transition-all cursor-pointer shadow-sm"
@@ -2952,113 +3158,6 @@ export function ManagerView({
           </div>
         </div>
       </header>
-
-      {/* Menu Navigasi ala Aplikasi HP (Bottom Sheet / Grid Overlay) */}
-      {isNavMenuOpen && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex flex-col justify-end sm:justify-center sm:items-center animate-fade-in" onClick={() => setIsNavMenuOpen(false)}>
-          <div 
-            className="w-full sm:max-w-lg landscape:max-w-xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-slide-up sm:animate-scale-in"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Grabber handle for mobile */}
-            <div className="w-full flex justify-center pt-3 pb-1 sm:hidden">
-              <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full"></div>
-            </div>
-            
-            <div className="px-5 pb-3 pt-2 sm:pt-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
-                  Menu Aplikasi
-                </h3>
-                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                  {(motivasiConfig?.tkuName || "DP JEMBER 1").toUpperCase()}
-                </p>
-              </div>
-              <button
-                onClick={() => setIsNavMenuOpen(false)}
-                className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full transition-all cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Grid Icon Menu - Compact 4 to 5 Columns */}
-            <div className="p-3 sm:p-4 grid grid-cols-4 sm:grid-cols-5 landscape:grid-cols-5 gap-y-3.5 gap-x-1 sm:gap-x-2 bg-slate-50/50 dark:bg-slate-900 max-h-[70vh] sm:max-h-[80vh] overflow-y-auto">
-              {[
-                { id: "dashboard", icon: TrendingUp, label: "Dasbor", color: "bg-red-500", text: "text-red-500", light: "bg-red-50" },
-                { id: "lhpp_realisasi", icon: FileSpreadsheet, label: "LHPP", color: "bg-emerald-500", text: "text-emerald-500", light: "bg-emerald-50" },
-                { id: "breakdown", icon: Grid3X3, label: "Breakdown dan Realisasi", color: "bg-amber-500", text: "text-amber-500", light: "bg-amber-50" },
-                { id: "target_kompensasi", icon: Target, label: "Target", color: "bg-sky-500", text: "text-sky-500", light: "bg-sky-50" },
-                { id: "evaluasi", icon: Award, label: "Evaluasi", color: "bg-yellow-500", text: "text-yellow-600", light: "bg-yellow-50" },
-                { id: "rata2_bulanan", icon: Calendar, label: "Rata-rata", color: "bg-teal-500", text: "text-teal-500", light: "bg-teal-50" },
-                { id: "presentasi", icon: BarChart3, label: "Presentasi", color: "bg-orange-500", text: "text-orange-500", light: "bg-orange-50" },
-                { id: "plg_pjl", icon: PieChart, label: "Pelanggan", color: "bg-cyan-500", text: "text-cyan-500", light: "bg-cyan-50" },
-                { id: "lady", icon: Users, label: "Profil YL", color: "bg-indigo-500", text: "text-indigo-500", light: "bg-indigo-50" },
-                { id: "tautan", icon: Globe, label: "Link", color: "bg-indigo-600", text: "text-indigo-600", light: "bg-indigo-50" },
-                { id: "attention", icon: Pin, label: "Attention", color: "bg-violet-600", text: "text-violet-600", light: "bg-violet-50" },
-                { id: "ai_chat", icon: Sparkles, label: "Tanya AI", color: "bg-rose-600", text: "text-rose-600", light: "bg-rose-50" },
-                { id: "seragam", icon: Grid3X3, label: "Seragam", color: "bg-purple-500", text: "text-purple-500", light: "bg-purple-50" },
-                { id: "product_knowledge", icon: BookOpen, label: "Product Knowledge", color: "bg-rose-500", text: "text-rose-500", light: "bg-rose-50" },
-                { id: "archive", icon: Archive, label: "Arsip", color: "bg-fuchsia-600", text: "text-fuchsia-600", light: "bg-fuchsia-50" },
-              ].map((item) => {
-                const isActive = activeTab === item.id || (item.id === "lhpp_realisasi" && activeTab === "input_realisasi");
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      if (item.id === "ai_chat") {
-                        window.dispatchEvent(new CustomEvent("open-ai-chat"));
-                      } else {
-                        setActiveTab(item.id as any);
-                      }
-                      setIsNavMenuOpen(false);
-                    }}
-                    className="flex flex-col items-center gap-1.5 group cursor-pointer py-1"
-                  >
-                    <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center transition-all duration-200 shadow-xs ${
-                      isActive 
-                        ? `${item.color} text-white shadow-md scale-105` 
-                        : `bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 ${item.text} group-hover:scale-105 group-hover:shadow-sm`
-                    }`}>
-                      <Icon className={`w-5 h-5 ${isActive ? "text-white" : ""}`} strokeWidth={isActive ? 2.5 : 2} />
-                    </div>
-                    <span className={`text-[9.5px] sm:text-[10px] font-bold text-center leading-tight truncate w-full px-0.5 ${
-                      isActive ? "text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400"
-                    }`}>
-                      {item.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Bottom Actions */}
-            <div className="p-4 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-3">
-              <button
-                onClick={() => { setActiveTab("setting"); setIsNavMenuOpen(false); }}
-                className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === "setting" 
-                    ? "bg-slate-800 text-white" 
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                }`}
-              >
-                <Settings className="w-4 h-4" />
-                <span>Pengaturan</span>
-              </button>
-              <button
-                onClick={onLogout}
-                className="flex items-center justify-center gap-2 py-2.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-xl text-xs font-bold transition-all cursor-pointer"
-              >
-                <span className="text-base leading-none">🚪</span>
-                <span>Keluar</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto p-4">
@@ -3136,6 +3235,7 @@ export function ManagerView({
             currentMonthTotal={currentMonthTotal}
             activeGridMap={activeGridMap}
             setActiveTab={setActiveTab}
+            selectedMonth={isViewingHistoricalMonth ? (historicalDataSnapshot?.month || selectedMonthlyArchive || globalMonth) : globalMonth}
           />
         )}
 
@@ -3148,11 +3248,6 @@ export function ManagerView({
             currentMonthTotal={currentMonthTotal}
             calculateSektorTotals={calculateSektorTotals}
           />
-        )}
-
-        {/* Tab Data Rata-Rata Bulanan */}
-        {activeTab === "rata2_bulanan" && (
-          <Rata2BulananTab ylList={ylList} />
         )}
 
         {/* Tab Sales Record TKU */}
@@ -3981,14 +4076,7 @@ export function ManagerView({
               menuPos={breakdownMenuPos}
               onCopy={handleCopyGridCells}
               onCut={handleCutGridCells}
-              onPaste={async () => {
-                try {
-                  const text = await navigator.clipboard.readText();
-                  if (text && gridSelection) handlePasteIntoGrid(text);
-                } catch (e) {
-                  setBreakdownClipboardModal({ mode: "paste", text: "" });
-                }
-              }}
+              onPaste={handleMobilePasteClick}
               onClear={handleClearSelectedGridCells}
               onSelectAll={handleSelectAllGridCells}
               onClose={() => {
@@ -4015,37 +4103,63 @@ export function ManagerView({
           <div className="space-y-4">
             {/* Target TKU Card */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-xl">🎯</span>
                   <div>
                     <h2 className="text-sm font-black text-slate-900 uppercase">Target TKU Bulan Ini</h2>
-                    <p className="text-[10.5px] text-slate-500 font-medium">Pengaturan target penjualan harian untuk TKU</p>
+                    <p className="text-[10.5px] text-slate-500 font-medium">Pengaturan target penjualan harian untuk TKU (Tanpa desimal, angka bulat/trunc)</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleSaveSettingTargets(false)}
-                  disabled={isSavingTarget}
-                  className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
-                >
-                  {isSavingTarget ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      <span>Menyimpan...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>💾</span>
-                      <span>Simpan All Target & Kompensasi</span>
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFetchTargetFromArchive}
+                    disabled={isFetchingArchiveTarget}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    {isFetchingArchiveTarget ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Menarik Arsip...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>📥</span>
+                        <span>Tarik Realisasi dari Arsip</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleSaveSettingTargets(false)}
+                    disabled={isSavingTarget}
+                    className="bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs px-4 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    {isSavingTarget ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Menyimpan...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>💾</span>
+                        <span>Simpan All Target & Kompensasi</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
               {compSavedMsg && (
                 <p className="text-xs font-bold text-emerald-600 bg-emerald-50 p-2 rounded-xl border border-emerald-200 animate-pulse">
                   {compSavedMsg}
                 </p>
+              )}
+
+              {archiveTargetMsg && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs font-bold text-blue-900 whitespace-pre-line leading-relaxed">
+                  {archiveTargetMsg}
+                </div>
               )}
 
               <div className="overflow-x-auto pt-2">
@@ -4073,7 +4187,7 @@ export function ManagerView({
                             {rowItem.title}
                           </td>
                           <td className="p-2 text-center border-r border-slate-200 font-black text-blue-900 bg-blue-50/30 text-xs">
-                            {Math.round(totalVal).toLocaleString("id-ID")}
+                            {Math.trunc(Number(totalVal) || 0).toLocaleString("id-ID")}
                           </td>
                           {(["_yo", "_om", "_os", "_yt"] as const).map((sfx, cIdx) => {
                             const val = (activeTargetTKU as any)[`${rowItem.prefix}${sfx}`] ?? 0;
@@ -4087,6 +4201,9 @@ export function ManagerView({
                                 <NumberInput
                                   min={0}
                                   value={val}
+                                  onFocus={(e) => {
+                                    e.target.select();
+                                  }}
                                   onPaste={(e) => {
                                     const text = e.clipboardData.getData("text/plain");
                                     if (!text) return;
@@ -4123,7 +4240,42 @@ export function ManagerView({
 
             {/* Target YL Table Card */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-4 space-y-3">
-              <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Target per Yakult Lady</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-xs font-black text-slate-800 uppercase tracking-wider">Target & Realisasi per Yakult Lady</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">Angka Target, Realisasi Bulan Lalu, dan Tahun Lalu mendukung format desimal 2 digit.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleFetchTargetFromArchive}
+                    disabled={isFetchingArchiveTarget}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all shadow cursor-pointer disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    {isFetchingArchiveTarget ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Mengambil Data Arsip...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>📥</span>
+                        <span>Tarik Realisasi dari Arsip (Bulan Lalu & Tahun Lalu)</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSyncTargetTimFromYL}
+                    className="bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all shadow cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>⚡</span>
+                    <span>Sinkronkan Target Tim dari Total 10 YL</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead className="bg-slate-100 text-slate-700 text-[10px] uppercase font-bold">
@@ -4152,14 +4304,23 @@ export function ManagerView({
                   <tfoot className="bg-slate-100 text-slate-800 text-[11px] font-black uppercase shadow-[inset_0_1px_0_rgba(0,0,0,0.1)]">
                     <tr>
                       <td className="p-2.5 text-right border-r-2 border-slate-300">TOTAL</td>
-                      <td className="p-1.5 text-center border-r border-slate-300 text-sm">
-                        {Math.round(ylList.filter((y: any) => y.status !== "nonaktif").reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.target) || 0), 0)).toLocaleString("id-ID")}
+                      <td className="p-1.5 text-center border-r border-slate-300 text-sm font-black text-slate-900">
+                        {ylList
+                          .filter((y: any) => y.status !== "nonaktif")
+                          .reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.target) || 0), 0)
+                          .toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="p-1.5 text-center border-r border-slate-300 text-sm">
-                        {Math.round(ylList.filter((y: any) => y.status !== "nonaktif").reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.bln_lalu) || 0), 0)).toLocaleString("id-ID")}
+                      <td className="p-1.5 text-center border-r border-slate-300 text-sm font-black text-slate-900">
+                        {ylList
+                          .filter((y: any) => y.status !== "nonaktif")
+                          .reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.bln_lalu) || 0), 0)
+                          .toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="p-1.5 text-center border-r border-slate-300 text-sm">
-                        {Math.round(ylList.filter((y: any) => y.status !== "nonaktif").reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.thn_lalu) || 0), 0)).toLocaleString("id-ID")}
+                      <td className="p-1.5 text-center border-r border-slate-300 text-sm font-black text-slate-900">
+                        {ylList
+                          .filter((y: any) => y.status !== "nonaktif")
+                          .reduce((sum: number, yl: any) => sum + (Number(activeTargetYLMap[yl.area]?.thn_lalu) || 0), 0)
+                          .toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
                   </tfoot>
@@ -4340,7 +4501,7 @@ export function ManagerView({
         )}
 
         {/* Tautan Yakult */}
-        {activeTab === "tautan" && <OfficialLinksViewer isAdmin={true} onBack={() => { setActiveTab("dashboard"); setIsNavMenuOpen(false); }} />}
+        {activeTab === "tautan" && <OfficialLinksViewer isAdmin={true} onBack={() => setActiveTab("dashboard")} />}
 
         {/* Tab Pengaturan & Cloud Supabase */}
         {/* Tab Arsip */}
@@ -4729,6 +4890,97 @@ export function ManagerView({
                       {sbMsg}
                     </p>
                   )}
+
+                  {/* SUB-PANEL: AKUN SUPABASE KEDUA (KHUSUS MEDIA / FOTO / SERAGAM / MOTIVASI) */}
+                  <div className="pt-3 border-t border-slate-200 mt-2 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-base">🖼️</span>
+                        <h4 className="text-xs font-black text-slate-800 uppercase tracking-wide">
+                          Akun Supabase Media (Akun Kedua)
+                        </h4>
+                      </div>
+                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                        mediaStatus?.tableReady 
+                          ? "bg-emerald-100 text-emerald-800" 
+                          : "bg-amber-100 text-amber-800"
+                      }`}>
+                        {mediaStatus?.tableReady ? "🟢 Aktif & Siap" : "🟡 Menunggu Tabel SQL"}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-600 leading-relaxed">
+                      Akun kedua ini khusus menyimpan foto profil YL, jadwal &amp; gambar seragam, dan konfigurasi motivasi agar akun utama 100% bebas beban egress.
+                    </p>
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 space-y-1 text-[11px]">
+                      <div className="text-slate-500 font-semibold">URL Akun Media:</div>
+                      <div className="font-mono text-slate-800 font-bold break-all">
+                        {mediaStatus?.url || "https://wkwjmwxxdfxyfqaseuha.supabase.co"}
+                      </div>
+                      {mediaStatus?.message && (
+                        <div className={`text-[10px] font-bold mt-1 ${mediaStatus.tableReady ? "text-emerald-700" : "text-amber-700"}`}>
+                          Status: {mediaStatus.message}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={handleMigrateMedia}
+                        disabled={isMigratingMedia}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50"
+                      >
+                        {isMigratingMedia ? "⏳ Memindahkan..." : "🔄 Cek & Pindahkan Media ke Akun Baru"}
+                      </button>
+
+                      <button
+                        onClick={() => setShowSqlGuide(!showSqlGuide)}
+                        className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs px-3 py-2 rounded-xl transition-all cursor-pointer"
+                      >
+                        {showSqlGuide ? "Sembunyikan Petunjuk SQL" : "📜 Petunjuk Buat Tabel SQL"}
+                      </button>
+                    </div>
+
+                    {mediaMigrationMsg && (
+                      <div className="text-xs font-bold text-indigo-900 bg-indigo-50 p-2.5 rounded-xl border border-indigo-200 leading-relaxed">
+                        {mediaMigrationMsg}
+                      </div>
+                    )}
+
+                    {showSqlGuide && (
+                      <div className="bg-slate-900 text-slate-100 p-3 rounded-xl space-y-2 text-xs font-mono">
+                        <div className="text-amber-300 font-bold text-[11px] font-sans">
+                          Jalankan perintah SQL ini di SQL Editor Supabase Baru (wkwjmwxxdfxyfqaseuha):
+                        </div>
+                        <pre className="text-[10px] bg-slate-950 p-2 rounded border border-slate-800 overflow-x-auto whitespace-pre-wrap select-all">
+{`CREATE TABLE IF NOT EXISTS public.app_store (
+  key TEXT PRIMARY KEY,
+  data JSONB NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.app_store ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public all" 
+ON public.app_store 
+FOR ALL 
+USING (true) 
+WITH CHECK (true);`}
+                        </pre>
+                        <button
+                          onClick={() => {
+                            const sql = `CREATE TABLE IF NOT EXISTS public.app_store (\n  key TEXT PRIMARY KEY,\n  data JSONB NOT NULL,\n  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())\n);\n\nALTER TABLE public.app_store ENABLE ROW LEVEL SECURITY;\n\nCREATE POLICY "Allow public all" \nON public.app_store \nFOR ALL \nUSING (true) \nWITH CHECK (true);`;
+                            navigator.clipboard?.writeText(sql);
+                            alert("Kueri SQL berhasil disalin ke clipboard!");
+                          }}
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-bold text-[10px] px-2.5 py-1.5 rounded cursor-pointer"
+                        >
+                          📋 Salin Kueri SQL
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="pt-2 border-t border-slate-100">
                     {!isChangingSbPin ? (

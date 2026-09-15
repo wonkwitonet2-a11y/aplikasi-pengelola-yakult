@@ -232,24 +232,18 @@ function PlgPjlViewInner({
 
   const grandTotal = totalYo + totalOm + totalOs + totalYt;
 
-  // Additional Metrics - Jumlah pelanggan dihitung dari 3 transaksi (hari) terakhir per YL
+  // Additional Metrics - Jumlah pelanggan dihitung dari total transaksi per YL di tampilan UI
   const calculateTotalPlg = () => {
     if (isTkuDp1) {
       return activeYlList.reduce((acc, yl) => {
         const txsForYl = transactions.filter(
           t => t.nama && (t.nama.startsWith(yl.area) || t.nama === yl.nama)
         );
-        const last3 = [...txsForYl]
-          .sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""))
-          .slice(-3);
-        const ylPlg = last3.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
+        const ylPlg = txsForYl.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
         return acc + ylPlg;
       }, 0);
     } else {
-      const last3 = [...ylTxs]
-        .sort((a, b) => (a.tanggal || "").localeCompare(b.tanggal || ""))
-        .slice(-3);
-      return last3.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
+      return ylTxs.reduce((sum, t) => sum + (Number(t.f_plg) || 0), 0);
     }
   };
 
