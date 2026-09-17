@@ -1,5 +1,6 @@
 import React from "react";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
+import { SpreadsheetInputBar } from "./SpreadsheetInputBar";
 import type { GridSelection } from "./useSimpleGrid";
 import type { Transaction } from "../types";
 
@@ -23,8 +24,27 @@ interface YlRealisasiPotensiTabProps {
   setEditDataRealisasi: React.Dispatch<React.SetStateAction<Record<number, any>>>;
   ylBreakdownRealisasi: any;
   getRealisasiCellProps: (r: number, c: number) => { className?: string; [key: string]: any };
+  renderRealisasiSelectionHandle?: (r: number, c: number) => React.ReactNode;
   selectRealisasiRow: (rIdx: number) => void;
+  activeCell?: { r: number; c: number } | null;
+  activeCellValue?: number | string;
+  isActiveCellEditable?: boolean;
+  handleActiveCellValueChange?: (val: number | string) => void;
+  goToNextCell?: () => void;
+  goToPrevCell?: () => void;
 }
+
+const REALISASI_COL_NAMES = [
+  "Rumah • YO", "Rumah • OM", "Rumah • OS", "Rumah • YT",
+  "Pasar • YO", "Pasar • OM", "Pasar • OS", "Pasar • YT",
+  "Sekolah • YO", "Sekolah • OM", "Sekolah • OS", "Sekolah • YT",
+  "Kantor • YO", "Kantor • OM", "Kantor • OS", "Kantor • YT",
+  "Toko • YO", "Toko • OM", "Toko • OS", "Toko • YT",
+  "IB • YO", "IB • OM", "IB • OS", "IB • YT",
+  "BB • YO", "BB • OM", "BB • OS", "BB • YT",
+  "PB Pagi", "PB Sore", "Pelanggan", "RK", "RA", "RB",
+  "Pelanggan APK", "Sampah Botol"
+];
 
 function YlRealisasiPotensiTabInner({
   currentMonth,
@@ -46,7 +66,14 @@ function YlRealisasiPotensiTabInner({
   setEditDataRealisasi,
   ylBreakdownRealisasi,
   getRealisasiCellProps,
+  renderRealisasiSelectionHandle,
   selectRealisasiRow,
+  activeCell,
+  activeCellValue,
+  isActiveCellEditable,
+  handleActiveCellValueChange,
+  goToNextCell,
+  goToPrevCell,
 }: YlRealisasiPotensiTabProps) {
   const daysList = Array.from({ length: 31 }, (_, i) => i + 1);
 
@@ -54,26 +81,28 @@ function YlRealisasiPotensiTabInner({
   let totBb = 0, totPbPagi = 0, totPbSore = 0, totPlgApk = 0, totSampahBtl = 0, totPlg = 0, totRk = 0, totRa = 0, totRb = 0;
   let totDayYo = 0, totDayOm = 0, totDayOs = 0, totDayYt = 0;
 
+  const cellLabel = activeCell
+    ? `Tgl ${activeCell.r + 1} • ${REALISASI_COL_NAMES[activeCell.c] || `C${activeCell.c + 1}`}`
+    : undefined;
+
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
-        <div className="border-l-4 border-indigo-600 pl-3 flex flex-col md:flex-row md:items-center justify-between gap-2">
-          {isEditRealisasi && (
-            <GridSelectionToolbar 
-              selection={realisasiGridSelection}
-              isMenuOpen={realisasiIsMenuOpen}
-              menuPos={realisasiMenuPos}
-              onCopy={handleRealisasiGridCopy}
-              onCut={handleRealisasiGridCut}
-              onPaste={() => handleRealisasiGridPaste()}
-              onClear={handleRealisasiGridClear}
-              onClose={() => {
-                setRealisasiIsMenuOpen?.(false);
-                setRealisasiGridSelection(null);
-              }}
-            />
-          )}
-          <div>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4 overflow-hidden">
+        <div className="border-l-4 border-indigo-600 pl-3 flex flex-col md:flex-row md:items-start lg:items-center justify-between gap-3">
+          <GridSelectionToolbar 
+            selection={realisasiGridSelection}
+            isMenuOpen={realisasiIsMenuOpen}
+            menuPos={realisasiMenuPos}
+            onCopy={handleRealisasiGridCopy}
+            onCut={handleRealisasiGridCut}
+            onPaste={() => handleRealisasiGridPaste()}
+            onClear={handleRealisasiGridClear}
+            onClose={() => {
+              setRealisasiIsMenuOpen?.(false);
+              setRealisasiGridSelection(null);
+            }}
+          />
+          <div className="flex-1 min-w-0 pr-1">
             <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
               <span>🏘️ Tabel Realisasi Potensi Sektor (Pertanggal)</span>
             </h2>
@@ -81,19 +110,19 @@ function YlRealisasiPotensiTabInner({
               Data realisasi potensi penjualan per sektor (Rumah, Pasar, Sekolah, Kantor, Toko, IB - Instan Buyer) otomatis tersimpan pertanggal sesuai input YL.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono bg-indigo-100 text-indigo-800 font-black px-3 py-1 rounded-lg shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <span className="text-xs font-mono bg-indigo-100 text-indigo-800 font-black px-3 py-1.5 rounded-lg shrink-0">
               📌 Per Yakult Lady
             </span>
             {isEditRealisasi ? (
-              <div className="flex gap-2">
-                <button onClick={handleToggleEditRealisasi} className="text-xs sm:text-sm bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-1.5 px-3 rounded-lg">Batal</button>
-                <button onClick={handleSaveEditRealisasi} disabled={isSavingRealisasi} className="text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-lg disabled:opacity-50">
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={handleToggleEditRealisasi} className="text-xs sm:text-sm bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-1.5 px-3 rounded-lg cursor-pointer">Batal</button>
+                <button onClick={handleSaveEditRealisasi} disabled={isSavingRealisasi} className="text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-3 rounded-lg disabled:opacity-50 cursor-pointer">
                   {isSavingRealisasi ? "Menyimpan..." : "Simpan Perubahan"}
                 </button>
               </div>
             ) : (
-              <button onClick={handleToggleEditRealisasi} className="text-xs sm:text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-1.5 px-3 border border-indigo-200 rounded-lg">
+              <button onClick={handleToggleEditRealisasi} className="text-xs sm:text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-1.5 px-3 border border-indigo-200 rounded-lg cursor-pointer shrink-0">
                 ✏️ Edit Tabel
               </button>
             )}
@@ -207,10 +236,13 @@ function YlRealisasiPotensiTabInner({
 
                   const rIdx = d - 1;
                   const renderCell = (field: string, v: number, className: string, cIdx: number) => {
-                    if (isEditRealisasi) {
-                      const { className: selClassName, ...cellProps } = getRealisasiCellProps(rIdx, cIdx);
-                      return (
-                        <td {...cellProps} className={`${className.replace("font-bold", "font-normal")} ${selClassName || ""}`}>
+                    const { className: selClassName, ...cellProps } = getRealisasiCellProps(rIdx, cIdx);
+                    return (
+                      <td
+                        {...cellProps}
+                        className={`${className} relative select-none ${selClassName || ""}`}
+                      >
+                        {isEditRealisasi ? (
                           <input
                             type="number"
                             min="0"
@@ -229,10 +261,12 @@ function YlRealisasiPotensiTabInner({
                             onDragStart={(e) => e.preventDefault()}
                             className="w-10 text-xs border border-slate-300 rounded p-1 text-center outline-none focus:ring-1 focus:ring-indigo-500 font-bold bg-transparent"
                           />
-                        </td>
-                      );
-                    }
-                    return <td className={className}>{v || "-"}</td>;
+                        ) : (
+                          <span className="block truncate">{v || "-"}</span>
+                        )}
+                        {renderRealisasiSelectionHandle && renderRealisasiSelectionHandle(rIdx, cIdx)}
+                      </td>
+                    );
                   };
                   const renderBbCell = () => {
                     if (isEditRealisasi) {
@@ -258,8 +292,8 @@ function YlRealisasiPotensiTabInner({
                   return (
                     <tr key={d} className="hover:bg-slate-50/80 transition-colors optimized-table-row">
                       <td
-                        onClick={() => isEditRealisasi && selectRealisasiRow(rIdx)}
-                        className={`p-1.5 border-r border-slate-200 sticky left-0 bg-white z-10 text-center text-slate-600 font-mono font-black ${isEditRealisasi ? "cursor-pointer hover:bg-amber-100 transition-colors select-none" : ""}`}
+                        onClick={() => selectRealisasiRow(rIdx)}
+                        className="p-1.5 border-r border-slate-200 sticky left-0 bg-white z-10 text-center text-slate-600 font-mono font-black cursor-pointer hover:bg-amber-100 transition-colors select-none"
                       >
                         {dayStrPadded}
                       </td>
@@ -358,6 +392,22 @@ function YlRealisasiPotensiTabInner({
           </div>
         </div>
       </div>
+
+      {activeCell && (
+        <SpreadsheetInputBar
+          activeCell={activeCell}
+          cellLabel={cellLabel}
+          value={activeCellValue ?? 0}
+          isEditable={isActiveCellEditable ?? isEditRealisasi}
+          onChange={(val) => {
+            if (handleActiveCellValueChange) {
+              handleActiveCellValueChange(val);
+            }
+          }}
+          onPrev={goToPrevCell}
+          onNext={goToNextCell}
+        />
+      )}
     </div>
   );
 }

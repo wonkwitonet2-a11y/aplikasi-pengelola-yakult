@@ -17,6 +17,10 @@ import {
 } from "lucide-react";
 import { loadFromSupabase, saveToSupabase, deleteFromSupabase } from "../lib/supabaseClient";
 import { getPreviousYearDataSync } from "../lib/historicalArchiveLookup";
+import { useSimpleGrid } from "./useSimpleGrid";
+import { GridSelectionToolbar } from "./GridSelectionToolbar";
+import { SpreadsheetInputBar } from "./SpreadsheetInputBar";
+import { ClipboardFallbackModal } from "./ClipboardFallbackModal";
 
 export interface Rata2Row {
   area: string;
@@ -361,6 +365,70 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
     });
   };
 
+  const getRata2CellValue = useCallback((r: number, c: number) => {
+    const row = isEditing ? editableRows[r] : currentData?.rows?.[r];
+    if (!row) return 0;
+    if (c === 0) return row.yo || 0;
+    if (c === 1) return row.om || 0;
+    if (c === 2) return row.os || 0;
+    if (c === 3) return row.yt || 0;
+    if (c === 4) return row.totalRata2 || 0;
+    return 0;
+  }, [isEditing, editableRows, currentData]);
+
+  const setRata2BatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
+    if (!isEditing) return;
+    setEditableRows(prev => {
+      const copy = [...prev];
+      updates.forEach(({ r, c, val }) => {
+        if (!copy[r]) return;
+        const numVal = typeof val === "number" ? val : parseFloat(String(val).replace(/\./g, "").replace(",", ".")) || 0;
+        const updatedRow = { ...copy[r] };
+        if (c === 0) updatedRow.yo = numVal;
+        else if (c === 1) updatedRow.om = numVal;
+        else if (c === 2) updatedRow.os = numVal;
+        else if (c === 3) updatedRow.yt = numVal;
+        else if (c === 4) updatedRow.totalRata2 = numVal;
+
+        if (c >= 0 && c < 4) {
+          const totalR = (updatedRow.yo || 0) + (updatedRow.om || 0) + (updatedRow.os || 0) + (updatedRow.yt || 0);
+          updatedRow.totalRata2 = parseFloat(totalR.toFixed(2));
+        }
+        copy[r] = updatedRow;
+      });
+      return copy;
+    });
+  }, [isEditing]);
+
+  const {
+    selection: rata2Selection,
+    setSelection: setRata2Selection,
+    activeCell: rata2ActiveCell,
+    activeCellValue: rata2ActiveCellValue,
+    isActiveCellEditable: isRata2ActiveCellEditable,
+    handleActiveCellValueChange: handleRata2ActiveCellValueChange,
+    goToNextCell: goToNextRata2Cell,
+    goToPrevCell: goToPrevRata2Cell,
+    renderSelectionHandle: renderRata2SelectionHandle,
+    isMenuOpen: rata2IsMenuOpen,
+    setIsMenuOpen: setRata2IsMenuOpen,
+    menuPos: rata2MenuPos,
+    getCellProps: getRata2CellProps,
+    handleCopy: handleRata2Copy,
+    handleCut: handleRata2Cut,
+    handlePaste: handleRata2Paste,
+    handleClear: handleRata2Clear,
+    clipboardModal: rata2ClipboardModal,
+    confirmManualPaste: rata2ConfirmManualPaste,
+    closeClipboardModal: closeRata2CloseClipboardModal,
+  } = useSimpleGrid({
+    totalRows: (isEditing ? editableRows : (currentData?.rows || [])).length,
+    totalCols: 5,
+    isCellEditable: () => isEditing,
+    getCellValue: getRata2CellValue,
+    setBatchCellValues: setRata2BatchCellValues
+  });
+
   // Save Month Data permanently to Local and Supabase
   const handleSavePermanently = async () => {
     const ymKey = activeYearMonth;
@@ -699,6 +767,17 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
           </div>
         </div>
 
+        {/* Spreadsheet Input Bar */}
+        <SpreadsheetInputBar
+          activeCell={rata2ActiveCell}
+          value={rata2ActiveCellValue}
+          isEditable={isRata2ActiveCellEditable}
+          onChange={handleRata2ActiveCellValueChange}
+          onEnter={goToNextRata2Cell}
+          onTab={goToNextRata2Cell}
+          onShiftTab={goToPrevRata2Cell}
+        />
+
         {/* Responsive Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -724,7 +803,10 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
                   </td>
 
                   {/* YO */}
-                  <td className="p-2 border-r border-slate-200 text-right font-bold text-red-700">
+                  <td
+                    {...getRata2CellProps(idx, 0)}
+                    className={`p-2 border-r border-slate-200 text-right font-bold text-red-700 relative select-none ${getRata2CellProps(idx, 0).className}`}
+                  >
                     {isEditing ? (
                       <input
                         type="number"
@@ -737,10 +819,14 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
                     ) : (
                       row.yo.toFixed(2)
                     )}
+                    {renderRata2SelectionHandle(idx, 0)}
                   </td>
 
                   {/* OM */}
-                  <td className="p-2 border-r border-slate-200 text-right font-bold text-amber-700">
+                  <td
+                    {...getRata2CellProps(idx, 1)}
+                    className={`p-2 border-r border-slate-200 text-right font-bold text-amber-700 relative select-none ${getRata2CellProps(idx, 1).className}`}
+                  >
                     {isEditing ? (
                       <input
                         type="number"
@@ -753,10 +839,14 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
                     ) : (
                       row.om.toFixed(2)
                     )}
+                    {renderRata2SelectionHandle(idx, 1)}
                   </td>
 
                   {/* OS */}
-                  <td className="p-2 border-r border-slate-200 text-right font-bold text-fuchsia-700">
+                  <td
+                    {...getRata2CellProps(idx, 2)}
+                    className={`p-2 border-r border-slate-200 text-right font-bold text-fuchsia-700 relative select-none ${getRata2CellProps(idx, 2).className}`}
+                  >
                     {isEditing ? (
                       <input
                         type="number"
@@ -769,10 +859,14 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
                     ) : (
                       row.os.toFixed(2)
                     )}
+                    {renderRata2SelectionHandle(idx, 2)}
                   </td>
 
                   {/* YT */}
-                  <td className="p-2 border-r border-slate-200 text-right font-bold text-sky-700">
+                  <td
+                    {...getRata2CellProps(idx, 3)}
+                    className={`p-2 border-r border-slate-200 text-right font-bold text-sky-700 relative select-none ${getRata2CellProps(idx, 3).className}`}
+                  >
                     {isEditing ? (
                       <input
                         type="number"
@@ -785,10 +879,14 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
                     ) : (
                       row.yt.toFixed(2)
                     )}
+                    {renderRata2SelectionHandle(idx, 3)}
                   </td>
 
                   {/* TOTAL RATA-RATA */}
-                  <td className="p-2 bg-emerald-100/70 text-right font-black text-emerald-950 border-l border-emerald-200">
+                  <td
+                    {...getRata2CellProps(idx, 4)}
+                    className={`p-2 bg-emerald-100/70 text-right font-black text-emerald-950 border-l border-emerald-200 relative select-none ${getRata2CellProps(idx, 4).className}`}
+                  >
                     {isEditing ? (
                       <input
                         type="number"
@@ -801,6 +899,7 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
                     ) : (
                       row.totalRata2.toFixed(2)
                     )}
+                    {renderRata2SelectionHandle(idx, 4)}
                   </td>
                 </tr>
               ))}
@@ -830,6 +929,26 @@ export function Rata2BulananTab({ ylList = [], defaultYearMonth }: Rata2BulananT
               </tr>
             </tfoot>
           </table>
+
+          <GridSelectionToolbar
+            selection={rata2Selection}
+            menuPos={rata2MenuPos}
+            isMenuOpen={rata2IsMenuOpen}
+            onClose={() => setRata2IsMenuOpen(false)}
+            onCopy={handleRata2Copy}
+            onCut={handleRata2Cut}
+            onPaste={handleRata2Paste}
+            onClear={handleRata2Clear}
+          />
+
+          {rata2ClipboardModal && (
+            <ClipboardFallbackModal
+              mode={rata2ClipboardModal.mode}
+              initialText={rata2ClipboardModal.text}
+              onConfirmPaste={rata2ConfirmManualPaste}
+              onClose={closeRata2CloseClipboardModal}
+            />
+          )}
         </div>
 
         {/* Footer save bar in edit mode */}

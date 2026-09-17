@@ -12,7 +12,9 @@ import { lookupHistoricalTargetRealization, computeMonthlyRata2DataFromSnapshot 
 import { Rata2BulananTab } from "../Rata2BulananTab";
 const SalesRecordTKU = React.lazy(() => import("../SalesRecordTKU"));
 import { GridSelectionToolbar } from "../GridSelectionToolbar";
+import { SpreadsheetInputBar } from "../SpreadsheetInputBar";
 import { ClipboardFallbackModal } from "../ClipboardFallbackModal";
+import { useSimpleGrid } from "../useSimpleGrid";
 
 
 // Custom Mock Fetch Handler
@@ -530,6 +532,155 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
      });
   };
 
+  const activeYLsList = useMemo(() => (ylList || []).filter((y: any) => y.status !== "nonaktif"), [ylList]);
+
+  const getTargetCellValue = useCallback((r: number, c: number) => {
+    const yl = activeYLsList[r];
+    if (!yl) return 0;
+    const data = activeTargetYLMap[yl.area] || { target: 0, bln_lalu: 0, thn_lalu: 0 };
+    if (c === 0) return data.target ?? 0;
+    if (c === 1) return data.bln_lalu ?? 0;
+    if (c === 2) return data.thn_lalu ?? 0;
+    return 0;
+  }, [activeYLsList, activeTargetYLMap]);
+
+  const setTargetBatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
+    handleUpdateTargetYLMap((prev: any) => {
+      const next = { ...prev };
+      const fields = ["target", "bln_lalu", "thn_lalu"] as const;
+      updates.forEach(({ r, c, val }) => {
+        const yl = activeYLsList[r];
+        if (!yl) return;
+        const numVal = typeof val === "number" ? val : parseFloat(String(val).replace(/\./g, "").replace(",", ".")) || 0;
+        const existing = next[yl.area] ?? { target: 0, bln_lalu: 0, thn_lalu: 0 };
+        next[yl.area] = { ...existing, [fields[c]]: numVal };
+      });
+      return next;
+    });
+  }, [activeYLsList]);
+
+  const {
+    selection: targetGridSelection,
+    setSelection: setTargetGridSelection,
+    isMenuOpen: targetIsMenuOpen,
+    setIsMenuOpen: setTargetIsMenuOpen,
+    menuPos: targetMenuPos,
+    getCellProps: getTargetCellProps,
+    renderSelectionHandle: renderTargetSelectionHandle,
+    activeCell: targetActiveCell,
+    setActiveCell: setTargetActiveCell,
+    activeCellValue: targetActiveCellValue,
+    isActiveCellEditable: isTargetActiveCellEditable,
+    handleActiveCellValueChange: handleTargetActiveCellValueChange,
+    goToNextCell: goToNextTargetCell,
+    goToPrevCell: goToPrevTargetCell,
+    selectRow: selectTargetRow,
+    handleCopy: handleTargetGridCopy,
+    handleCut: handleTargetGridCut,
+    handlePaste: handleTargetGridPaste,
+    handleClear: handleTargetGridClear,
+    clipboardModal: targetClipboardModal,
+    confirmManualPaste: targetConfirmManualPaste,
+    closeClipboardModal: closeTargetClipboardModal,
+  } = useSimpleGrid({
+    totalRows: activeYLsList.length,
+    totalCols: 3,
+    getCellValue: getTargetCellValue,
+    setBatchCellValues: setTargetBatchCellValues
+  });
+
+  const getArchiveTargetCellLabel = useCallback((r: number, c: number) => {
+    const yl = activeYLsList[r];
+    const colNames = ["Target Rata-Rata", "Realisasi Bln Lalu", "Realisasi Thn Lalu"];
+    if (!yl) return colNames[c] ?? "";
+    return `[${yl.area}] ${String(yl.nama || "").replace(/^\d+\s*/, "")} • ${colNames[c] ?? ""}`;
+  }, [activeYLsList]);
+
+  // === Grid BD & Realisasi Arsip — sistem spreadsheet baru (useSimpleGrid) ===
+  // Menggantikan sistem sentuh LAMA (gridSelection/touchStartRef/handleTouchMoveGrid
+  // di bawah) yang terpisah total dari useSimpleGrid dan sudah mati total (tidak ada
+  // onTouchStart yang mengisi touchStartRef.current) — sama seperti versi Admin
+  // sebelum diperbaiki, sel BD & Realisasi Arsip sebelumnya tidak bisa disentuh sama
+  // sekali. State/fungsi lama TIDAK dihapus fisik (masih dipakai di undo/redo &
+  // fallback lain), hanya berhenti dioper ke BreakdownGridRow untuk grid ini.
+  const BREAKDOWN_ITEMS: Array<"yo" | "om" | "os" | "yt"> = ["yo", "om", "os", "yt"];
+  const BREAKDOWN_ITEM_LABELS: Record<string, string> = { yo: "YO", om: "OM", os: "OS", yt: "YT" };
+
+  const getBreakdownCellValue = useCallback((r: number, c: number) => {
+    const yl = activeYLsList[r];
+    if (!yl) return 0;
+    const area = String(yl.area).substring(0, 3);
+    const day = Math.floor(c / 4) + 1;
+    const item = BREAKDOWN_ITEMS[c % 4];
+    const dData = activeGridMap[area]?.days?.[String(day)] || { yo: 0, om: 0, os: 0, yt: 0 };
+    return (dData as any)[item] || 0;
+  }, [activeYLsList, activeGridMap]);
+
+  const setBreakdownBatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
+    setSnapshot(prev => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      const mapKey = archiveGridMode === "BD" ? "breakdownPlanMap" : "breakdownRealisasiMap";
+      const copy = { ...(next[mapKey] || {}) };
+      updates.forEach(({ r, c, val }) => {
+        const yl = activeYLsList[r];
+        if (!yl) return;
+        const area = String(yl.area).substring(0, 3);
+        const day = Math.floor(c / 4) + 1;
+        const item = BREAKDOWN_ITEMS[c % 4];
+        const ylObj = copy[area] ? { ...copy[area] } : { pembagiTanggal: 25, days: {} };
+        const daysObj = { ...ylObj.days };
+        const dayObj = daysObj[String(day)] ? { ...daysObj[String(day)] } : { yo: 0, om: 0, os: 0, yt: 0 };
+        (dayObj as any)[item] = Number(val) || 0;
+        daysObj[String(day)] = dayObj;
+        ylObj.days = daysObj;
+        copy[area] = ylObj;
+      });
+      next[mapKey] = copy;
+      return next;
+    });
+  }, [activeYLsList, archiveGridMode]);
+
+  const {
+    selection: breakdownGridSelectionNew,
+    setSelection: setBreakdownGridSelectionNew,
+    activeCell: breakdownActiveCell,
+    setActiveCell: setBreakdownActiveCell,
+    activeCellValue: breakdownActiveCellValue,
+    isActiveCellEditable: isBreakdownActiveCellEditable,
+    handleActiveCellValueChange: handleBreakdownActiveCellValueChange,
+    goToNextCell: goToNextBreakdownCell,
+    goToPrevCell: goToPrevBreakdownCell,
+    isMenuOpen: isBreakdownMenuOpenNew,
+    setIsMenuOpen: setIsBreakdownMenuOpenNew,
+    menuPos: breakdownMenuPosNew,
+    getCellProps: getBreakdownCellProps,
+    renderSelectionHandle: renderBreakdownSelectionHandle,
+    selectRow: selectBreakdownRow,
+    handleCopy: handleBreakdownGridCopy,
+    handleCut: handleBreakdownGridCut,
+    handlePaste: handleBreakdownGridPaste,
+    handleClear: handleBreakdownGridClear,
+    handleSelectAll: handleBreakdownSelectAllNew,
+    clipboardModal: breakdownClipboardModalNew,
+    confirmManualPaste: breakdownConfirmManualPaste,
+    closeClipboardModal: closeBreakdownClipboardModal,
+  } = useSimpleGrid({
+    totalRows: activeYLsList.length,
+    totalCols: 124, // 31 hari x 4 item (YO/OM/OS/YT)
+    getCellValue: getBreakdownCellValue,
+    setBatchCellValues: setBreakdownBatchCellValues,
+  });
+
+  const getBreakdownCellLabel = useCallback((r: number, c: number) => {
+    const yl = activeYLsList[r];
+    const day = Math.floor(c / 4) + 1;
+    const item = BREAKDOWN_ITEM_LABELS[BREAKDOWN_ITEMS[c % 4]];
+    if (!yl) return `Hari ${day} • ${item}`;
+    return `[${yl.area}] ${String(yl.nama || "").replace(/^\d+\s*/, "")} • Hari ${day} • ${item}`;
+  }, [activeYLsList]);
+  // === akhir grid BD & Realisasi Arsip baru ===
+
   const pembagiAktif = useMemo(() => {
     const pembagiStr = (activeGridMap && Object.keys(activeGridMap).length > 0)
       ? (activeGridMap[Object.keys(activeGridMap)[0]]?.pembagiTanggal ?? 25)
@@ -846,6 +997,15 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
       const dy = Math.abs(touch.clientY - touchStartRef.current.clientY);
       if (dx > 8 || dy > 8) {
         touchStartRef.current.hasMoved = true;
+        if (!isGridDragging && !isFillDragging) {
+          // Hanya aktifkan drag seleksi jika sentuhan berawal dari sel yang sudah terpilih (klik kolom lalu ditarik)
+          if (touchStartRef.current.isInsideSelection) {
+            setIsGridDragging(true);
+          } else {
+            // User sedang menggeser/scroll tabel - jangan ngeblok
+            return;
+          }
+        }
       }
     }
 
@@ -1567,10 +1727,11 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                             idx={idx}
                             targetYLMap={activeTargetYLMap}
                             setTargetYLMap={handleUpdateTargetYLMap}
-                            getTargetCellProps={() => ({})}
-                            selectTargetRow={() => {}}
-                            setTargetGridSelection={() => {}}
-                            handleTargetGridPaste={() => {}}
+                            getTargetCellProps={getTargetCellProps}
+                            renderTargetSelectionHandle={renderTargetSelectionHandle}
+                            selectTargetRow={selectTargetRow}
+                            setTargetGridSelection={setTargetGridSelection}
+                            handleTargetGridPaste={handleTargetGridPaste}
                          />
                        ))}
                      </tbody>
@@ -1598,6 +1759,39 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                        </tr>
                      </tfoot>
                    </table>
+
+                   <GridSelectionToolbar
+                     selection={targetGridSelection}
+                     menuPos={targetMenuPos}
+                     isMenuOpen={targetIsMenuOpen}
+                     onClose={() => setTargetIsMenuOpen(false)}
+                     onCopy={handleTargetGridCopy}
+                     onCut={handleTargetGridCut}
+                     onPaste={handleTargetGridPaste}
+                     onClear={handleTargetGridClear}
+                   />
+
+                   {/* Fix: bilah input spreadsheet — sebelumnya menu Target Arsip
+                       tidak pernah merender SpreadsheetInputBar sama sekali. */}
+                   <SpreadsheetInputBar
+                     activeCell={targetActiveCell}
+                     cellLabel={targetActiveCell ? getArchiveTargetCellLabel(targetActiveCell.r, targetActiveCell.c) : undefined}
+                     value={targetActiveCellValue}
+                     isEditable={isTargetActiveCellEditable}
+                     onChange={handleTargetActiveCellValueChange}
+                     onPrev={goToPrevTargetCell}
+                     onNext={goToNextTargetCell}
+                     onDone={() => setTargetActiveCell(null)}
+                   />
+
+                   {targetClipboardModal && (
+                     <ClipboardFallbackModal
+                       mode={targetClipboardModal.mode}
+                       initialText={targetClipboardModal.text}
+                       onConfirmPaste={targetConfirmManualPaste}
+                       onClose={closeTargetClipboardModal}
+                     />
+                   )}
                 </div>
               )}
               {activeTab === "bd_realisasi" && (
@@ -1674,16 +1868,16 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                        {/* Tombol Seleksi Tambahan */}
                        <button
                          type="button"
-                         onClick={handleSelectAllGridCells}
+                         onClick={handleBreakdownSelectAllNew}
                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-lg transition-all cursor-pointer"
                        >
                          Pilih Semua
                        </button>
 
-                       {gridSelection && (
+                       {breakdownGridSelectionNew && (
                          <button
                            type="button"
-                           onClick={handleClearSelectedGridCells}
+                           onClick={handleBreakdownGridClear}
                            className="px-2 py-1 bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold rounded-lg hover:bg-rose-100 transition-all cursor-pointer"
                          >
                            Hapus Sel
@@ -1739,7 +1933,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                           <th className="p-1 text-center border-l border-b border-slate-800 text-emerald-300 bg-purple-950/90 text-[9px] min-w-[48px]">Sel. TL</th>
                        </tr>
                      </thead>
-                     <tbody className="divide-y divide-slate-200" onTouchMove={handleTouchMoveGrid}>
+                     <tbody className="divide-y divide-slate-200">
                        {ylList.filter(y => y.status !== "nonaktif").map((yl, idx) => (
                          <BreakdownGridRow
                             key={yl.area}
@@ -1748,19 +1942,9 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                             activeGridMap={activeGridMap}
                             targetYLMap={activeTargetYLMap}
                             breakdownDateRange="1-31"
-                            gridSelection={gridSelection}
-                            isFillDragging={isFillDragging}
-                            fillHoverCell={fillHoverCell}
-                            isGridDragging={isGridDragging}
-                            touchStartRef={touchStartRef}
-                            setGridSelection={setGridSelection}
-                            setIsGridDragging={setIsGridDragging}
-                            setFillHoverCell={setFillHoverCell}
-                            handleTouchMoveGrid={handleTouchMoveGrid}
-                            handleBreakdownCellChange={handleBreakdownCellChange}
-                            handlePasteIntoGrid={handlePasteIntoGrid}
-                            setIsBreakdownMenuOpen={setIsBreakdownMenuOpen}
-                            setBreakdownMenuPos={setBreakdownMenuPos}
+                            getCellProps={getBreakdownCellProps}
+                            renderSelectionHandle={renderBreakdownSelectionHandle}
+                            selectRow={selectBreakdownRow}
                          />
                        ))}
                      </tbody>
@@ -1867,31 +2051,38 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                    </table>
 
                    <GridSelectionToolbar
-                     selection={gridSelection}
-                     isMenuOpen={isBreakdownMenuOpen}
-                     menuPos={breakdownMenuPos}
-                     onCopy={handleCopyGridCells}
-                     onCut={() => {
-                       handleCopyGridCells();
-                       handleClearSelectedGridCells();
-                     }}
-                     onPaste={handleMobilePasteClick}
-                     onClear={handleClearSelectedGridCells}
-                     onSelectAll={handleSelectAllGridCells}
+                     selection={breakdownGridSelectionNew}
+                     isMenuOpen={isBreakdownMenuOpenNew}
+                     menuPos={breakdownMenuPosNew}
+                     onCopy={handleBreakdownGridCopy}
+                     onCut={handleBreakdownGridCut}
+                     onPaste={handleBreakdownGridPaste}
+                     onClear={handleBreakdownGridClear}
+                     onSelectAll={handleBreakdownSelectAllNew}
                      onClose={() => {
-                       setIsBreakdownMenuOpen(false);
-                       setGridSelection(null);
+                       setIsBreakdownMenuOpenNew(false);
+                       setBreakdownGridSelectionNew(null);
                      }}
                    />
-                   {breakdownClipboardModal && (
+                   {/* Fix: bilah input spreadsheet di atas keyboard — sebelumnya
+                       grid BD & Realisasi Arsip tidak punya cara edit sama sekali
+                       di HP (sel tidak bisa disentuh, tidak ada bilah input). */}
+                   <SpreadsheetInputBar
+                     activeCell={breakdownActiveCell}
+                     cellLabel={breakdownActiveCell ? getBreakdownCellLabel(breakdownActiveCell.r, breakdownActiveCell.c) : undefined}
+                     value={breakdownActiveCellValue}
+                     isEditable={isBreakdownActiveCellEditable}
+                     onChange={handleBreakdownActiveCellValueChange}
+                     onPrev={goToPrevBreakdownCell}
+                     onNext={goToNextBreakdownCell}
+                     onDone={() => setBreakdownActiveCell(null)}
+                   />
+                   {breakdownClipboardModalNew && (
                      <ClipboardFallbackModal
-                       mode={breakdownClipboardModal.mode}
-                       initialText={breakdownClipboardModal.text}
-                       onConfirmPaste={(text) => {
-                         handlePasteIntoGrid(text);
-                         setBreakdownClipboardModal(null);
-                       }}
-                       onClose={() => setBreakdownClipboardModal(null)}
+                       mode={breakdownClipboardModalNew.mode}
+                       initialText={breakdownClipboardModalNew.text}
+                       onConfirmPaste={breakdownConfirmManualPaste}
+                       onClose={closeBreakdownClipboardModal}
                      />
                    )}
                 </div>

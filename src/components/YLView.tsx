@@ -323,6 +323,13 @@ export function YLView({
   const {
     selection: realisasiGridSelection,
     setSelection: setRealisasiGridSelection,
+    activeCell: realisasiActiveCell,
+    activeCellValue: realisasiActiveCellValue,
+    isActiveCellEditable: isRealisasiActiveCellEditable,
+    handleActiveCellValueChange: handleRealisasiActiveCellValueChange,
+    goToNextCell: goToNextRealisasiCell,
+    goToPrevCell: goToPrevRealisasiCell,
+    renderSelectionHandle: renderRealisasiSelectionHandle,
     isMenuOpen: realisasiIsMenuOpen,
     setIsMenuOpen: setRealisasiIsMenuOpen,
     menuPos: realisasiMenuPos,
@@ -338,7 +345,7 @@ export function YLView({
   } = useSimpleGrid({
     totalRows: 31,
     totalCols: 36,
-    isCellEditable: (_r, c) => c < 24 || c > 27,
+    isCellEditable: (_r, c) => isEditRealisasi && (c < 24 || c > 27),
     getCellValue: getRealisasiCellValue,
     setBatchCellValues: setRealisasiBatchCellValues
   });
@@ -1107,7 +1114,11 @@ export function YLView({
       )}
 
       {/* Main Content Area */}
-      <main className="p-3 sm:p-5 space-y-5 max-w-xl sm:max-w-2xl mx-auto">
+      <main className={`p-3 sm:p-5 space-y-5 mx-auto ${
+        ["realisasi_potensi", "breakdown", "potensi_tembus", "ringkasan"].includes(activeTab)
+          ? "w-full max-w-5xl lg:max-w-6xl"
+          : "max-w-xl sm:max-w-2xl"
+      }`}>
         {activeTab === "beranda" && (
           <div className="space-y-3 animate-in fade-in zoom-in-95 duration-300">
             
@@ -1894,9 +1905,9 @@ export function YLView({
         {/* TAB BREAKDOWN RENCANA & REALISASI (READ-ONLY FOR YL - VERTIKAL PERTANGGAL) */}
         {activeTab === "breakdown" && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4">
-              <div className="border-l-4 border-red-600 pl-3 flex flex-col md:flex-row md:items-center justify-between gap-2">
-                <div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 space-y-4 overflow-hidden">
+              <div className="border-l-4 border-red-600 pl-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex-1 min-w-0 pr-1">
                   <h2 className="text-sm sm:text-base font-black text-red-950 uppercase tracking-wider flex items-center gap-2">
                     <span>📊 Breakdown Rencana & Realisasi Harian</span>
                   </h2>
@@ -1904,7 +1915,7 @@ export function YLView({
                     Diambil dari menu Breakdown & Realisasi Admin. Bersifat <span className="text-red-600 font-extrabold">Read-Only (Hanya Lihat - Vertikal Pertanggal)</span>.
                   </p>
                 </div>
-                <span className="text-xs font-mono bg-red-100 text-red-800 font-black px-3 py-1 rounded-lg shrink-0">
+                <span className="text-xs font-mono bg-red-100 text-red-800 font-black px-3 py-1.5 rounded-lg shrink-0">
                   🔒 Mode Read-Only YL
                 </span>
               </div>
@@ -2049,7 +2060,14 @@ export function YLView({
               setEditDataRealisasi={setEditDataRealisasi}
               ylBreakdownRealisasi={ylBreakdownRealisasi}
               getRealisasiCellProps={getRealisasiCellProps}
+              renderRealisasiSelectionHandle={renderRealisasiSelectionHandle}
               selectRealisasiRow={selectRealisasiRow}
+              activeCell={realisasiActiveCell}
+              activeCellValue={realisasiActiveCellValue}
+              isActiveCellEditable={isRealisasiActiveCellEditable}
+              handleActiveCellValueChange={handleRealisasiActiveCellValueChange}
+              goToNextCell={goToNextRealisasiCell}
+              goToPrevCell={goToPrevRealisasiCell}
             />
             {clipboardModal && (
               <ClipboardFallbackModal

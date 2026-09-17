@@ -2,6 +2,7 @@ import { ClipboardFallbackModal } from "./ClipboardFallbackModal";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTabHistory } from "../hooks/useTabHistory";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
+import { SpreadsheetInputBar } from "./SpreadsheetInputBar";
 import { useSimpleGrid } from "./useSimpleGrid";
 import {
   TrendingUp, Globe,
@@ -93,6 +94,7 @@ interface ManagerViewProps {
 type BreakdownGridMap = Record<string, { pembagiTanggal: number; days: Record<string, { yo: number; om: number; os: number; yt: number }> }>;
 
 import { ArchiveEditor } from "./archive/ArchiveEditor";
+import { TargetArsipTahunanModal } from "./archive/TargetArsipTahunanModal";
 import { OfficialLinksViewer } from "./OfficialLinksViewer";
 import { lookupHistoricalTargetRealization, computeMonthlyRata2DataFromSnapshot } from "../lib/targetArchiveLookup";
 
@@ -1070,6 +1072,85 @@ export function ManagerView({
 
   const [selectedDayInspector, setSelectedDayInspector] = useState<number>(1);
 
+  // === Grid BD & Realisasi — sistem spreadsheet baru (useSimpleGrid) ===
+  // Menggantikan sistem lama (gridSelection/touchStartRef/handleTouchMoveGrid
+  // di bawah) yang ternyata sudah mati total (tidak ada onTouchStart yang
+  // mengisi touchStartRef.current), sehingga sel BD & Realisasi sebelumnya
+  // sama sekali tidak bisa disentuh/dipilih.
+  const BREAKDOWN_ITEMS: Array<"yo" | "om" | "os" | "yt"> = ["yo", "om", "os", "yt"];
+  const BREAKDOWN_ITEM_LABELS: Record<string, string> = { yo: "YO", om: "OM", os: "OS", yt: "YT" };
+
+  const getBreakdownCellValue = useCallback((r: number, c: number) => {
+    const yl = activeYLsList[r];
+    if (!yl) return 0;
+    const area = String(yl.area).substring(0, 3);
+    const day = Math.floor(c / 4) + 1;
+    const item = BREAKDOWN_ITEMS[c % 4];
+    const dData = activeGridMap[area]?.days?.[String(day)] || { yo: 0, om: 0, os: 0, yt: 0 };
+    return (dData as any)[item] || 0;
+  }, [activeYLsList, activeGridMap]);
+
+  const setBreakdownBatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
+    updateActiveGridMap(prev => {
+      const copy = { ...prev };
+      updates.forEach(({ r, c, val }) => {
+        const yl = activeYLsList[r];
+        if (!yl) return;
+        const area = String(yl.area).substring(0, 3);
+        const day = Math.floor(c / 4) + 1;
+        const item = BREAKDOWN_ITEMS[c % 4];
+        const ylObj = copy[area] ? { ...copy[area] } : { pembagiTanggal: 25, days: {} };
+        const daysObj = { ...ylObj.days };
+        const dayObj = daysObj[String(day)] ? { ...daysObj[String(day)] } : { yo: 0, om: 0, os: 0, yt: 0 };
+        (dayObj as any)[item] = Number(val) || 0;
+        daysObj[String(day)] = dayObj;
+        ylObj.days = daysObj;
+        copy[area] = ylObj;
+      });
+      return copy;
+    });
+  }, [activeYLsList]);
+
+  const {
+    selection: breakdownGridSelectionNew,
+    setSelection: setBreakdownGridSelectionNew,
+    activeCell: breakdownActiveCell,
+    setActiveCell: setBreakdownActiveCell,
+    activeCellValue: breakdownActiveCellValue,
+    isActiveCellEditable: isBreakdownActiveCellEditable,
+    handleActiveCellValueChange: handleBreakdownActiveCellValueChange,
+    goToNextCell: goToNextBreakdownCell,
+    goToPrevCell: goToPrevBreakdownCell,
+    isMenuOpen: isBreakdownMenuOpenNew,
+    setIsMenuOpen: setIsBreakdownMenuOpenNew,
+    menuPos: breakdownMenuPosNew,
+    getCellProps: getBreakdownCellProps,
+    renderSelectionHandle: renderBreakdownSelectionHandle,
+    selectRow: selectBreakdownRow,
+    handleCopy: handleBreakdownGridCopy,
+    handleCut: handleBreakdownGridCut,
+    handlePaste: handleBreakdownGridPaste,
+    handleClear: handleBreakdownGridClear,
+    handleSelectAll: handleBreakdownSelectAll,
+    clipboardModal: breakdownClipboardModalNew,
+    confirmManualPaste: breakdownConfirmManualPaste,
+    closeClipboardModal: closeBreakdownClipboardModal,
+  } = useSimpleGrid({
+    totalRows: activeYLsList.length,
+    totalCols: 124, // 31 hari x 4 item (YO/OM/OS/YT)
+    getCellValue: getBreakdownCellValue,
+    setBatchCellValues: setBreakdownBatchCellValues,
+  });
+
+  const getBreakdownCellLabel = useCallback((r: number, c: number) => {
+    const yl = activeYLsList[r];
+    const day = Math.floor(c / 4) + 1;
+    const item = BREAKDOWN_ITEM_LABELS[BREAKDOWN_ITEMS[c % 4]];
+    if (!yl) return `Hari ${day} • ${item}`;
+    return `[${yl.area}] ${String(yl.nama || "").replace(/^\d+\s*/, "")} • Hari ${day} • ${item}`;
+  }, [activeYLsList]);
+  // === akhir grid BD & Realisasi baru ===
+
   const [gridSelection, setGridSelection] = useState<{
     startR: number;
     startC: number;
@@ -1107,6 +1188,34 @@ export function ManagerView({
     isInsideSelection: boolean;
     hasMoved: boolean;
   } | null>(null);
+
+  const breakdownAnchorRef = useRef<{ r: number; c: number } | null>(null);
+
+  const calculateBreakdownAnchor = (
+    currentSel: { startR: number; startC: number; endR: number; endC: number } | null,
+    targetR: number,
+    targetC: number,
+    isExtending: boolean
+  ): { anchorR: number; anchorC: number } => {
+    if (!isExtending || !currentSel) {
+      return { anchorR: targetR, anchorC: targetC };
+    }
+
+    const sR = Math.min(currentSel.startR, currentSel.endR);
+    const eR = Math.max(currentSel.startR, currentSel.endR);
+    const sC = Math.min(currentSel.startC, currentSel.endC);
+    const eC = Math.max(currentSel.startC, currentSel.endC);
+
+    const distToStartR = Math.abs(targetR - sR);
+    const distToEndR = Math.abs(targetR - eR);
+    const anchorR = distToEndR <= distToStartR ? sR : eR;
+
+    const distToStartC = Math.abs(targetC - sC);
+    const distToEndC = Math.abs(targetC - eC);
+    const anchorC = distToEndC <= distToStartC ? sC : eC;
+
+    return { anchorR, anchorC };
+  };
 
   const gridTableRef = useRef<HTMLDivElement>(null);
 
@@ -1397,8 +1506,19 @@ export function ManagerView({
     if (touchStartRef.current) {
       const dx = Math.abs(touch.clientX - touchStartRef.current.clientX);
       const dy = Math.abs(touch.clientY - touchStartRef.current.clientY);
-      if (dx > 8 || dy > 8) {
+      if (dx > 6 || dy > 6) {
         touchStartRef.current.hasMoved = true;
+        if (!isGridDragging && !isFillDragging) {
+          // Hanya aktifkan drag seleksi jika sentuhan berawal dari sel yang sudah terpilih (klik kolom lalu ditarik)
+          if (touchStartRef.current.isInsideSelection) {
+            setIsGridDragging(true);
+            const anchor = calculateBreakdownAnchor(gridSelection, touchStartRef.current.r, touchStartRef.current.c, true);
+            breakdownAnchorRef.current = anchor;
+          } else {
+            // User sedang menggeser/scroll tabel - jangan ngeblok
+            return;
+          }
+        }
       }
     }
 
@@ -1417,7 +1537,9 @@ export function ManagerView({
         if (isFillDragging) {
           setFillHoverCell({ r, c });
         } else {
-          setGridSelection(prev => prev ? { ...prev, endR: r, endC: c } : { startR: r, startC: c, endR: r, endC: c });
+          const startR = breakdownAnchorRef.current ? breakdownAnchorRef.current.r : (gridSelection ? gridSelection.startR : r);
+          const startC = breakdownAnchorRef.current ? breakdownAnchorRef.current.c : (gridSelection ? gridSelection.startC : c);
+          setGridSelection({ startR, startC, endR: r, endC: c });
         }
       }
     }
@@ -1445,9 +1567,10 @@ export function ManagerView({
             setFillHoverCell(prev => (prev && prev.r === r && prev.c === c) ? prev : { r, c });
           } else if (isGridDragging) {
             setGridSelection(prev => {
-              if (!prev) return { startR: r, startC: c, endR: r, endC: c };
-              if (prev.endR === r && prev.endC === c) return prev;
-              return { ...prev, endR: r, endC: c };
+              const startR = breakdownAnchorRef.current ? breakdownAnchorRef.current.r : (prev ? prev.startR : r);
+              const startC = breakdownAnchorRef.current ? breakdownAnchorRef.current.c : (prev ? prev.startC : c);
+              if (prev && prev.startR === startR && prev.startC === startC && prev.endR === r && prev.endC === c) return prev;
+              return { startR, startC, endR: r, endC: c };
             });
           }
         }
@@ -1471,7 +1594,7 @@ export function ManagerView({
         if (touchStartRef.current) {
           const dx = Math.abs(touch.clientX - touchStartRef.current.clientX);
           const dy = Math.abs(touch.clientY - touchStartRef.current.clientY);
-          if (dx > 8 || dy > 8) {
+          if (dx > 6 || dy > 6) {
             touchStartRef.current.hasMoved = true;
           }
         }
@@ -1495,12 +1618,19 @@ export function ManagerView({
   useEffect(() => {
     const handleGlobalDragUp = () => {
       if (touchStartRef.current) {
-        const { r, c, hasMoved } = touchStartRef.current;
+        const { r, c, hasMoved, isInsideSelection } = touchStartRef.current;
         if (!hasMoved) {
-          setGridSelection({ startR: r, startC: c, endR: r, endC: c });
+          if (isInsideSelection) {
+            setIsBreakdownMenuOpen(prev => !prev);
+            setBreakdownMenuPos({ x: touchStartRef.current.clientX, y: touchStartRef.current.clientY });
+          } else {
+            setIsBreakdownMenuOpen(false);
+            setGridSelection({ startR: r, startC: c, endR: r, endC: c });
+          }
         }
         touchStartRef.current = null;
       }
+      breakdownAnchorRef.current = null;
 
       if (isFillDragging) {
         if (gridSelection && fillHoverCell) {
@@ -1707,6 +1837,14 @@ export function ManagerView({
     setIsMenuOpen: setTargetIsMenuOpen,
     menuPos: targetMenuPos,
     getCellProps: getTargetCellProps,
+    renderSelectionHandle: renderTargetSelectionHandle,
+    activeCell: targetActiveCell,
+    setActiveCell: setTargetActiveCell,
+    activeCellValue: targetActiveCellValue,
+    isActiveCellEditable: isTargetActiveCellEditable,
+    handleActiveCellValueChange: handleTargetActiveCellValueChange,
+    goToNextCell: goToNextTargetCell,
+    goToPrevCell: goToPrevTargetCell,
     selectColumn: selectTargetColumn,
     selectRow: selectTargetRow,
     setIsDragging: setIsTargetDragging,
@@ -1764,6 +1902,14 @@ export function ManagerView({
     setIsMenuOpen: setTkuIsMenuOpen,
     menuPos: tkuMenuPos,
     getCellProps: getTkuCellProps,
+    renderSelectionHandle: renderTkuSelectionHandle,
+    activeCell: tkuActiveCell,
+    setActiveCell: setTkuActiveCell,
+    activeCellValue: tkuActiveCellValue,
+    isActiveCellEditable: isTkuActiveCellEditable,
+    handleActiveCellValueChange: handleTkuActiveCellValueChange,
+    goToNextCell: goToNextTkuCell,
+    goToPrevCell: goToPrevTkuCell,
     handleCopy: handleTkuGridCopy,
     handleCut: handleTkuGridCut,
     handlePaste: handleTkuGridPaste,
@@ -1778,13 +1924,35 @@ export function ManagerView({
     setBatchCellValues: setTargetTKUBatchCellValues
   });
 
+  // Fix: kedua grid (Target per-YL & TKU) hidup di tab yang sama, jadi harus
+  // saling menutup input bar masing-masing supaya tidak tumpang tindih.
+  useEffect(() => {
+    if (targetActiveCell) setTkuActiveCell(null);
+  }, [targetActiveCell, setTkuActiveCell]);
+  useEffect(() => {
+    if (tkuActiveCell) setTargetActiveCell(null);
+  }, [tkuActiveCell, setTargetActiveCell]);
+
+  const getTargetGridCellLabel = useCallback((r: number, c: number) => {
+    const yl = activeYLsList[r];
+    const colNames = ["Target", "Bulan Lalu", "Tahun Lalu"];
+    if (!yl) return colNames[c] ?? "";
+    return `[${yl.area}] ${String(yl.nama || "").replace(/^\d+\s*/, "")} • ${colNames[c] ?? ""}`;
+  }, [activeYLsList]);
+
+  const getTkuGridCellLabel = useCallback((r: number, c: number) => {
+    const rowNames = ["Target Bulan Ini", "Realisasi Bulan Lalu", "Realisasi Tahun Lalu"];
+    const colNames = ["Original (YO)", "Original Mangga (OM)", "Original Stroberi (OS)", "Yakult Light (YT)"];
+    return `TKU • ${rowNames[r] ?? ""} • ${colNames[c] ?? ""}`;
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (e.key === "Delete" || e.key === "Backspace") {
         if (targetTag !== "input" && targetTag !== "textarea") {
           e.preventDefault();
-          if (activeTab === "breakdown" && gridSelection) handleClearSelectedGridCells();
+          if (activeTab === "breakdown" && breakdownGridSelectionNew) handleBreakdownGridClear();
           else if (activeTab === "target_kompensasi") {
              if (targetGridSelection) handleTargetGridClear();
              if (tkuGridSelection) handleTkuGridClear();
@@ -1805,8 +1973,8 @@ export function ManagerView({
         }
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
         if (targetTag !== "input" && targetTag !== "textarea") {
-          if (activeTab === "breakdown" && gridSelection) {
-            handleCopyGridCells();
+          if (activeTab === "breakdown" && breakdownGridSelectionNew) {
+            handleBreakdownGridCopy();
           } else if (activeTab === "target_kompensasi") {
             if (targetGridSelection) handleTargetGridCopy();
             if (tkuGridSelection) handleTkuGridCopy();
@@ -1815,7 +1983,7 @@ export function ManagerView({
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
         if (targetTag !== "input" && targetTag !== "textarea") {
           navigator.clipboard.readText().then(text => {
-            if (activeTab === "breakdown" && gridSelection) handlePasteIntoGrid(text);
+            if (activeTab === "breakdown" && breakdownGridSelectionNew) handleBreakdownGridPaste(text);
             else if (activeTab === "target_kompensasi") {
                if (targetGridSelection) handleTargetGridPaste(text);
                if (tkuGridSelection) handleTkuGridPaste(text);
@@ -1833,7 +2001,7 @@ export function ManagerView({
         const clean = text.trim();
         if (targetTag !== "input" || /[\t\n\r]/.test(clean)) {
           e.preventDefault();
-          if (activeTab === "breakdown" && gridSelection) handlePasteIntoGrid(text);
+          if (activeTab === "breakdown" && breakdownGridSelectionNew) handleBreakdownGridPaste(text);
           else if (activeTab === "target_kompensasi") {
             if (targetGridSelection) handleTargetGridPaste(text);
             if (tkuGridSelection) handleTkuGridPaste(text);
@@ -2284,6 +2452,7 @@ export function ManagerView({
   // Removed auto-fill baseline
 
   const [showArchiveEditor, setShowArchiveEditor] = useState(false);
+  const [showTargetArsipTahunan, setShowTargetArsipTahunan] = useState(false);
 
   // Auto-save setting targets
   useEffect(() => {
@@ -3998,19 +4167,9 @@ export function ManagerView({
                         activeGridMap={activeGridMap}
                         targetYLMap={targetYLMap}
                         breakdownDateRange="1-31"
-                        gridSelection={gridSelection}
-                        isFillDragging={isFillDragging}
-                        fillHoverCell={fillHoverCell}
-                        isGridDragging={isGridDragging}
-                        touchStartRef={touchStartRef}
-                        setGridSelection={setGridSelection}
-                        setIsGridDragging={setIsGridDragging}
-                        setFillHoverCell={setFillHoverCell}
-                        handleTouchMoveGrid={handleTouchMoveGrid}
-                        handleBreakdownCellChange={handleBreakdownCellChange}
-                        handlePasteIntoGrid={handlePasteIntoGrid}
-                        setIsBreakdownMenuOpen={setIsBreakdownMenuOpen}
-                        setBreakdownMenuPos={setBreakdownMenuPos}
+                        getCellProps={getBreakdownCellProps}
+                        renderSelectionHandle={renderBreakdownSelectionHandle}
+                        selectRow={selectBreakdownRow}
                       />
                     ))}
                   </tbody>
@@ -4130,28 +4289,38 @@ export function ManagerView({
             </div>
 
             <GridSelectionToolbar
-              selection={gridSelection}
-              isMenuOpen={isBreakdownMenuOpen}
-              menuPos={breakdownMenuPos}
-              onCopy={handleCopyGridCells}
-              onCut={handleCutGridCells}
-              onPaste={handleMobilePasteClick}
-              onClear={handleClearSelectedGridCells}
-              onSelectAll={handleSelectAllGridCells}
+              selection={breakdownGridSelectionNew}
+              isMenuOpen={isBreakdownMenuOpenNew}
+              menuPos={breakdownMenuPosNew}
+              onCopy={handleBreakdownGridCopy}
+              onCut={handleBreakdownGridCut}
+              onPaste={handleBreakdownGridPaste}
+              onClear={handleBreakdownGridClear}
+              onSelectAll={handleBreakdownSelectAll}
               onClose={() => {
-                setIsBreakdownMenuOpen(false);
-                setGridSelection(null);
+                setIsBreakdownMenuOpenNew(false);
+                setBreakdownGridSelectionNew(null);
               }}
             />
-            {breakdownClipboardModal && (
+            {/* Fix: bilah input spreadsheet di atas keyboard — sebelumnya
+                grid BD & Realisasi Admin tidak punya cara edit sama sekali
+                di HP (sel tidak bisa disentuh, tidak ada bilah input). */}
+            <SpreadsheetInputBar
+              activeCell={breakdownActiveCell}
+              cellLabel={breakdownActiveCell ? getBreakdownCellLabel(breakdownActiveCell.r, breakdownActiveCell.c) : undefined}
+              value={breakdownActiveCellValue}
+              isEditable={isBreakdownActiveCellEditable}
+              onChange={handleBreakdownActiveCellValueChange}
+              onPrev={goToPrevBreakdownCell}
+              onNext={goToNextBreakdownCell}
+              onDone={() => setBreakdownActiveCell(null)}
+            />
+            {breakdownClipboardModalNew && (
               <ClipboardFallbackModal
-                mode={breakdownClipboardModal.mode}
-                initialText={breakdownClipboardModal.text}
-                onConfirmPaste={(text) => {
-                  handlePasteIntoGrid(text);
-                  setBreakdownClipboardModal(null);
-                }}
-                onClose={() => setBreakdownClipboardModal(null)}
+                mode={breakdownClipboardModalNew.mode}
+                initialText={breakdownClipboardModalNew.text}
+                onConfirmPaste={breakdownConfirmManualPaste}
+                onClose={closeBreakdownClipboardModal}
               />
             )}
           </div>
@@ -4255,8 +4424,9 @@ export function ManagerView({
                               <td
                                 key={sfx}
                                 {...cellProps}
-                                className={`p-1.5 text-center border-r border-slate-200 ${cellProps.className}`}
+                                className={`p-1.5 text-center border-r border-slate-200 relative ${cellProps.className}`}
                               >
+                                {renderTkuSelectionHandle(rowItem.r, cIdx)}
                                 <NumberInput
                                   min={0}
                                   value={val}
@@ -4354,6 +4524,7 @@ export function ManagerView({
                         targetYLMap={activeTargetYLMap}
                         setTargetYLMap={isViewingHistoricalMonth ? handleUpdateTargetYLMap : setTargetYLMap}
                         getTargetCellProps={getTargetCellProps}
+                        renderTargetSelectionHandle={renderTargetSelectionHandle}
                         selectTargetRow={selectTargetRow}
                         setTargetGridSelection={setTargetGridSelection}
                         handleTargetGridPaste={handleTargetGridPaste}
@@ -4556,6 +4727,30 @@ export function ManagerView({
                 onClose={closeTkuClipboardModal}
               />
             )}
+
+            {/* Fix: bilah input spreadsheet (di atas keyboard) untuk grid Target
+                per-YL maupun grid TKU — sebelumnya menu ini tidak pernah
+                merender SpreadsheetInputBar sama sekali. */}
+            <SpreadsheetInputBar
+              activeCell={targetActiveCell}
+              cellLabel={targetActiveCell ? getTargetGridCellLabel(targetActiveCell.r, targetActiveCell.c) : undefined}
+              value={targetActiveCellValue}
+              isEditable={isTargetActiveCellEditable}
+              onChange={handleTargetActiveCellValueChange}
+              onPrev={goToPrevTargetCell}
+              onNext={goToNextTargetCell}
+              onDone={() => setTargetActiveCell(null)}
+            />
+            <SpreadsheetInputBar
+              activeCell={tkuActiveCell}
+              cellLabel={tkuActiveCell ? getTkuGridCellLabel(tkuActiveCell.r, tkuActiveCell.c) : undefined}
+              value={tkuActiveCellValue}
+              isEditable={isTkuActiveCellEditable}
+              onChange={handleTkuActiveCellValueChange}
+              onPrev={goToPrevTkuCell}
+              onNext={goToNextTkuCell}
+              onDone={() => setTkuActiveCell(null)}
+            />
           </div>
         )}
 
@@ -4581,6 +4776,26 @@ export function ManagerView({
                 🛠️ Buka Archive Editor
               </button>
             </div>
+
+            {/* Arsip Target Tahunan Feature */}
+            <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-sm space-y-3">
+              <h2 className="text-xs font-black text-emerald-900 uppercase tracking-wider border-l-4 border-emerald-600 pl-2">
+                📊 Arsip Target Tahunan (Rekap Semester & Tahunan)
+              </h2>
+              <p className="text-[10px] text-slate-500 font-medium">
+                Lihat rekap Target vs AKM PJL per bulan, semester, dan total tahunan — otomatis tersinkron dari arsip bulanan, dengan opsi isi manual untuk bulan yang belum diarsipkan.
+              </p>
+              <button
+                onClick={() => setShowTargetArsipTahunan(true)}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs py-2.5 rounded-xl transition-all cursor-pointer shadow flex items-center justify-center gap-2 mt-2"
+              >
+                📊 Buka Arsip Target Tahunan
+              </button>
+            </div>
+
+            {showTargetArsipTahunan && (
+              <TargetArsipTahunanModal onClose={() => setShowTargetArsipTahunan(false)} />
+            )}
 
             {/* 2. Finish & Archive Month */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">

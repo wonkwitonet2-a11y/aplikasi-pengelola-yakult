@@ -1,5 +1,4 @@
 import React from "react";
-import { NumberInput } from "./NumberInput";
 import { cleanYlName } from "../types";
 
 interface TargetManagerRowProps {
@@ -10,26 +9,34 @@ interface TargetManagerRowProps {
     React.SetStateAction<Record<string, { target: number; bln_lalu: number; thn_lalu: number }>>
   >;
   getTargetCellProps: (r: number, c: number) => { className?: string; [key: string]: any };
+  renderTargetSelectionHandle?: (r: number, c: number) => React.ReactNode;
   selectTargetRow: (idx: number) => void;
-  setTargetGridSelection: any;
-  handleTargetGridPaste: any;
+  setTargetGridSelection?: any;
+  handleTargetGridPaste?: any;
 }
 
 // One row of the "Target Manager" table (Target / Bulan Lalu / Tahun Lalu per
-// YL). Same idea as BreakdownGridRow: pulled out of ManagerView's giant render
-// function and memoized so it only re-renders when its own data actually
-// changes, not on every unrelated state update elsewhere in the page.
+// YL). Memoized so it only re-renders when its own data actually changes.
 function TargetManagerRowInner({
   yl,
   idx,
   targetYLMap,
-  setTargetYLMap,
   getTargetCellProps,
+  renderTargetSelectionHandle,
   selectTargetRow,
-  setTargetGridSelection,
-  handleTargetGridPaste
 }: TargetManagerRowProps) {
   const ylTgt = targetYLMap[yl.area] ?? { target: 0, bln_lalu: 0, thn_lalu: 0 };
+
+  const cellProps0 = getTargetCellProps(idx, 0);
+  const cellProps1 = getTargetCellProps(idx, 1);
+  const cellProps2 = getTargetCellProps(idx, 2);
+
+  const formatVal = (v: any) => {
+    if (v === undefined || v === null || v === "") return "0";
+    const num = Number(v);
+    if (isNaN(num)) return "0";
+    return num.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  };
 
   return (
     <tr className="hover:bg-amber-50/50 transition-colors">
@@ -41,80 +48,26 @@ function TargetManagerRowInner({
         <span className="text-red-700 font-black mr-2">{yl.area}</span>
         <span className="text-slate-950 font-black">{cleanYlName(yl.nama)}</span>
       </td>
-      <td {...getTargetCellProps(idx, 0)} className={`p-1.5 text-center border-r border-slate-300 ${getTargetCellProps(idx, 0).className}`}>
-        <NumberInput
-          min={0}
-          allowDecimal={true}
-          decimalPlaces={2}
-          value={ylTgt.target}
-          onPaste={(e) => {
-            const text = e.clipboardData.getData("text/plain");
-            if (!text) return;
-            e.preventDefault();
-            const newSel = { startR: idx, startC: 0, endR: idx, endC: 0 };
-            setTargetGridSelection(newSel);
-            setTimeout(() => {
-              handleTargetGridPaste(text, newSel);
-            }, 0);
-          }}
-          onChange={(val) => {
-            setTargetYLMap((prev: any) => ({
-              ...prev,
-              [yl.area]: { ...prev[yl.area], target: val }
-            }));
-          }}
-          className="w-full h-full p-1.5 text-xs sm:text-sm bg-transparent outline-none border-none text-center font-black text-slate-900"
-        />
+      <td
+        {...cellProps0}
+        className={`p-1.5 text-center border-r border-slate-300 font-black text-slate-900 select-none relative ${cellProps0.className || ""}`}
+      >
+        <span className="block truncate">{formatVal(ylTgt.target)}</span>
+        {renderTargetSelectionHandle && renderTargetSelectionHandle(idx, 0)}
       </td>
-      <td {...getTargetCellProps(idx, 1)} className={`p-1.5 text-center border-r border-slate-300 ${getTargetCellProps(idx, 1).className}`}>
-        <NumberInput
-          min={0}
-          allowDecimal={true}
-          decimalPlaces={2}
-          value={ylTgt.bln_lalu}
-          onPaste={(e) => {
-            const text = e.clipboardData.getData("text/plain");
-            if (!text) return;
-            e.preventDefault();
-            const newSel = { startR: idx, startC: 1, endR: idx, endC: 1 };
-            setTargetGridSelection(newSel);
-            setTimeout(() => {
-              handleTargetGridPaste(text, newSel);
-            }, 0);
-          }}
-          onChange={(val) => {
-            setTargetYLMap((prev: any) => ({
-              ...prev,
-              [yl.area]: { ...prev[yl.area], bln_lalu: val }
-            }));
-          }}
-          className="w-full h-full p-1.5 text-xs sm:text-sm bg-transparent outline-none border-none text-center font-black text-slate-900"
-        />
+      <td
+        {...cellProps1}
+        className={`p-1.5 text-center border-r border-slate-300 font-black text-slate-900 select-none relative ${cellProps1.className || ""}`}
+      >
+        <span className="block truncate">{formatVal(ylTgt.bln_lalu)}</span>
+        {renderTargetSelectionHandle && renderTargetSelectionHandle(idx, 1)}
       </td>
-      <td {...getTargetCellProps(idx, 2)} className={`p-1.5 text-center border-r border-slate-300 ${getTargetCellProps(idx, 2).className}`}>
-        <NumberInput
-          min={0}
-          allowDecimal={true}
-          decimalPlaces={2}
-          value={ylTgt.thn_lalu}
-          onPaste={(e) => {
-            const text = e.clipboardData.getData("text/plain");
-            if (!text) return;
-            e.preventDefault();
-            const newSel = { startR: idx, startC: 2, endR: idx, endC: 2 };
-            setTargetGridSelection(newSel);
-            setTimeout(() => {
-              handleTargetGridPaste(text, newSel);
-            }, 0);
-          }}
-          onChange={(val) => {
-            setTargetYLMap((prev: any) => ({
-              ...prev,
-              [yl.area]: { ...prev[yl.area], thn_lalu: val }
-            }));
-          }}
-          className="w-full h-full p-1.5 text-xs sm:text-sm bg-transparent outline-none border-none text-center font-black text-slate-900"
-        />
+      <td
+        {...cellProps2}
+        className={`p-1.5 text-center border-r border-slate-300 font-black text-slate-900 select-none relative ${cellProps2.className || ""}`}
+      >
+        <span className="block truncate">{formatVal(ylTgt.thn_lalu)}</span>
+        {renderTargetSelectionHandle && renderTargetSelectionHandle(idx, 2)}
       </td>
     </tr>
   );

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { MotivasiConfig, cleanYlName } from "../types";
 import { useSimpleGrid } from "./useSimpleGrid";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
+import { SpreadsheetInputBar } from "./SpreadsheetInputBar";
 import { NumberInput } from "./NumberInput";
 import { safeFetchJson } from "../lib/safeFetch";
 import {
@@ -487,10 +488,18 @@ function LhppRealisasiViewInner({
   const {
     selection,
     setSelection,
+    activeCell,
+    setActiveCell,
+    activeCellValue,
+    isActiveCellEditable,
+    handleActiveCellValueChange,
+    goToNextCell,
+    goToPrevCell,
     isMenuOpen,
     setIsMenuOpen,
     menuPos,
     getCellProps,
+    renderSelectionHandle,
     selectColumn,
     selectRow,
     handleCopy,
@@ -505,33 +514,134 @@ function LhppRealisasiViewInner({
     totalCols: 21,
     isCellEditable: isLhppCellEditable,
     getCellValue: getLhppCellValue,
+    setCellValue: (r, c, val) => {
+      setLhppBatchCellValues([{ r, c, val }]);
+    },
     setBatchCellValues: setLhppBatchCellValues,
     onRecordUndo: recordHistory
   });
 
-  // Dedicated paste handler for PDM YLM inputs
-  const handlePdmYlmPaste = (e: React.ClipboardEvent, startField: "yo" | "om" | "os" | "yt") => {
-    e.preventDefault();
-    const text = e.clipboardData.getData("text/plain");
-    if (!text) return;
-    const clean = text.trim();
-    const tokens = clean.split(/[\t\n\r,;\s]+/).map(t => parseInputInt(t));
-    if (tokens.length === 0) return;
-    const fields: ("yo" | "om" | "os" | "yt")[] = ["yo", "om", "os", "yt"];
-    const startIdx = fields.indexOf(startField);
+  // === Grid khusus tabel ringkasan PDM YLM & SISA YLM (kanan atas) ===
+  // r=0 -> baris PDM YLM (bisa diedit), r=1 -> baris SISA YLM (hasil hitung, read-only)
+  // c=0..3 -> YO/OM/OS/YT, c=4 -> TOTAL (read-only)
+  const ylmFields = ["yo", "om", "os", "yt"] as const;
 
-    recordHistory();
-    setSummary(s => {
-      const nextYlm = { ...s.pdmYlm };
-      tokens.forEach((val, i) => {
-        const fieldIdx = startIdx + i;
-        if (fieldIdx < fields.length) {
-          nextYlm[fields[fieldIdx]] = val;
-        }
+  const isYlmCellEditable = useCallback((r: number, c: number) => r === 0 && c < 4, []);
+
+  const getYlmCellValue = useCallback(
+    (r: number, c: number) => {
+      if (c === 4) {
+        return r === 0
+          ? summary.pdmYlm.yo + summary.pdmYlm.om + summary.pdmYlm.os + summary.pdmYlm.yt
+          : sisaYlm.total;
+      }
+      const field = ylmFields[c];
+      return r === 0 ? summary.pdmYlm[field] : sisaYlm[field];
+    },
+    [summary.pdmYlm, sisaYlm]
+  );
+
+  const setYlmBatchCellValues = useCallback(
+    (updates: { r: number; c: number; val: number | string }[]) => {
+      recordHistory();
+      setSummary((s) => {
+        const nextYlm = { ...s.pdmYlm };
+        updates.forEach(({ r, c, val }) => {
+          if (r !== 0 || c >= 4) return;
+          const numVal = typeof val === "number" ? val : parseInputInt(String(val));
+          nextYlm[ylmFields[c]] = numVal;
+        });
+        return { ...s, pdmYlm: nextYlm };
       });
-      return { ...s, pdmYlm: nextYlm };
-    });
-  };
+    },
+    [recordHistory]
+  );
+
+  const {
+    selection: ylmSelection,
+    setSelection: setYlmSelection,
+    activeCell: ylmActiveCell,
+    setActiveCell: setYlmActiveCell,
+    activeCellValue: ylmActiveCellValue,
+    isActiveCellEditable: isYlmActiveCellEditable,
+    handleActiveCellValueChange: handleYlmActiveCellValueChange,
+    goToNextCell: goToNextYlmCell,
+    goToPrevCell: goToPrevYlmCell,
+    isMenuOpen: isYlmMenuOpen,
+    setIsMenuOpen: setIsYlmMenuOpen,
+    menuPos: ylmMenuPos,
+    getCellProps: getYlmCellProps,
+    renderSelectionHandle: renderYlmSelectionHandle,
+    handleCopy: handleYlmCopy,
+    handleCut: handleYlmCut,
+    handlePaste: handleYlmPaste,
+    handleClear: handleYlmClear,
+    clipboardModal: ylmClipboardModal,
+    confirmManualPaste: confirmYlmManualPaste,
+    closeClipboardModal: closeYlmClipboardModal,
+  } = useSimpleGrid({
+    totalRows: 2,
+    totalCols: 5,
+    isCellEditable: isYlmCellEditable,
+    getCellValue: getYlmCellValue,
+    setCellValue: (r, c, val) => setYlmBatchCellValues([{ r, c, val }]),
+    setBatchCellValues: setYlmBatchCellValues,
+    onRecordUndo: recordHistory,
+  });
+
+  const getYlmCellLabel = useCallback((r: number, c: number) => {
+    const rowName = r === 0 ? "PDM YLM" : "SISA YLM";
+    const colName = c === 4 ? "TOTAL" : ["YO", "OM", "OS", "YT"][c];
+    return `${rowName} • ${colName}`;
+  }, []);
+
+  // Pastikan hanya satu blok yang aktif dalam satu waktu: tabel utama vs tabel PDM/SISA YLM.
+  // Menyentuh sel di tabel yang satu otomatis membatalkan blok di tabel yang lain.
+  useEffect(() => {
+    if (activeCell) {
+      setYlmSelection(null);
+      setYlmActiveCell(null);
+      setIsYlmMenuOpen(false);
+    }
+  }, [activeCell]);
+
+  useEffect(() => {
+    if (ylmActiveCell) {
+      setSelection(null);
+      setActiveCell(null);
+      setIsMenuOpen(false);
+    }
+  }, [ylmActiveCell]);
+
+  const getLhppCellLabel = useCallback((r: number, c: number) => {
+    const row = computedRows[r];
+    const ylName = cleanYlName(row?.nama || `YL #${r + 1}`);
+    const area = row?.area || "";
+    const colNames: Record<number, string> = {
+      0: "PDM SBLM • YO",
+      1: "PDM SBLM • OM",
+      2: "PDM SBLM • OS",
+      3: "PDM SBLM • YT",
+      4: "BB • YO (Btl)",
+      5: "BB • OM (Btl)",
+      6: "BB • OS (Btl)",
+      7: "BB • YT (Btl)",
+      8: "TERJUAL • YO",
+      9: "TERJUAL • OM",
+      10: "TERJUAL • OS",
+      11: "TERJUAL • YT",
+      12: "TOTAL SETORAN",
+      13: "PDM HARI INI • YO",
+      14: "PDM HARI INI • OM",
+      15: "PDM HARI INI • OS",
+      16: "PDM HARI INI • YT",
+      17: "TURUN • YO",
+      18: "TURUN • OM",
+      19: "TURUN • OS",
+      20: "TURUN • YT",
+    };
+    return `[${area}] ${ylName} • ${colNames[c] || `C${c}`}`;
+  }, [computedRows]);
 
   // Dedicated paste handler for grid inputs
   const handleCellPaste = (e: React.ClipboardEvent, rIdx: number, cIdx: number) => {
@@ -689,27 +799,26 @@ function LhppRealisasiViewInner({
             </select>
           </div>
 
-          <div className="flex items-center gap-1 ml-auto sm:ml-0">
-            {/* Tombol Ambil PDM Sebelumnya */}
+          <div className="flex items-center gap-1.5 ml-auto sm:ml-0 flex-wrap sm:flex-nowrap">
+            {/* Tombol Ambil PDM */}
             <button
               onClick={handlePullPrevPdm}
               disabled={isLoading}
-              className="bg-amber-600 hover:bg-amber-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[10px] sm:text-[11px] px-2.5 py-1 rounded-lg shadow-2xs transition-all cursor-pointer flex items-center gap-1"
+              className="h-8.5 px-3 bg-amber-600 hover:bg-amber-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[11px] rounded-lg shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap min-w-[92px]"
               title={`Ambil data PDM dari hari sebelumnya (termasuk lintas bulan saat berganti bulan)${prevSourceDate ? ` [Sumber: ${prevSourceDate.split("-").reverse().join("-")}]` : ""}`}
             >
-              <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline">Ambil PDM Sebelumnya</span>
-              <span className="sm:hidden">Ambil PDM</span>
+              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoading ? "animate-spin" : ""}`} />
+              <span>Ambil PDM</span>
             </button>
 
             {/* Tombol Simpan - Utama */}
             <button
               onClick={handleSaveLhpp}
               disabled={isSaving}
-              className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[10px] sm:text-[11px] px-2.5 py-1 rounded-lg shadow-2xs transition-all cursor-pointer flex items-center gap-1"
+              className="h-8.5 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[11px] rounded-lg shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap min-w-[92px]"
               title="Simpan LHPP & update Realisasi ke Server"
             >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> : <Save className="w-3.5 h-3.5 shrink-0" />}
               <span>{isSaving ? "Menyimpan..." : "Simpan"}</span>
             </button>
 
@@ -717,28 +826,30 @@ function LhppRealisasiViewInner({
             <button
               onClick={handleDeleteLhpp}
               disabled={isDeleting || isSaving || isLoading}
-              className="bg-rose-600 hover:bg-rose-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[10px] sm:text-[11px] px-2.5 py-1 rounded-lg shadow-2xs transition-all cursor-pointer flex items-center gap-1"
+              className="h-8.5 px-3 bg-rose-600 hover:bg-rose-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[11px] rounded-lg shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap min-w-[92px]"
               title={`Hapus data LHPP tanggal ${selectedDay} secara menyeluruh (termasuk di Realisasi Admin & Transaksi YL)`}
             >
-              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">{isDeleting ? "Menghapus..." : "Hapus LHPP"}</span>
-              <span className="sm:hidden">{isDeleting ? "Hapus..." : "Hapus"}</span>
+              {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" /> : <Trash2 className="w-3.5 h-3.5 shrink-0" />}
+              <span>{isDeleting ? "Hapus..." : "Hapus LHPP"}</span>
             </button>
 
+            {/* Tombol Salin Rekap */}
             <button
               onClick={handleCopyText}
-              className="bg-slate-700 hover:bg-slate-800 active:scale-95 text-white font-extrabold text-[10px] sm:text-[11px] px-2 py-1 rounded-lg shadow-2xs transition-all cursor-pointer flex items-center gap-1"
+              className="h-8.5 px-3 bg-slate-700 hover:bg-slate-800 active:scale-95 text-white font-extrabold text-[11px] rounded-lg shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap min-w-[92px]"
+              title="Salin rekap LHPP ke clipboard"
             >
-              <Copy className="w-3 h-3" />
+              <Copy className="w-3.5 h-3.5 shrink-0" />
               <span>Salin Rekap</span>
             </button>
 
+            {/* Tombol Cetak */}
             <button
               onClick={() => window.print()}
-              className="bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-bold text-[10px] sm:text-[11px] px-2 py-1 rounded-lg border border-slate-200 transition-all cursor-pointer"
+              className="h-8.5 w-8.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-800 font-bold rounded-lg border border-slate-200 transition-all cursor-pointer flex items-center justify-center shrink-0"
               title="Cetak Laporan"
             >
-              <Printer className="w-3 h-3" />
+              <Printer className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -806,9 +917,37 @@ function LhppRealisasiViewInner({
         </div>
 
         {/* Right Side Summary Table (PDM YLM & SISA YLM) */}
-        <div className="lg:col-span-6 bg-white text-slate-900 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-center">
-          <div className="overflow-x-auto rounded-lg sm:rounded-xl border border-slate-200 shadow-2xs">
-            <table className="w-full text-center text-[11px] font-mono border-collapse">
+        <div className="lg:col-span-6 bg-white text-slate-900 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-center relative">
+          <GridSelectionToolbar
+            selection={ylmSelection}
+            isMenuOpen={isYlmMenuOpen}
+            menuPos={ylmMenuPos}
+            onCopy={handleYlmCopy}
+            onCut={handleYlmCut}
+            onPaste={handleYlmPaste}
+            onClear={handleYlmClear}
+            onClose={() => setIsYlmMenuOpen(false)}
+          />
+          <SpreadsheetInputBar
+            activeCell={ylmActiveCell}
+            cellLabel={ylmActiveCell ? getYlmCellLabel(ylmActiveCell.r, ylmActiveCell.c) : undefined}
+            value={ylmActiveCellValue}
+            isEditable={isYlmActiveCellEditable}
+            onChange={handleYlmActiveCellValueChange}
+            onPrev={goToPrevYlmCell}
+            onNext={goToNextYlmCell}
+            onDone={() => setYlmActiveCell(null)}
+          />
+          {ylmClipboardModal && (
+            <ClipboardFallbackModal
+              mode={ylmClipboardModal.mode}
+              initialText={ylmClipboardModal.text}
+              onConfirmPaste={confirmYlmManualPaste}
+              onClose={closeYlmClipboardModal}
+            />
+          )}
+          <div data-grid-container="true" className="overflow-x-auto rounded-lg sm:rounded-xl border border-slate-200 shadow-2xs">
+            <table className="w-full text-center text-[11px] font-mono border-collapse select-none">
               <thead>
                 <tr className="bg-slate-100 text-slate-800 font-black text-[10px] uppercase border-b border-slate-200">
                   <th className="p-2 border-r border-slate-200 bg-slate-100 text-slate-700 text-left px-3">TGL</th>
@@ -823,60 +962,52 @@ function LhppRealisasiViewInner({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-bold bg-white text-slate-900">
-                {/* PDM YLM Row */}
+                {/* PDM YLM Row (r=0, bisa diedit) */}
                 <tr className="bg-white text-slate-900">
                   <td className="p-2 font-black text-left bg-white text-slate-900 px-3 border-r border-slate-200" colSpan={3}>
                     PDM YLM
                   </td>
-                  <td className="p-1 border-r border-slate-200">
-                    <NumberInput
-                      value={summary.pdmYlm.yo || ""}
-                      onChange={(val) => handlePdmYlmChange("yo", val)}
-                      onPaste={e => handlePdmYlmPaste(e, "yo")}
-                      onFocus={e => e.target.select()}
-                      className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
-                    />
+                  {ylmFields.map((field, c) => (
+                    <td
+                      key={field}
+                      {...getYlmCellProps(0, c)}
+                      className={`p-2 font-black bg-white text-slate-900 border-r border-slate-200 ${getYlmCellProps(0, c).className}`}
+                    >
+                      {summary.pdmYlm[field]}
+                      {renderYlmSelectionHandle(0, c)}
+                    </td>
+                  ))}
+                  <td
+                    {...getYlmCellProps(0, 4)}
+                    className={`p-2 font-black bg-white text-slate-900 ${getYlmCellProps(0, 4).className}`}
+                  >
+                    {totalPdmYlm}
+                    {renderYlmSelectionHandle(0, 4)}
                   </td>
-                  <td className="p-1 border-r border-slate-200">
-                    <NumberInput
-                      value={summary.pdmYlm.om || ""}
-                      onChange={(val) => handlePdmYlmChange("om", val)}
-                      onPaste={e => handlePdmYlmPaste(e, "om")}
-                      onFocus={e => e.target.select()}
-                      className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
-                    />
-                  </td>
-                  <td className="p-1 border-r border-slate-200">
-                    <NumberInput
-                      value={summary.pdmYlm.os || ""}
-                      onChange={(val) => handlePdmYlmChange("os", val)}
-                      onPaste={e => handlePdmYlmPaste(e, "os")}
-                      onFocus={e => e.target.select()}
-                      className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
-                    />
-                  </td>
-                  <td className="p-1 border-r border-slate-200">
-                    <NumberInput
-                      value={summary.pdmYlm.yt || ""}
-                      onChange={(val) => handlePdmYlmChange("yt", val)}
-                      onPaste={e => handlePdmYlmPaste(e, "yt")}
-                      onFocus={e => e.target.select()}
-                      className="w-full text-center bg-white text-slate-900 font-black outline-none border border-slate-200 rounded px-1 py-0.5 focus:ring-2 focus:ring-amber-500"
-                    />
-                  </td>
-                  <td className="p-2 font-black bg-white text-slate-900">{totalPdmYlm}</td>
                 </tr>
 
-                {/* SISA YLM Row */}
+                {/* SISA YLM Row (r=1, hasil hitung / read-only) */}
                 <tr className="bg-slate-50 text-slate-900 font-black">
                   <td className="p-2 text-left bg-slate-50 text-slate-900 px-3 border-r border-slate-200" colSpan={3}>
                     SISA YLM
                   </td>
-                  <td className={`p-2 border-r border-slate-200 ${sisaYlm.yo < 0 ? 'text-rose-600 font-extrabold' : ''}`}>{sisaYlm.yo}</td>
-                  <td className={`p-2 border-r border-slate-200 ${sisaYlm.om < 0 ? 'text-rose-600 font-extrabold' : ''}`}>{sisaYlm.om}</td>
-                  <td className={`p-2 border-r border-slate-200 ${sisaYlm.os < 0 ? 'text-rose-600 font-extrabold' : ''}`}>{sisaYlm.os}</td>
-                  <td className={`p-2 border-r border-slate-200 ${sisaYlm.yt < 0 ? 'text-rose-600 font-extrabold' : ''}`}>{sisaYlm.yt}</td>
-                  <td className={`p-2 bg-slate-50 font-black ${sisaYlm.total < 0 ? 'text-rose-600' : 'text-slate-900'}`}>{sisaYlm.total}</td>
+                  {ylmFields.map((field, c) => (
+                    <td
+                      key={field}
+                      {...getYlmCellProps(1, c)}
+                      className={`p-2 bg-slate-50 border-r border-slate-200 ${sisaYlm[field] < 0 ? "text-rose-600 font-extrabold" : ""} ${getYlmCellProps(1, c).className}`}
+                    >
+                      {sisaYlm[field]}
+                      {renderYlmSelectionHandle(1, c)}
+                    </td>
+                  ))}
+                  <td
+                    {...getYlmCellProps(1, 4)}
+                    className={`p-2 bg-slate-50 font-black ${sisaYlm.total < 0 ? "text-rose-600" : "text-slate-900"} ${getYlmCellProps(1, 4).className}`}
+                  >
+                    {sisaYlm.total}
+                    {renderYlmSelectionHandle(1, 4)}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -896,8 +1027,17 @@ function LhppRealisasiViewInner({
           onClear={handleClear}
           onClose={() => {
             setIsMenuOpen(false);
-            setSelection(null);
           }}
+        />
+        <SpreadsheetInputBar
+          activeCell={activeCell}
+          cellLabel={activeCell ? getLhppCellLabel(activeCell.r, activeCell.c) : undefined}
+          value={activeCellValue}
+          isEditable={isActiveCellEditable}
+          onChange={handleActiveCellValueChange}
+          onPrev={goToPrevCell}
+          onNext={goToNextCell}
+          onDone={() => setActiveCell(null)}
         />
         {clipboardModal && (
           <ClipboardFallbackModal
@@ -1024,138 +1164,99 @@ function LhppRealisasiViewInner({
                       <span className="font-extrabold text-slate-900 text-[10px] sm:text-[11px]">{cleanYlName(row.nama)}</span>
                     </td>
                     {/* PDM SEBELUMNYA (Auto / Read-Only dari PDM Hari Ini tanggal sebelumnya) */}
-                    <td {...getCellProps(rIdx, 0)} className={`p-1 text-center text-red-700 font-extrabold bg-slate-50 border-r border-slate-200 ${getCellProps(rIdx, 0).className}`}>
+                    <td {...getCellProps(rIdx, 0)} className={`p-1.5 text-center text-red-700 font-extrabold bg-slate-50 border-r border-slate-200 ${getCellProps(rIdx, 0).className}`}>
                       {row.pdmSebelum.yo}
+                      {renderSelectionHandle(rIdx, 0)}
                     </td>
-                    <td {...getCellProps(rIdx, 1)} className={`p-1 text-center text-amber-800 font-extrabold bg-slate-50 border-r border-slate-200 ${getCellProps(rIdx, 1).className}`}>
+                    <td {...getCellProps(rIdx, 1)} className={`p-1.5 text-center text-amber-800 font-extrabold bg-slate-50 border-r border-slate-200 ${getCellProps(rIdx, 1).className}`}>
                       {row.pdmSebelum.om}
+                      {renderSelectionHandle(rIdx, 1)}
                     </td>
-                    <td {...getCellProps(rIdx, 2)} className={`p-1 text-center text-fuchsia-800 font-extrabold bg-slate-50 border-r border-slate-200 ${getCellProps(rIdx, 2).className}`}>
+                    <td {...getCellProps(rIdx, 2)} className={`p-1.5 text-center text-fuchsia-800 font-extrabold bg-slate-50 border-r border-slate-200 ${getCellProps(rIdx, 2).className}`}>
                       {row.pdmSebelum.os}
+                      {renderSelectionHandle(rIdx, 2)}
                     </td>
-                    <td {...getCellProps(rIdx, 3)} className={`p-1 text-center text-blue-800 font-extrabold bg-slate-50 border-r-2 border-slate-400 ${getCellProps(rIdx, 3).className}`}>
+                    <td {...getCellProps(rIdx, 3)} className={`p-1.5 text-center text-blue-800 font-extrabold bg-slate-50 border-r-2 border-slate-400 ${getCellProps(rIdx, 3).className}`}>
                       {row.pdmSebelum.yt}
+                      {renderSelectionHandle(rIdx, 3)}
                     </td>
 
-                    {/* BB (Barang Bawaan) Inputs - Manual Input Manager */}
-                    <td {...getCellProps(rIdx, 4)} className={`p-1 text-center text-red-700 font-bold bg-rose-50 border-r border-slate-200 ${getCellProps(rIdx, 4).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.bb.yo || ""}
-                        onChange={(val) => handleCellChange(rIdx, "bb", "yo", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 4)}
-                        onFocus={e => e.target.select()}
-                        onDragStart={e => e.preventDefault()}
-                        className="w-full text-center bg-transparent font-black outline-none focus:bg-rose-200 rounded text-red-700"
-                      />
+                    {/* BB (Barang Bawaan) Inputs */}
+                    <td {...getCellProps(rIdx, 4)} className={`p-1.5 text-center text-red-700 font-black bg-rose-50 border-r border-slate-200 ${getCellProps(rIdx, 4).className}`}>
+                      <span className="font-mono font-black">{row.bb.yo || 0}</span>
+                      {renderSelectionHandle(rIdx, 4)}
                     </td>
-                    <td {...getCellProps(rIdx, 5)} className={`p-1 text-center text-amber-800 font-bold bg-rose-50 border-r border-slate-200 ${getCellProps(rIdx, 5).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.bb.om || ""}
-                        onChange={(val) => handleCellChange(rIdx, "bb", "om", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 5)}
-                        onFocus={e => e.target.select()}
-                        onDragStart={e => e.preventDefault()}
-                        className="w-full text-center bg-transparent font-black outline-none focus:bg-rose-200 rounded text-amber-800"
-                      />
+                    <td {...getCellProps(rIdx, 5)} className={`p-1.5 text-center text-amber-800 font-black bg-rose-50 border-r border-slate-200 ${getCellProps(rIdx, 5).className}`}>
+                      <span className="font-mono font-black">{row.bb.om || 0}</span>
+                      {renderSelectionHandle(rIdx, 5)}
                     </td>
-                    <td {...getCellProps(rIdx, 6)} className={`p-1 text-center text-fuchsia-800 font-bold bg-rose-50 border-r border-slate-200 ${getCellProps(rIdx, 6).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.bb.os || ""}
-                        onChange={(val) => handleCellChange(rIdx, "bb", "os", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 6)}
-                        onFocus={e => e.target.select()}
-                        onDragStart={e => e.preventDefault()}
-                        className="w-full text-center bg-transparent font-black outline-none focus:bg-rose-200 rounded text-fuchsia-800"
-                      />
+                    <td {...getCellProps(rIdx, 6)} className={`p-1.5 text-center text-fuchsia-800 font-black bg-rose-50 border-r border-slate-200 ${getCellProps(rIdx, 6).className}`}>
+                      <span className="font-mono font-black">{row.bb.os || 0}</span>
+                      {renderSelectionHandle(rIdx, 6)}
                     </td>
-                    <td {...getCellProps(rIdx, 7)} className={`p-1 text-center text-blue-800 font-bold bg-rose-50 border-r-2 border-slate-400 ${getCellProps(rIdx, 7).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.bb.yt || ""}
-                        onChange={(val) => handleCellChange(rIdx, "bb", "yt", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 7)}
-                        onFocus={e => e.target.select()}
-                        onDragStart={e => e.preventDefault()}
-                        className="w-full text-center bg-transparent font-black outline-none focus:bg-rose-200 rounded text-blue-800"
-                      />
+                    <td {...getCellProps(rIdx, 7)} className={`p-1.5 text-center text-blue-800 font-black bg-rose-50 border-r-2 border-slate-400 ${getCellProps(rIdx, 7).className}`}>
+                      <span className="font-mono font-black">{row.bb.yt || 0}</span>
+                      {renderSelectionHandle(rIdx, 7)}
                     </td>
 
                     {/* TERJUAL (Auto Formula: PDM SEBELUMNYA - BB) */}
-                    <td {...getCellProps(rIdx, 8)} className={`p-1 text-center text-red-700 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 8).className}`}>
+                    <td {...getCellProps(rIdx, 8)} className={`p-1.5 text-center text-red-700 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 8).className}`}>
                       {row.terjual.yo}
+                      {renderSelectionHandle(rIdx, 8)}
                     </td>
-                    <td {...getCellProps(rIdx, 9)} className={`p-1 text-center text-amber-800 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 9).className}`}>
+                    <td {...getCellProps(rIdx, 9)} className={`p-1.5 text-center text-amber-800 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 9).className}`}>
                       {row.terjual.om}
+                      {renderSelectionHandle(rIdx, 9)}
                     </td>
-                    <td {...getCellProps(rIdx, 10)} className={`p-1 text-center text-fuchsia-800 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 10).className}`}>
+                    <td {...getCellProps(rIdx, 10)} className={`p-1.5 text-center text-fuchsia-800 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 10).className}`}>
                       {row.terjual.os}
+                      {renderSelectionHandle(rIdx, 10)}
                     </td>
-                    <td {...getCellProps(rIdx, 11)} className={`p-1 text-center text-blue-800 font-black bg-white border-r-2 border-slate-400 ${getCellProps(rIdx, 11).className}`}>
+                    <td {...getCellProps(rIdx, 11)} className={`p-1.5 text-center text-blue-800 font-black bg-white border-r-2 border-slate-400 ${getCellProps(rIdx, 11).className}`}>
                       {row.terjual.yt}
+                      {renderSelectionHandle(rIdx, 11)}
                     </td>
 
                     {/* SETORAN Column (Auto Formula: Terjual x Harga) */}
-                    <td {...getCellProps(rIdx, 12)} className={`p-1 text-right font-bold text-slate-900 bg-amber-50 border-r-2 border-slate-400 font-mono ${getCellProps(rIdx, 12).className}`}>
+                    <td {...getCellProps(rIdx, 12)} className={`p-1.5 text-right font-bold text-slate-900 bg-amber-50 border-r-2 border-slate-400 font-mono ${getCellProps(rIdx, 12).className}`}>
                       Rp {row.totalSetoran.toLocaleString("id-ID")}
+                      {renderSelectionHandle(rIdx, 12)}
                     </td>
 
                     {/* PDM HARI INI Inputs */}
-                    <td {...getCellProps(rIdx, 13)} className={`p-1 text-center text-red-700 font-bold bg-white border-r border-slate-200 ${getCellProps(rIdx, 13).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.pdmHariIni.yo || ""}
-                        onChange={(val) => handleCellChange(rIdx, "pdmHariIni", "yo", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 13)}
-                        onFocus={e => e.target.select()}
-                        className="w-full text-center bg-transparent outline-none focus:bg-amber-200 rounded font-black text-red-700"
-                      />
+                    <td {...getCellProps(rIdx, 13)} className={`p-1.5 text-center text-red-700 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 13).className}`}>
+                      <span className="font-mono font-black">{row.pdmHariIni.yo || 0}</span>
+                      {renderSelectionHandle(rIdx, 13)}
                     </td>
-                    <td {...getCellProps(rIdx, 14)} className={`p-1 text-center text-amber-800 font-bold bg-white border-r border-slate-200 ${getCellProps(rIdx, 14).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.pdmHariIni.om || ""}
-                        onChange={(val) => handleCellChange(rIdx, "pdmHariIni", "om", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 14)}
-                        onFocus={e => e.target.select()}
-                        className="w-full text-center bg-transparent outline-none focus:bg-amber-200 rounded font-black text-amber-800"
-                      />
+                    <td {...getCellProps(rIdx, 14)} className={`p-1.5 text-center text-amber-800 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 14).className}`}>
+                      <span className="font-mono font-black">{row.pdmHariIni.om || 0}</span>
+                      {renderSelectionHandle(rIdx, 14)}
                     </td>
-                    <td {...getCellProps(rIdx, 15)} className={`p-1 text-center text-fuchsia-800 font-bold bg-white border-r border-slate-200 ${getCellProps(rIdx, 15).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.pdmHariIni.os || ""}
-                        onChange={(val) => handleCellChange(rIdx, "pdmHariIni", "os", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 15)}
-                        onFocus={e => e.target.select()}
-                        className="w-full text-center bg-transparent outline-none focus:bg-amber-200 rounded font-black text-fuchsia-800"
-                      />
+                    <td {...getCellProps(rIdx, 15)} className={`p-1.5 text-center text-fuchsia-800 font-black bg-white border-r border-slate-200 ${getCellProps(rIdx, 15).className}`}>
+                      <span className="font-mono font-black">{row.pdmHariIni.os || 0}</span>
+                      {renderSelectionHandle(rIdx, 15)}
                     </td>
-                    <td {...getCellProps(rIdx, 16)} className={`p-1 text-center text-blue-800 font-bold bg-white border-r-2 border-slate-400 ${getCellProps(rIdx, 16).className}`}>
-                      <NumberInput
-                        min={0}
-                        value={row.pdmHariIni.yt || ""}
-                        onChange={(val) => handleCellChange(rIdx, "pdmHariIni", "yt", val)}
-                        onPaste={e => handleCellPaste(e, rIdx, 16)}
-                        onFocus={e => e.target.select()}
-                        className="w-full text-center bg-transparent outline-none focus:bg-amber-200 rounded font-black text-blue-800"
-                      />
+                    <td {...getCellProps(rIdx, 16)} className={`p-1.5 text-center text-blue-800 font-black bg-white border-r-2 border-slate-400 ${getCellProps(rIdx, 16).className}`}>
+                      <span className="font-mono font-black">{row.pdmHariIni.yt || 0}</span>
+                      {renderSelectionHandle(rIdx, 16)}
                     </td>
 
                     {/* TURUN (Auto Formula: PDM HARI INI - BB) */}
-                    <td {...getCellProps(rIdx, 17)} className={`p-1 text-center text-red-700 font-black bg-cyan-50 border-r border-slate-200 ${getCellProps(rIdx, 17).className}`}>
+                    <td {...getCellProps(rIdx, 17)} className={`p-1.5 text-center text-red-700 font-black bg-cyan-50 border-r border-slate-200 ${getCellProps(rIdx, 17).className}`}>
                       {row.turun.yo}
+                      {renderSelectionHandle(rIdx, 17)}
                     </td>
-                    <td {...getCellProps(rIdx, 18)} className={`p-1 text-center text-amber-800 font-black bg-cyan-50 border-r border-slate-200 ${getCellProps(rIdx, 18).className}`}>
+                    <td {...getCellProps(rIdx, 18)} className={`p-1.5 text-center text-amber-800 font-black bg-cyan-50 border-r border-slate-200 ${getCellProps(rIdx, 18).className}`}>
                       {row.turun.om}
+                      {renderSelectionHandle(rIdx, 18)}
                     </td>
-                    <td {...getCellProps(rIdx, 19)} className={`p-1 text-center text-fuchsia-800 font-black bg-cyan-50 border-r border-slate-200 ${getCellProps(rIdx, 19).className}`}>
+                    <td {...getCellProps(rIdx, 19)} className={`p-1.5 text-center text-fuchsia-800 font-black bg-cyan-50 border-r border-slate-200 ${getCellProps(rIdx, 19).className}`}>
                       {row.turun.os}
+                      {renderSelectionHandle(rIdx, 19)}
                     </td>
-                    <td {...getCellProps(rIdx, 20)} className={`p-1 text-center text-blue-800 font-black bg-cyan-50 ${getCellProps(rIdx, 20).className}`}>
+                    <td {...getCellProps(rIdx, 20)} className={`p-1.5 text-center text-blue-800 font-black bg-cyan-50 ${getCellProps(rIdx, 20).className}`}>
                       {row.turun.yt}
+                      {renderSelectionHandle(rIdx, 20)}
                     </td>
                   </tr>
                 );

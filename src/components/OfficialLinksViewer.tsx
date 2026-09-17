@@ -62,10 +62,10 @@ export const OfficialLinksViewer: React.FC<Props> = ({ onBack, isAdmin = false }
           <div>
             <h1 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
               <Globe className="w-5 h-5 text-indigo-500" />
-              {showManager ? "Kelola Tautan" : "Tautan Yakult"}
+              {showManager ? "Kelola Link" : "Link Yakult"}
             </h1>
             <p className="text-[10px] sm:text-xs font-semibold text-slate-500 dark:text-slate-400">
-              {showManager ? "Atur tautan web resmi" : "Akses cepat portal dan sistem resmi"}
+              {showManager ? "Atur link web resmi" : "Akses cepat link dan portal resmi"}
             </p>
           </div>
         </div>

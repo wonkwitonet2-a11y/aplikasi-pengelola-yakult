@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const DATA_FILE = path.join(process.cwd(), "data.json");
 
 app.use(express.json({ limit: "50mb" }));
