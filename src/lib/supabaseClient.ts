@@ -37,6 +37,26 @@ export function getSupabaseCredentials(): { url: string; key: string } {
   return { url, key };
 }
 
+// Info diagnostik ringkas: dari mana credential Supabase yang dipakai browser
+// ini SEBENARNYA berasal, dan project mana yang dituju (host saja, bukan full
+// key demi keamanan). Dipakai untuk membandingkan "device A vs device B"
+// tanpa perlu buka DevTools — cukup baca badge kecil di layar.
+export function getSupabaseDebugInfo(): { source: "localStorage" | "env" | "none"; host: string; hasKey: boolean } {
+  const metaEnv = (import.meta as any).env || {};
+  const procEnv = (typeof process !== "undefined" && process.env) || {};
+  const localUrl = (typeof localStorage !== "undefined" ? localStorage.getItem("supabase_url") || "" : "").trim();
+  const envUrl = (metaEnv.VITE_SUPABASE_URL || procEnv.SUPABASE_URL || "").trim();
+  const { url, key } = getSupabaseCredentials();
+  let host = "";
+  try {
+    host = url ? new URL(formatSupabaseUrl(url)).hostname : "(kosong)";
+  } catch {
+    host = "(url tidak valid)";
+  }
+  const source = localUrl ? "localStorage" : envUrl ? "env" : "none";
+  return { source, host, hasKey: !!key };
+}
+
 let supabaseInstance: SupabaseClient | null = null;
 
 export function getSupabaseClient(): SupabaseClient | null {

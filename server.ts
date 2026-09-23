@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 const DATA_FILE = path.join(process.cwd(), "data.json");
 
 app.use(express.json({ limit: "50mb" }));
@@ -372,6 +372,83 @@ function deduplicateTransactions(txList: any[]) {
   return orderedKeys.map(k => map[k]);
 }
 
+function syncBreakdownRealisasiToTransactions(db: any, targetMonth?: string) {
+  if (!db || !db.breakdownRealisasi || typeof db.breakdownRealisasi !== "object") return;
+  if (!db.transactions) db.transactions = [];
+
+  const ylList = db.ylList || INITIAL_YL_LIST;
+  const months = targetMonth ? [targetMonth] : Object.keys(db.breakdownRealisasi);
+
+  months.forEach(month => {
+    const monthData = db.breakdownRealisasi[month];
+    if (!monthData || typeof monthData !== "object") return;
+
+    Object.keys(monthData).forEach(areaKey => {
+      const areaItem = monthData[areaKey];
+      if (!areaItem || !areaItem.days || typeof areaItem.days !== "object") return;
+
+      const yl = ylList.find((y: any) => y.area === areaKey || String(y.area).substring(0, 3) === areaKey);
+      const cleanName = yl ? cleanYlName(yl.nama) : "";
+      const fullName = yl ? `${areaKey} - ${cleanName}` : areaKey;
+
+      Object.keys(areaItem.days).forEach(dayKey => {
+        const dNum = parseInt(dayKey, 10);
+        if (isNaN(dNum) || dNum < 1 || dNum > 31) return;
+
+        const dayObj = areaItem.days[dayKey];
+        const yo = Number(dayObj?.yo) || 0;
+        const om = Number(dayObj?.om) || 0;
+        const os = Number(dayObj?.os) || 0;
+        const yt = Number(dayObj?.yt) || 0;
+        const total = yo + om + os + yt;
+
+        if (total <= 0) return;
+
+        const dayPadded = String(dNum).padStart(2, "0");
+        const targetDate = `${month}-${dayPadded}`;
+
+        const existingIdx = db.transactions.findIndex((t: any) => {
+          const matchDate = t.tanggal === targetDate;
+          const matchArea = (t.area && String(t.area).substring(0, 3) === areaKey) ||
+                            (t.nama && (String(t.nama).startsWith(areaKey) || (cleanName && cleanYlName(t.nama) === cleanName)));
+          return matchDate && matchArea;
+        });
+
+        if (existingIdx !== -1) {
+          const tx = db.transactions[existingIdx];
+          tx.tot_yo = yo;
+          tx.tot_om = om;
+          tx.tot_os = os;
+          tx.tot_yt = yt;
+          if (!tx.area) tx.area = areaKey;
+        } else {
+          db.transactions.push({
+            tanggal: targetDate,
+            nama: fullName,
+            area: areaKey,
+            tot_yo: yo,
+            tot_om: om,
+            tot_os: os,
+            tot_yt: yt,
+            rmh_yo: 0, rmh_om: 0, rmh_os: 0, rmh_yt: 0,
+            psr_yo: 0, psr_om: 0, psr_os: 0, psr_yt: 0,
+            skh_yo: 0, skh_om: 0, skh_os: 0, skh_yt: 0,
+            ktr_yo: 0, ktr_om: 0, ktr_os: 0, ktr_yt: 0,
+            tk_yo: 0, tk_om: 0, tk_os: 0, tk_yt: 0,
+            ib_yo: 0, ib_om: 0, ib_os: 0, ib_yt: 0,
+            bb_yo: 0, bb_om: 0, bb_os: 0, bb_yt: 0,
+            pb_p: 0, pb_s: 0,
+            f_plg: 0, f_rk: 0, f_ra: 0, f_rb: 0,
+            apk_plg: 0, apk_botol: 0
+          });
+        }
+      });
+    });
+  });
+
+  db.transactions = deduplicateTransactions(db.transactions);
+}
+
 // dipakai sebagai isian awal kalau memang belum ada data BD/Realisasi sama
 // sekali (pemakaian pertama kali).
 function normalizeDb(db: any) {
@@ -445,6 +522,8 @@ function normalizeDb(db: any) {
    }
    db._sampleJulySeeded = true; // tandai sudah pernah di-seed, tidak akan diulang lagi walau data direset
   }
+
+  syncBreakdownRealisasiToTransactions(db);
 
   return db;
 }
@@ -1263,6 +1342,73 @@ app.post("/api/saveSupabaseMediaConfig", async (req, res) => {
 });
 
 // Status kedua Supabase (Utama & Media)
+app.get("/api/getMonthlyArchive", async (req, res) => {
+  const month = (req.query.month as string) || "";
+  if (!month) return res.status(400).json({ ok: false, error: "Month parameter required" });
+
+  const archiveKey = `monthly_archive_${month}`;
+
+  // 1. Try from Supabase server client
+  if (supabase) {
+    try {
+      const { data, error } = await (supabase.from("app_store") as any)
+        .select("data")
+        .eq("key", archiveKey)
+        .maybeSingle();
+      if (!error && data && data.data) {
+        return res.json({ ok: true, archive: data.data });
+      }
+    } catch (e: any) {
+      console.warn(`[Supabase] Error fetching ${archiveKey}:`, e?.message || e);
+    }
+  }
+
+  // 2. Try from local data.json if saved in db
+  const db = loadData();
+  if (db.monthlyArchives && db.monthlyArchives[month]) {
+    return res.json({ ok: true, archive: db.monthlyArchives[month] });
+  }
+
+  // 3. Fallback: synthesize from breakdownRealisasi / transactions if present in db
+  if (db.breakdownRealisasi && db.breakdownRealisasi[month]) {
+    return res.json({
+      ok: true,
+      archive: {
+        monthKey: month,
+        breakdownRealisasiMap: db.breakdownRealisasi[month],
+        transactions: (db.transactions || []).filter((t: any) => t.tanggal && t.tanggal.startsWith(month))
+      }
+    });
+  }
+
+  res.json({ ok: false, message: "Archive not found" });
+});
+
+app.post("/api/saveMonthlyArchive", async (req, res) => {
+  const { month, snapshot } = req.body;
+  if (!month || !snapshot) return res.status(400).json({ ok: false, error: "Month and snapshot required" });
+
+  const archiveKey = `monthly_archive_${month}`;
+
+  // 1. Save to Supabase server client
+  if (supabase) {
+    try {
+      await (supabase.from("app_store") as any)
+        .upsert({ key: archiveKey, data: snapshot, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    } catch (e: any) {
+      console.warn(`[Supabase] Error saving ${archiveKey}:`, e?.message || e);
+    }
+  }
+
+  // 2. Save to local data.json
+  const db = loadData();
+  if (!db.monthlyArchives) db.monthlyArchives = {};
+  db.monthlyArchives[month] = snapshot;
+  await saveData(db);
+
+  res.json({ ok: true });
+});
+
 app.get("/api/getSupabaseStatus", async (req, res) => {
   const db = loadData();
   const currentMediaUrl = db.supabaseMediaConfig?.url || SUPABASE_MEDIA_URL;
@@ -2148,6 +2294,111 @@ app.get("/api/getBreakdownPlan", (req, res) => {
   res.json({ ok: true, month, breakdownPlan: planData, breakdownRealisasi: realisasiData });
 });
 
+// GET /api/getPotensiNotifications
+app.get("/api/getPotensiNotifications", (req, res) => {
+  try {
+    const month = (req.query.month as string) || new Date().toISOString().substring(0, 7);
+    const ylFilter = (req.query.nama as string) || "";
+    const db = loadData();
+    const realisasiMap = (db.breakdownRealisasi && db.breakdownRealisasi[month]) ? db.breakdownRealisasi[month] : {};
+    const ylList = (db.ylList && Array.isArray(db.ylList)) ? db.ylList : INITIAL_YL_LIST;
+    const txs = (db.transactions || []).filter((t: any) => t.tanggal && t.tanggal.startsWith(month));
+
+    const results: any[] = [];
+
+    ylList.forEach((yl: any) => {
+      if (yl.status === "Resign" || yl.status === "nonaktif") return;
+      if (ylFilter) {
+        const areaMatch = ylFilter.match(/^(\d{3})/);
+        const filterArea = areaMatch ? areaMatch[1] : "";
+        const cleanFilter = cleanYlName(ylFilter);
+        const match = (yl.area && yl.area === filterArea) ||
+                      (yl.nama && cleanYlName(yl.nama) === cleanFilter) ||
+                      (yl.area && ylFilter.includes(yl.area));
+        if (!match) return;
+      }
+
+      // Find realisasi breakdown for this YL in realisasiMap
+      let ylReal = realisasiMap[yl.area];
+      if (!ylReal) {
+        const entry = Object.entries(realisasiMap).find(([k]) => k.startsWith(yl.area) || (yl.nama && k.includes(yl.nama)));
+        if (entry) ylReal = entry[1];
+      }
+
+      if (!ylReal || !ylReal.days) return;
+
+      const unfilledDates: number[] = [];
+      const mismatchDates: number[] = [];
+      const details: any[] = [];
+
+      for (let d = 1; d <= 31; d++) {
+        const dayAcuan = ylReal.days[String(d)] || ylReal.days[d];
+        if (!dayAcuan) continue;
+        const acuanYo = Number(dayAcuan.yo) || 0;
+        const acuanOm = Number(dayAcuan.om) || 0;
+        const acuanOs = Number(dayAcuan.os) || 0;
+        const acuanYt = Number(dayAcuan.yt) || 0;
+        const totAcuan = acuanYo + acuanOm + acuanOs + acuanYt;
+        if (totAcuan <= 0) continue;
+
+        const dateStr = `${month}-${String(d).padStart(2, '0')}`;
+        const tx = txs.find((t: any) => {
+          if (t.tanggal !== dateStr) return false;
+          if (t.area && t.area === yl.area) return true;
+          if (t.nama && String(t.nama).startsWith(yl.area)) return true;
+          if (cleanYlName(t.nama || "") === cleanYlName(yl.nama)) return true;
+          return false;
+        });
+
+        const secYo = (Number(tx?.rmh_yo) || 0) + (Number(tx?.psr_yo) || 0) + (Number(tx?.skh_yo) || 0) + (Number(tx?.ktr_yo) || 0) + (Number(tx?.tk_yo) || 0) + (Number(tx?.ib_yo) || 0);
+        const secOm = (Number(tx?.rmh_om) || 0) + (Number(tx?.psr_om) || 0) + (Number(tx?.skh_om) || 0) + (Number(tx?.ktr_om) || 0) + (Number(tx?.tk_om) || 0) + (Number(tx?.ib_om) || 0);
+        const secOs = (Number(tx?.rmh_os) || 0) + (Number(tx?.psr_os) || 0) + (Number(tx?.skh_os) || 0) + (Number(tx?.ktr_os) || 0) + (Number(tx?.tk_os) || 0) + (Number(tx?.ib_os) || 0);
+        const secYt = (Number(tx?.rmh_yt) || 0) + (Number(tx?.psr_yt) || 0) + (Number(tx?.skh_yt) || 0) + (Number(tx?.ktr_yt) || 0) + (Number(tx?.tk_yt) || 0) + (Number(tx?.ib_yt) || 0);
+        const totSektor = secYo + secOm + secOs + secYt;
+
+        if (totSektor === 0) {
+          unfilledDates.push(d);
+          details.push({
+            date: d,
+            dateStr,
+            type: "empty",
+            acuan: totAcuan,
+            aktual: 0,
+            acuanDetail: { yo: acuanYo, om: acuanOm, os: acuanOs, yt: acuanYt }
+          });
+        } else if (secYo !== acuanYo || secOm !== acuanOm || secOs !== acuanOs || secYt !== acuanYt) {
+          mismatchDates.push(d);
+          details.push({
+            date: d,
+            dateStr,
+            type: "mismatch",
+            acuan: totAcuan,
+            aktual: totSektor,
+            selisih: totSektor - totAcuan,
+            acuanDetail: { yo: acuanYo, om: acuanOm, os: acuanOs, yt: acuanYt },
+            aktualDetail: { yo: secYo, om: secOm, os: secOs, yt: secYt }
+          });
+        }
+      }
+
+      if (unfilledDates.length > 0 || mismatchDates.length > 0) {
+        results.push({
+          area: yl.area,
+          nama: yl.nama,
+          unfilledDates,
+          mismatchDates,
+          details
+        });
+      }
+    });
+
+    res.json({ ok: true, month, count: results.length, data: results });
+  } catch (err: any) {
+    console.error("Error in getPotensiNotifications:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /api/saveBreakdownPlan
 app.post("/api/saveBreakdownPlan", async (req, res) => {
   try {
@@ -2165,6 +2416,7 @@ app.post("/api/saveBreakdownPlan", async (req, res) => {
     if (breakdownRealisasi && typeof breakdownRealisasi === "object") {
       if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
       db.breakdownRealisasi[month] = breakdownRealisasi;
+      syncBreakdownRealisasiToTransactions(db, month);
     }
 
     cleanEmptyTransactions(db);
@@ -2498,36 +2750,66 @@ app.get("/api/getSettingTargets", (req, res) => {
 });
 
 app.post("/api/saveSettingTargets", async (req, res) => {
-  const { targetTKU, targetYL, bulan } = req.body;
-  const db = loadData();
-  if (targetTKU) {
-    db.targetTKU = { ...(db.targetTKU || {}), ...targetTKU };
-    if (bulan && typeof bulan === "string") {
-      if (!db.targetTKUByMonth) db.targetTKUByMonth = {};
-      db.targetTKUByMonth[bulan] = { ...targetTKU };
-    }
-  }
-  if (targetYL) {
-    if (!db.targetYL) db.targetYL = {};
-    if (!db.targetYLByMonth) db.targetYLByMonth = {};
-    
-    const cleanMonthMap: Record<string, any> = {};
-    Object.keys(targetYL).forEach(rawArea => {
-      const cleanArea = rawArea.replace(/_202\d-\d{2}/g, "").trim();
-      cleanMonthMap[cleanArea] = targetYL[rawArea];
-      db.targetYL[cleanArea] = targetYL[rawArea];
+  try {
+    const { targetTKU, targetYL, bulan } = req.body || {};
+    const db = loadData();
+    if (targetTKU && typeof targetTKU === "object") {
+      db.targetTKU = { ...(db.targetTKU || {}), ...targetTKU };
       if (bulan && typeof bulan === "string") {
-        db.targetYL[`${cleanArea}_${bulan}`] = targetYL[rawArea];
+        if (!db.targetTKUByMonth) db.targetTKUByMonth = {};
+        db.targetTKUByMonth[bulan] = { ...targetTKU };
       }
-    });
-
-    if (bulan && typeof bulan === "string") {
-      db.targetYLByMonth[bulan] = cleanMonthMap;
     }
-  }
-  await saveData(db);
+    if (targetYL && typeof targetYL === "object") {
+      if (!db.targetYL) db.targetYL = {};
+      if (!db.targetYLByMonth) db.targetYLByMonth = {};
+      
+      const cleanMonthMap: Record<string, any> = {};
+      Object.keys(targetYL).forEach(rawArea => {
+        const cleanArea = rawArea.replace(/_202\d-\d{2}/g, "").trim();
+        cleanMonthMap[cleanArea] = targetYL[rawArea];
+        db.targetYL[cleanArea] = targetYL[rawArea];
+        if (bulan && typeof bulan === "string") {
+          db.targetYL[`${cleanArea}_${bulan}`] = targetYL[rawArea];
+        }
+      });
 
-  res.json({ ok: true, targetTKU: db.targetTKU, targetYL: db.targetYL });
+      if (bulan && typeof bulan === "string") {
+        db.targetYLByMonth[bulan] = cleanMonthMap;
+      }
+    }
+    await saveData(db);
+
+    res.json({ ok: true, targetTKU: db.targetTKU, targetYL: db.targetYL });
+  } catch (err: any) {
+    console.error("Error in saveSettingTargets:", err);
+    res.status(500).json({ ok: false, error: err?.message || "Internal server error" });
+  }
+});
+
+app.post("/api/saveTargetYL", async (req, res) => {
+  try {
+    const { targetTKU, targetYL, bulan } = req.body || {};
+    const db = loadData();
+    if (targetTKU && typeof targetTKU === "object") {
+      db.targetTKU = { ...(db.targetTKU || {}), ...targetTKU };
+      if (bulan && typeof bulan === "string") {
+        if (!db.targetTKUByMonth) db.targetTKUByMonth = {};
+        db.targetTKUByMonth[bulan] = { ...targetTKU };
+      }
+    }
+    if (targetYL && typeof targetYL === "object") {
+      if (!db.targetYL) db.targetYL = {};
+      Object.keys(targetYL).forEach(k => {
+        db.targetYL[k] = targetYL[k];
+      });
+    }
+    await saveData(db);
+    res.json({ ok: true, targetTKU: db.targetTKU, targetYL: db.targetYL });
+  } catch (err: any) {
+    console.error("Error in saveTargetYL:", err);
+    res.status(500).json({ ok: false, error: err?.message || "Internal server error" });
+  }
 });
 
 // Full Data Backup & Restore
@@ -3004,13 +3286,19 @@ app.post("/api/saveTargetYL", async (req, res) => {
     const am = String(nama).match(/^(\d{3})/);
     area = am ? am[1] : "";
   }
+  if (area) {
+    area = String(area).replace(/\D/g, "").substring(0, 3);
+  }
 
   if (!db.targetYL) db.targetYL = {};
   const targetObj = { target: Number(target) || 0, bln_lalu: Number(bln_lalu) || 0, thn_lalu: Number(thn_lalu) || 0, e6: Number(e6) || 0 };
   
-  db.targetYL[area] = targetObj;
-  if (bulan) {
-    db.targetYL[`${area}_${bulan}`] = targetObj;
+  if (area) {
+    db.targetYL[area] = targetObj;
+    if (bulan) {
+      const cleanMonth = String(bulan).replace(/^.*(\d{4}-\d{2}).*$/, "$1");
+      db.targetYL[`${area}_${cleanMonth}`] = targetObj;
+    }
   }
   await saveData(db);
 
@@ -3103,6 +3391,25 @@ function getSalesForDate(
   return 0;
 }
 
+function getCumulativeDailyAverage(
+  monthMaps: Record<string, any>,
+  monthKey: string,
+  targetDay: number,
+  area: string,
+  ylName: string,
+  transactions: any[]
+): number {
+  if (targetDay <= 0) return 0;
+  let cumSales = 0;
+  for (let d = 1; d <= targetDay; d++) {
+    const dayStr = `${monthKey}-${String(d).padStart(2, "0")}`;
+    const sales = getSalesForDate(monthMaps, monthKey, d, area, ylName, dayStr, transactions);
+    cumSales += sales;
+  }
+  if (cumSales === 0) return 0;
+  return Math.round(cumSales / targetDay);
+}
+
 // 6. Evaluasi Harian
 app.get("/api/getEvaluasi", async (req, res) => {
   const { month } = req.query;
@@ -3119,6 +3426,7 @@ app.get("/api/getEvaluasi", async (req, res) => {
   const prevMonthKey = mNum === 1 
     ? `${yNum - 1}-12` 
     : `${yNum}-${String(mNum - 1).padStart(2, "0")}`;
+  const prevMonthDaysCount = new Date(yNum, mNum - 1, 0).getDate() || 31;
 
   const [currentMonthMap, prevMonthMap] = await Promise.all([
     getMonthBreakdownRealisasiMap(db, currentMonth),
@@ -3146,23 +3454,23 @@ app.get("/api/getEvaluasi", async (req, res) => {
     const hariIniDateStr = currentMonth + "-" + String(pembagi).padStart(2, '0');
     let latestTx = ylTxs.find((t: any) => t.tanggal === hariIniDateStr) || {};
     
-    // Rata2 Minggu Ini (7 hari berjalan s/d hari ini / pembagi: offset 0..6)
-    // Jika pembagi < 7, otomatis mengambil sisa harinya dari arsip bulan lalu
-    let sumMingguIni = 0;
-    for (let i = 0; i < 7; i++) {
-      const dt = getDateWithOffset(currentMonth, pembagi, i);
-      sumMingguIni += getSalesForDate(monthMaps, dt.monthKey, dt.day, area, name, dt.dateStr, db.transactions);
-    }
-    const rataMingguIni = Math.trunc(sumMingguIni / 7);
+    // Rata2 Minggu Ini = Kumulatif rata-rata pada posisi tanggal pembagi saat ini
+    const rataMingguIni = Math.trunc(yl.rata2) || getCumulativeDailyAverage(monthMaps, currentMonth, pembagi, area, name, db.transactions);
 
-    // Rata2 Minggu Lalu (7 hari sebelum periode minggu ini: offset 7..13)
-    // Mampu melintasi batas bulan dengan mengambil data dari arsip bulan lalu
-    let sumMingguLalu = 0;
-    for (let i = 0; i < 7; i++) {
-      const dt = getDateWithOffset(currentMonth, pembagi, 7 + i);
-      sumMingguLalu += getSalesForDate(monthMaps, dt.monthKey, dt.day, area, name, dt.dateStr, db.transactions);
+    // Rata2 Minggu Lalu = Kumulatif rata-rata pada posisi 7 hari kalender sebelumnya
+    let rataMingguLalu = 0;
+    if (pembagi > 7) {
+      rataMingguLalu = getCumulativeDailyAverage(monthMaps, currentMonth, pembagi - 7, area, name, db.transactions);
+    } else {
+      const prevTargetDay = prevMonthDaysCount - (7 - pembagi);
+      rataMingguLalu = getCumulativeDailyAverage(monthMaps, prevMonthKey, prevTargetDay, area, name, db.transactions);
     }
-    const rataMingguLalu = Math.trunc(sumMingguLalu / 7);
+
+    // Baseline fallback dinamis dari target/rata2 bulan lalu milik YL ini jika data arsip belum ada
+    if (rataMingguLalu === 0) {
+      const tgtObj = db.targetYL?.[`${area}_${prevMonthKey}`] || db.targetYL?.[`${area}_${currentMonth}`] || db.targetYL?.[area];
+      rataMingguLalu = Math.trunc(tgtObj?.bln_lalu || tgtObj?.target || yl.rata2 || 0);
+    }
 
     const dayData = (areaData && areaData.days && areaData.days[String(pembagi)]) || {};
     const mainYo = (dayData.yo !== undefined && dayData.yo !== null && dayData.yo > 0) ? dayData.yo : (latestTx.tot_yo || 0);
@@ -3320,6 +3628,50 @@ app.get("/api/getEvaluasi", async (req, res) => {
       analisis
     }
   });
+});
+
+app.get("/api/getMonthlyArchive", async (req, res) => {
+  try {
+    const monthKey = String(req.query.month || "");
+    if (!monthKey) return res.status(400).json({ ok: false, error: "Month required" });
+    const db = loadData();
+
+    // 1. Cek dari Supabase jika terhubung
+    if (supabase) {
+      try {
+        const { data: arcRow } = await (supabase.from("app_store") as any)
+          .select("data")
+          .eq("key", `monthly_archive_${monthKey}`)
+          .maybeSingle();
+        if (arcRow && arcRow.data) {
+          return res.json({ ok: true, archive: arcRow.data });
+        }
+      } catch (err) {
+        console.warn(`[Supabase] Gagal getMonthlyArchive ${monthKey}:`, err);
+      }
+    }
+
+    // 2. Fallback: Bangun dari data lokal server untuk bulan terkait
+    const bdMap = (db.breakdownRealisasi && db.breakdownRealisasi[monthKey]) || {};
+    const filteredTxs = (db.transactions || []).filter((t: any) => typeof t.tanggal === "string" && t.tanggal.startsWith(monthKey));
+    const targetMap = (db.targetYLByMonth && db.targetYLByMonth[monthKey]) || {};
+
+    if (Object.keys(bdMap).length > 0 || filteredTxs.length > 0) {
+      return res.json({
+        ok: true,
+        archive: {
+          monthKey,
+          breakdownRealisasiMap: bdMap,
+          transactions: filteredTxs,
+          targetYLMap: targetMap
+        }
+      });
+    }
+
+    res.json({ ok: false, message: "Archive not found" });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 
@@ -3553,6 +3905,113 @@ app.post("/api/saveRealisasiPotensiYL", async (req, res) => {
   
   await saveData(db);
   res.json({ ok: true });
+});
+
+app.post("/api/saveBatchRealisasiPotensiYL", async (req, res) => {
+  try {
+    const { updates, nama } = req.body;
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.json({ ok: true, count: 0 });
+    }
+
+    const db = loadData();
+    if (!db.transactions) db.transactions = [];
+
+    const areaMatch = String(nama || updates[0]?.nama || "").match(/^(\d{3})/);
+    const area = areaMatch ? areaMatch[1] : null;
+    const cleanName = cleanYlName(String(nama || updates[0]?.nama || ""));
+
+    updates.forEach((data: any) => {
+      if (!data || !data.tanggal) return;
+
+      const rmh_yo = Number(data.sektor?.rmh?.yo) || 0;
+      const rmh_om = Number(data.sektor?.rmh?.om) || 0;
+      const rmh_os = Number(data.sektor?.rmh?.os) || 0;
+      const rmh_yt = Number(data.sektor?.rmh?.yt) || 0;
+
+      const psr_yo = Number(data.sektor?.psr?.yo) || 0;
+      const psr_om = Number(data.sektor?.psr?.om) || 0;
+      const psr_os = Number(data.sektor?.psr?.os) || 0;
+      const psr_yt = Number(data.sektor?.psr?.yt) || 0;
+
+      const skh_yo = Number(data.sektor?.skh?.yo) || 0;
+      const skh_om = Number(data.sektor?.skh?.om) || 0;
+      const skh_os = Number(data.sektor?.skh?.os) || 0;
+      const skh_yt = Number(data.sektor?.skh?.yt) || 0;
+
+      const ktr_yo = Number(data.sektor?.ktr?.yo) || 0;
+      const ktr_om = Number(data.sektor?.ktr?.om) || 0;
+      const ktr_os = Number(data.sektor?.ktr?.os) || 0;
+      const ktr_yt = Number(data.sektor?.ktr?.yt) || 0;
+
+      const tk_yo = Number(data.sektor?.tk?.yo) || 0;
+      const tk_om = Number(data.sektor?.tk?.om) || 0;
+      const tk_os = Number(data.sektor?.tk?.os) || 0;
+      const tk_yt = Number(data.sektor?.tk?.yt) || 0;
+
+      const ib_yo = Number(data.sektor?.ib?.yo) || 0;
+      const ib_om = Number(data.sektor?.ib?.om) || 0;
+      const ib_os = Number(data.sektor?.ib?.os) || 0;
+      const ib_yt = Number(data.sektor?.ib?.yt) || 0;
+
+      const tot_yo = rmh_yo + psr_yo + skh_yo + ktr_yo + tk_yo + ib_yo;
+      const tot_om = rmh_om + psr_om + skh_om + ktr_om + tk_om + ib_om;
+      const tot_os = rmh_os + psr_os + skh_os + ktr_os + tk_os + ib_os;
+      const tot_yt = rmh_yt + psr_yt + skh_yt + ktr_yt + tk_yt + ib_yt;
+
+      const hasAnyValue = tot_yo > 0 || tot_om > 0 || tot_os > 0 || tot_yt > 0 ||
+        Number(data.bb_yo) > 0 || Number(data.bb_om) > 0 || Number(data.bb_os) > 0 || Number(data.bb_yt) > 0 ||
+        Number(data.pb_p) > 0 || Number(data.pb_s) > 0 ||
+        Number(data.apk_plg) > 0 || Number(data.apk_botol) > 0 ||
+        Number(data.f_plg) > 0 || Number(data.f_rk) > 0 || Number(data.f_ra) > 0 || Number(data.f_rb) > 0;
+
+      let idx = db.transactions.findIndex((t: any) => {
+        const matchDate = t.tanggal === data.tanggal;
+        const matchYl = (t.nama === data.nama) ||
+                        (area && (t.area === area || (t.nama && String(t.nama).startsWith(area)))) ||
+                        (cleanName && cleanYlName(t.nama || "") === cleanName);
+        return matchDate && matchYl;
+      });
+
+      const itemUpdates = {
+        rmh_yo, rmh_om, rmh_os, rmh_yt,
+        psr_yo, psr_om, psr_os, psr_yt,
+        skh_yo, skh_om, skh_os, skh_yt,
+        ktr_yo, ktr_om, ktr_os, ktr_yt,
+        tk_yo, tk_om, tk_os, tk_yt,
+        ib_yo, ib_om, ib_os, ib_yt,
+        tot_yo, tot_om, tot_os, tot_yt,
+        bb_yo: Number(data.bb_yo) || 0, bb_om: Number(data.bb_om) || 0, bb_os: Number(data.bb_os) || 0, bb_yt: Number(data.bb_yt) || 0,
+        pb_p: Number(data.pb_p) || 0, pb_s: Number(data.pb_s) || 0,
+        apk_plg: Number(data.apk_plg) || 0, apk_botol: Number(data.apk_botol) || 0,
+        f_plg: Number(data.f_plg) || 0, f_rk: Number(data.f_rk) || 0, f_ra: Number(data.f_ra) || 0, f_rb: Number(data.f_rb) || 0
+      };
+
+      if (idx !== -1) {
+        db.transactions[idx] = {
+          ...db.transactions[idx],
+          area: db.transactions[idx].area || area,
+          ...itemUpdates
+        };
+      } else if (hasAnyValue) {
+        db.transactions.push({
+          tanggal: data.tanggal,
+          nama: data.nama || nama,
+          area: area,
+          ...itemUpdates
+        });
+      }
+    });
+
+    db.transactions = deduplicateTransactions(db.transactions);
+    cleanEmptyTransactions(db);
+    await saveData(db);
+
+    res.json({ ok: true, count: updates.length });
+  } catch (err: any) {
+    console.error("Error in saveBatchRealisasiPotensiYL:", err);
+    res.status(500).json({ ok: false, error: err?.message || "Gagal menyimpan batch" });
+  }
 });
 
 app.post("/api/savePotensiTembus", async (req, res) => {

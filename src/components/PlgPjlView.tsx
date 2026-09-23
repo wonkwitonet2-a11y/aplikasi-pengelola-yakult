@@ -496,7 +496,7 @@ function PlgPjlViewInner({
               </h2>
             </div>
             <p className="text-xs text-slate-600 font-bold">
-              Analisis akumulasi penjualan per potensi sektor, rasio kunjungan, pelanggan, dan ketercapaian tembus.
+              Analisis akumulasi penjualan per potensi, rasio kunjungan, pelanggan, dan ketercapaian tembus.
             </p>
           </div>
 

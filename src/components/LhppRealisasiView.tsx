@@ -17,7 +17,11 @@ import {
   Save,
   Loader2,
   RefreshCw,
-  Trash2
+  Trash2,
+  Zap,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRight
 } from "lucide-react";
 
 export interface LhppRow {
@@ -87,6 +91,8 @@ function LhppRealisasiViewInner({
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [prevSourceDate, setPrevSourceDate] = useState<string | null>(null);
+  const [showQuickInput, setShowQuickInput] = useState<boolean>(true);
+  const [selectedYlIndex, setSelectedYlIndex] = useState<number>(0);
   const prevPdmMapRef = useRef<Record<string, { yo: number; om: number; os: number; yt: number }>>({});
 
   // Fetch data from server when date or month changes
@@ -174,6 +180,12 @@ function LhppRealisasiViewInner({
 
   useEffect(() => {
     loadDataFromServer(selectedMonth, selectedDay);
+
+    const handleAppRefresh = () => {
+      loadDataFromServer(selectedMonth, selectedDay);
+    };
+    window.addEventListener("app_header_refresh", handleAppRefresh);
+    return () => window.removeEventListener("app_header_refresh", handleAppRefresh);
   }, [selectedMonth, selectedDay, loadDataFromServer]);
 
   // Undo / Redo Stacks (Draft mode in memory)
@@ -800,6 +812,20 @@ function LhppRealisasiViewInner({
           </div>
 
           <div className="flex items-center gap-1.5 ml-auto sm:ml-0 flex-wrap sm:flex-nowrap">
+            {/* Tombol Toggle Form Input Cepat Per-YL */}
+            <button
+              onClick={() => setShowQuickInput(prev => !prev)}
+              className={`h-8.5 px-3 font-extrabold text-[11px] rounded-lg shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                showQuickInput
+                  ? "bg-amber-500 hover:bg-amber-600 text-slate-950 font-black ring-2 ring-amber-300"
+                  : "bg-indigo-600 hover:bg-indigo-700 text-white"
+              }`}
+              title="Buka / Tutup Form Input Cepat Per-YL"
+            >
+              <Zap className="w-3.5 h-3.5 shrink-0 fill-current" />
+              <span>{showQuickInput ? "Sembunyikan Form" : "Input Cepat"}</span>
+            </button>
+
             {/* Tombol Ambil PDM */}
             <button
               onClick={handlePullPrevPdm}
@@ -1014,6 +1040,223 @@ function LhppRealisasiViewInner({
           </div>
         </div>
       </div>
+
+      {/* QUICK INPUT PER-YL PANEL */}
+      {showQuickInput && computedRows.length > 0 && (() => {
+        const safeIdx = selectedYlIndex < computedRows.length ? selectedYlIndex : 0;
+        const currentQuickYl = computedRows[safeIdx];
+        if (!currentQuickYl) return null;
+
+        const totPdmSblm = (currentQuickYl.pdmSebelum.yo || 0) + (currentQuickYl.pdmSebelum.om || 0) + (currentQuickYl.pdmSebelum.os || 0) + (currentQuickYl.pdmSebelum.yt || 0);
+        const totBb = (currentQuickYl.bb.yo || 0) + (currentQuickYl.bb.om || 0) + (currentQuickYl.bb.os || 0) + (currentQuickYl.bb.yt || 0);
+        const totTerjual = (currentQuickYl.terjual.yo || 0) + (currentQuickYl.terjual.om || 0) + (currentQuickYl.terjual.os || 0) + (currentQuickYl.terjual.yt || 0);
+        const totSetoran = currentQuickYl.totalSetoran || 0;
+        const totPdmHariIni = (currentQuickYl.pdmHariIni.yo || 0) + (currentQuickYl.pdmHariIni.om || 0) + (currentQuickYl.pdmHariIni.os || 0) + (currentQuickYl.pdmHariIni.yt || 0);
+        const totTurun = (currentQuickYl.turun.yo || 0) + (currentQuickYl.turun.om || 0) + (currentQuickYl.turun.os || 0) + (currentQuickYl.turun.yt || 0);
+
+        return (
+          <div className="bg-white text-slate-800 p-2.5 sm:p-4 rounded-xl shadow-md border border-slate-200 space-y-2.5">
+            {/* Header Compact & YL Selector */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
+              <div className="flex items-center gap-1.5">
+                <div className="p-1 bg-amber-500 text-white rounded-lg shadow-2xs">
+                  <Zap className="w-4 h-4 fill-current" />
+                </div>
+                <h3 className="text-xs sm:text-sm font-black text-slate-900 tracking-tight flex items-center gap-1.5">
+                  <span>INPUT CEPAT YL</span>
+                  <span className="text-[10px] font-mono font-extrabold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full border border-amber-200">
+                    {safeIdx + 1}/{computedRows.length}
+                  </span>
+                </h3>
+              </div>
+
+              {/* YL Selector & Nav Buttons */}
+              <div className="flex items-center gap-1 w-full sm:w-auto min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedYlIndex(prev => (prev > 0 ? prev - 1 : computedRows.length - 1))}
+                  className="shrink-0 p-1.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-lg border border-slate-300 transition-all cursor-pointer"
+                  title="YL Sebelumnya"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <select
+                  value={safeIdx}
+                  onChange={(e) => setSelectedYlIndex(Number(e.target.value))}
+                  className="flex-1 min-w-0 bg-slate-50 text-slate-900 font-extrabold text-xs px-2 py-1 rounded-lg border border-slate-300 outline-none cursor-pointer focus:ring-1 focus:ring-amber-500 truncate"
+                >
+                  {computedRows.map((r, idx) => (
+                    <option key={idx} value={idx} className="bg-white text-slate-900 font-mono">
+                      [{r.area}] {cleanYlName(r.nama)} {r.area === "TKU" ? "(TKU)" : ""}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedYlIndex(prev => (prev < computedRows.length - 1 ? prev + 1 : 0))}
+                  className="shrink-0 p-1.5 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 rounded-lg border border-slate-300 transition-all cursor-pointer"
+                  title="YL Berikutnya"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Horizontal Table for YO / OM / OS / YT / TOTAL */}
+            <div className="overflow-hidden rounded-lg border border-slate-200 shadow-2xs">
+              <table className="w-full text-[10px] sm:text-xs text-center border-collapse table-fixed">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 font-black uppercase border-b border-slate-200 text-[9px] sm:text-[11px]">
+                    <th className="py-1.5 px-1 text-left w-[26%] sm:w-[20%] bg-slate-200/80 text-slate-800">Keterangan</th>
+                    <th className="py-1.5 px-0.5 text-red-600 bg-red-50/70 border-l border-slate-200 w-[14.8%] sm:w-[16%]">YO</th>
+                    <th className="py-1.5 px-0.5 text-amber-600 bg-amber-50/70 border-l border-slate-200 w-[14.8%] sm:w-[16%]">OM</th>
+                    <th className="py-1.5 px-0.5 text-fuchsia-600 bg-fuchsia-50/70 border-l border-slate-200 w-[14.8%] sm:w-[16%]">OS</th>
+                    <th className="py-1.5 px-0.5 text-sky-600 bg-sky-50/70 border-l border-slate-200 w-[14.8%] sm:w-[16%]">YT</th>
+                    <th className="py-1.5 px-0.5 text-slate-900 bg-slate-200/90 border-l border-slate-300 w-[14.8%] sm:w-[16%] font-black">TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 font-mono font-bold text-slate-800">
+                  {/* Row 1: PDM Sebelumnya */}
+                  <tr className="hover:bg-slate-50 transition-colors">
+                    <td className="py-1.5 px-1 text-left font-sans font-bold text-slate-700 bg-slate-50 truncate">1. PDM Sblm</td>
+                    <td className="py-1.5 px-0.5 text-red-600 font-black border-l border-slate-200">{currentQuickYl.pdmSebelum.yo || 0}</td>
+                    <td className="py-1.5 px-0.5 text-amber-600 font-black border-l border-slate-200">{currentQuickYl.pdmSebelum.om || 0}</td>
+                    <td className="py-1.5 px-0.5 text-fuchsia-600 font-black border-l border-slate-200">{currentQuickYl.pdmSebelum.os || 0}</td>
+                    <td className="py-1.5 px-0.5 text-sky-600 font-black border-l border-slate-200">{currentQuickYl.pdmSebelum.yt || 0}</td>
+                    <td className="py-1.5 px-0.5 text-slate-900 bg-slate-100/80 font-black border-l border-slate-300">{totPdmSblm}</td>
+                  </tr>
+
+                  {/* Row 2: BB (Balik Botol / Kembali) */}
+                  <tr className="bg-amber-50/30 hover:bg-amber-50/60 transition-colors">
+                    <td className="py-1.5 px-1 text-left font-sans font-extrabold text-amber-900 bg-amber-100/50 truncate">
+                      2. BB (Kembali)
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.bb.yo || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "bb", "yo", val)}
+                        className="w-full bg-white text-red-600 font-mono font-black text-center py-0.5 rounded border border-red-300 focus:border-red-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.bb.om || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "bb", "om", val)}
+                        className="w-full bg-white text-amber-600 font-mono font-black text-center py-0.5 rounded border border-amber-300 focus:border-amber-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.bb.os || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "bb", "os", val)}
+                        className="w-full bg-white text-fuchsia-600 font-mono font-black text-center py-0.5 rounded border border-fuchsia-300 focus:border-fuchsia-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.bb.yt || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "bb", "yt", val)}
+                        className="w-full bg-white text-sky-600 font-mono font-black text-center py-0.5 rounded border border-sky-300 focus:border-sky-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1.5 px-0.5 text-slate-900 bg-amber-100/60 font-black border-l border-slate-300">{totBb}</td>
+                  </tr>
+
+                  {/* Row 3: Terjual */}
+                  <tr className="hover:bg-slate-50 transition-colors">
+                    <td className="py-1.5 px-1 text-left font-sans font-bold text-slate-700 bg-slate-50 truncate">3. Terjual (btl)</td>
+                    <td className="py-1.5 px-0.5 text-red-600 font-black border-l border-slate-200">{currentQuickYl.terjual.yo || 0}</td>
+                    <td className="py-1.5 px-0.5 text-amber-600 font-black border-l border-slate-200">{currentQuickYl.terjual.om || 0}</td>
+                    <td className="py-1.5 px-0.5 text-fuchsia-600 font-black border-l border-slate-200">{currentQuickYl.terjual.os || 0}</td>
+                    <td className="py-1.5 px-0.5 text-sky-600 font-black border-l border-slate-200">{currentQuickYl.terjual.yt || 0}</td>
+                    <td className="py-1.5 px-0.5 text-emerald-700 bg-emerald-50/80 font-black border-l border-slate-300">{totTerjual}</td>
+                  </tr>
+
+                  {/* Row 4: Setoran */}
+                  <tr className="hover:bg-slate-50 transition-colors">
+                    <td className="py-1.5 px-1 text-left font-sans font-bold text-slate-700 bg-slate-50 truncate">4. Setoran (Rp)</td>
+                    <td className="py-1.5 px-0.5 text-red-600 font-bold border-l border-slate-200">{((currentQuickYl.terjual.yo || 0) * 2040).toLocaleString("id-ID")}</td>
+                    <td className="py-1.5 px-0.5 text-amber-600 font-bold border-l border-slate-200">{((currentQuickYl.terjual.om || 0) * 2130).toLocaleString("id-ID")}</td>
+                    <td className="py-1.5 px-0.5 text-fuchsia-600 font-bold border-l border-slate-200">{((currentQuickYl.terjual.os || 0) * 2130).toLocaleString("id-ID")}</td>
+                    <td className="py-1.5 px-0.5 text-sky-600 font-bold border-l border-slate-200">{((currentQuickYl.terjual.yt || 0) * 2460).toLocaleString("id-ID")}</td>
+                    <td className="py-1.5 px-0.5 text-amber-800 bg-amber-100/60 font-black border-l border-slate-300 text-[9px] sm:text-[11px] truncate">{totSetoran.toLocaleString("id-ID")}</td>
+                  </tr>
+
+                  {/* Row 5: PDM Hari Ini */}
+                  <tr className="bg-sky-50/30 hover:bg-sky-50/60 transition-colors">
+                    <td className="py-1.5 px-1 text-left font-sans font-extrabold text-sky-900 bg-sky-100/50 truncate">
+                      5. PDM Hari Ini
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.pdmHariIni.yo || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "pdmHariIni", "yo", val)}
+                        className="w-full bg-white text-red-600 font-mono font-black text-center py-0.5 rounded border border-red-300 focus:border-red-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.pdmHariIni.om || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "pdmHariIni", "om", val)}
+                        className="w-full bg-white text-amber-600 font-mono font-black text-center py-0.5 rounded border border-amber-300 focus:border-amber-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.pdmHariIni.os || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "pdmHariIni", "os", val)}
+                        className="w-full bg-white text-fuchsia-600 font-mono font-black text-center py-0.5 rounded border border-fuchsia-300 focus:border-fuchsia-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1 px-0.5 border-l border-slate-200">
+                      <NumberInput
+                        value={currentQuickYl.pdmHariIni.yt || 0}
+                        onChange={(val) => handleCellChange(safeIdx, "pdmHariIni", "yt", val)}
+                        className="w-full bg-white text-sky-600 font-mono font-black text-center py-0.5 rounded border border-sky-300 focus:border-sky-500 outline-none text-[10px] sm:text-xs h-6 sm:h-7"
+                      />
+                    </td>
+                    <td className="py-1.5 px-0.5 text-slate-900 bg-sky-100/60 font-black border-l border-slate-300">{totPdmHariIni}</td>
+                  </tr>
+
+                  {/* Row 6: Turun Barang */}
+                  <tr className="hover:bg-slate-50 transition-colors">
+                    <td className="py-1.5 px-1 text-left font-sans font-bold text-slate-700 bg-slate-50 truncate">6. Turun Barang</td>
+                    <td className="py-1.5 px-0.5 text-red-600 font-black border-l border-slate-200">{currentQuickYl.turun.yo || 0}</td>
+                    <td className="py-1.5 px-0.5 text-amber-600 font-black border-l border-slate-200">{currentQuickYl.turun.om || 0}</td>
+                    <td className="py-1.5 px-0.5 text-fuchsia-600 font-black border-l border-slate-200">{currentQuickYl.turun.os || 0}</td>
+                    <td className="py-1.5 px-0.5 text-sky-600 font-black border-l border-slate-200">{currentQuickYl.turun.yt || 0}</td>
+                    <td className="py-1.5 px-0.5 text-sky-700 bg-sky-50/80 font-black border-l border-slate-300">{totTurun}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer Action */}
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <span className="text-[10px] text-slate-400 italic">
+                *Tersambung otomatis ke tabel LHPP
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  recordHistory();
+                  if (safeIdx < computedRows.length - 1) {
+                    setSelectedYlIndex(safeIdx + 1);
+                  } else {
+                    setSelectedYlIndex(0);
+                  }
+                }}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-[11px] sm:text-xs rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+              >
+                <span>Simpan & Lanjut YL</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MAIN SPREADSHEET TABLE */}
       <div ref={gridContainerRef} className="bg-white border border-slate-200 rounded-2xl shadow-md overflow-hidden relative">

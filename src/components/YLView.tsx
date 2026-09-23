@@ -18,6 +18,8 @@ import { useSimpleGrid } from "./useSimpleGrid";
 import { GridSelectionToolbar } from "./GridSelectionToolbar";
 import { YlRealisasiPotensiTab } from "./YlRealisasiPotensiTab";
 import YLSeragamView from "./YLSeragamView";
+import { NotificationBell } from "./NotificationBell";
+import { EvaluasiView } from "./EvaluasiView";
 
 
 const formatRp = (val: number) => {
@@ -46,6 +48,7 @@ interface YLViewProps {
   // dideklarasikan supaya bisa disinkronkan (lihat useEffect dekat deklarasi selectedDate).
   globalMonth?: string;
   setGlobalMonth?: (month: string) => void;
+  evaluasiData?: any;
 }
 
 export function calculateMasaKerja(tanggalMasuk: string | undefined) {
@@ -91,9 +94,21 @@ export function YLView({
   tanggalValid = [],
   motivasiConfig,
   onToggleTheme,
-  globalMonth
+  globalMonth,
+  evaluasiData
 }: YLViewProps) {
-  const [activeTab, setActiveTab] = useState<"beranda" | "input" | "ringkasan" | "breakdown" | "realisasi_potensi" | "potensi_tembus" | "seragam" | "product_knowledge" | "tautan">("beranda");
+  const [activeTab, setActiveTab] = useState<
+    | "beranda"
+    | "input"
+    | "ringkasan"
+    | "breakdown"
+    | "realisasi_potensi"
+    | "evaluasi"
+    | "potensi_tembus"
+    | "seragam"
+    | "product_knowledge"
+    | "tautan"
+  >("beranda");
   useTabHistory(activeTab, setActiveTab, "beranda");
 
   const currentYlInfo = useMemo(() => {
@@ -433,45 +448,65 @@ export function YLView({
   }, []);
   
   // Fetch Breakdown & Realisasi for YL from Admin
-  useEffect(() => {
+  const fetchYlBreakdown = useCallback(async () => {
     const area = ylAreaCode || currentYlInfo.area || ylName.substring(0, 3).trim();
     const month = selectedDate ? selectedDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
     setIsBreakdownLoading(true);
-    safeFetchJson(`/api/getBreakdownPlan?month=${month}`)
-      .then(res => {
-        let planMap = res && res.ok && res.breakdownPlan ? res.breakdownPlan : null;
-        let realMap = res && res.ok && res.breakdownRealisasi ? res.breakdownRealisasi : null;
+    try {
+      const res = await safeFetchJson<any>(`/api/getBreakdownPlan?month=${month}`);
+      let planMap = res && res.ok && res.breakdownPlan ? res.breakdownPlan : null;
+      let realMap = res && res.ok && res.breakdownRealisasi ? res.breakdownRealisasi : null;
 
-        if (!res || !res.ok) {
-          planMap = getStoredBreakdownPlan(month);
-          realMap = getStoredBreakdownRealisasi(month);
+      if (!res || !res.ok) {
+        planMap = getStoredBreakdownPlan(month);
+        realMap = getStoredBreakdownRealisasi(month);
+      }
+
+      const findData = (objMap: any) => {
+        if (!objMap || typeof objMap !== "object") return null;
+        const keys = Object.keys(objMap);
+        let matchKey = keys.find(k => k === area || k === ylName);
+        if (!matchKey) {
+          matchKey = keys.find(k =>
+            k === area ||
+            k.startsWith(area) ||
+            area.startsWith(k) ||
+            k.toLowerCase().includes(ylName.toLowerCase()) ||
+            ylName.toLowerCase().includes(k.toLowerCase())
+          );
         }
+        return matchKey ? objMap[matchKey] : null;
+      };
 
-        const findData = (objMap: any) => {
-          if (!objMap || typeof objMap !== "object") return null;
-          const keys = Object.keys(objMap);
-          let matchKey = keys.find(k => k === area || k === ylName);
-          if (!matchKey) {
-            matchKey = keys.find(k =>
-              k === area ||
-              k.startsWith(area) ||
-              area.startsWith(k) ||
-              k.toLowerCase().includes(ylName.toLowerCase()) ||
-              ylName.toLowerCase().includes(k.toLowerCase())
-            );
-          }
-          return matchKey ? objMap[matchKey] : null;
-        };
+      const planData = findData(planMap);
+      setYlBreakdownPlan(planData || null);
 
-        const planData = findData(planMap);
-        setYlBreakdownPlan(planData || null);
+      const realData = findData(realMap);
+      setYlBreakdownRealisasi(realData || null);
+    } catch (err) {
+      console.error("Error loading YL breakdown plan & realisasi:", err);
+    } finally {
+      setIsBreakdownLoading(false);
+    }
+  }, [ylName, selectedDate, currentYlInfo.area, ylAreaCode]);
 
-        const realData = findData(realMap);
-        setYlBreakdownRealisasi(realData || null);
-      })
-      .catch(err => console.error("Error loading YL breakdown plan & realisasi:", err))
-      .finally(() => setIsBreakdownLoading(false));
-  }, [activeTab, ylName, selectedDate, currentYlInfo.area, ylAreaCode]);
+  useEffect(() => {
+    fetchYlBreakdown();
+  }, [fetchYlBreakdown, activeTab]);
+
+  useEffect(() => {
+    const handleAppRefresh = () => {
+      fetchYlBreakdown();
+    };
+    window.addEventListener("app_header_refresh", handleAppRefresh);
+    return () => window.removeEventListener("app_header_refresh", handleAppRefresh);
+  }, [fetchYlBreakdown]);
+
+  const handleHeaderRefresh = async () => {
+    if (onRefresh) await onRefresh();
+    await fetchYlBreakdown();
+    window.dispatchEvent(new CustomEvent("app_header_refresh"));
+  };
 
   // Fetch Attention Note for current YL area
   useEffect(() => {
@@ -802,17 +837,19 @@ export function YLView({
         f_plg: data.f_plg||0, f_rk: data.f_rk||0, f_ra: data.f_ra||0, f_rb: data.f_rb||0
       }));
       
-      await Promise.all(updates.map(upd => 
-        safeFetchJson('/api/saveRealisasiPotensiYL', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(upd)
-        })
-      ));
+      const res = await safeFetchJson<{ ok: boolean; count?: number }>('/api/saveBatchRealisasiPotensiYL', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates, nama: ylName })
+      });
       
-      setIsEditRealisasi(false);
-      onRefresh(); 
-      alert("✅ Data berhasil disimpan!");
+      if (res && res.ok) {
+        setIsEditRealisasi(false);
+        if (onRefresh) await onRefresh(); 
+        alert("✅ Data berhasil disimpan!");
+      } else {
+        alert("❌ Gagal menyimpan data ke server.");
+      }
     } catch (e) {
       alert("❌ Error menyimpan data.");
     } finally {
@@ -845,7 +882,7 @@ export function YLView({
 
   const handleSaveInputHarian = () => {
     if (!canSaveInputHarian) {
-      setMismatchConfirm({ type: 'input', detail: "Total pecahan sektor (Aktual) tidak pas dengan Acuan Admin." });
+      setMismatchConfirm({ type: 'input', detail: "Total pecahan potensi (Aktual) tidak pas dengan Acuan Admin." });
       return;
     }
     executeSaveInputHarian();
@@ -1083,8 +1120,15 @@ export function YLView({
             )}
           </div>
           <div className="flex items-center gap-2">
+            <NotificationBell
+              role="yl"
+              currentYlName={ylName}
+              currentYlArea={displayAreaNumber}
+              globalMonth={globalMonth}
+              ylList={ylList}
+            />
             <button
-              onClick={() => onRefresh && onRefresh()}
+              onClick={handleHeaderRefresh}
               className="flex items-center justify-center p-2 bg-black/20 hover:bg-black/40 text-white rounded-xl border border-red-500/40 transition-all cursor-pointer shadow-sm active:scale-95"
               title="Refresh Data"
             >
@@ -1115,7 +1159,7 @@ export function YLView({
 
       {/* Main Content Area */}
       <main className={`p-3 sm:p-5 space-y-5 mx-auto ${
-        ["realisasi_potensi", "breakdown", "potensi_tembus", "ringkasan"].includes(activeTab)
+        ["realisasi_potensi", "breakdown", "potensi_tembus", "ringkasan", "evaluasi"].includes(activeTab)
           ? "w-full max-w-5xl lg:max-w-6xl"
           : "max-w-xl sm:max-w-2xl"
       }`}>
@@ -1277,6 +1321,7 @@ export function YLView({
                 { id: "ringkasan", icon: "✨", label: "Ringkasan", color: "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600" },
                 { id: "breakdown", icon: "📊", label: "Breakdown dan Realisasi", color: "bg-amber-50 dark:bg-amber-950/30 text-amber-600" },
                 { id: "realisasi_potensi", icon: "🎯", label: "Realisasi Potensi", color: "bg-sky-50 dark:bg-sky-950/30 text-sky-600" },
+                { id: "evaluasi", icon: "📋", label: "Evaluasi", color: "bg-blue-50 dark:bg-blue-950/30 text-blue-600" },
                 { id: "potensi_tembus", icon: "🚀", label: "Potensi Tembus", color: "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600" },
                 { id: "seragam", icon: "👗", label: "Seragam", color: "bg-purple-50 dark:bg-purple-950/30 text-purple-600" },
                 { id: "product_knowledge", icon: "📚", label: "Product Knowledge", color: "bg-rose-50 dark:bg-rose-950/30 text-rose-600" },
@@ -1399,11 +1444,11 @@ export function YLView({
               </div>
             </div>
 
-            {/* 3. Realisasi Potensi (dulu: Sektor Distribusi) */}
+            {/* 3. Realisasi Potensi */}
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3">
               <div>
                 <h2 className="text-sm font-black text-slate-800">3. Potensi</h2>
-                <p className="text-xs text-slate-500 font-semibold mt-0.5">Pecah total jual ke sektor di bawah ini. Total harus pas dengan Acuan Admin.</p>
+                <p className="text-xs text-slate-500 font-semibold mt-0.5">Pecah total jual ke potensi di bawah ini. Total harus pas dengan Acuan Admin.</p>
               </div>
 
               {[
@@ -1432,10 +1477,10 @@ export function YLView({
                 </div>
               ))}
 
-              {/* Pencocokan Sektor Jual — SATU acuan saja: Acuan Admin pertanggal */}
+              {/* Pencocokan Potensi Jual — SATU acuan saja: Acuan Admin pertanggal */}
               <div className={`rounded-xl p-4 border space-y-3 ${canSaveInputHarian ? "bg-emerald-50 border-emerald-200" : "bg-rose-50 border-rose-200"}`}>
                 <div className="flex justify-between items-center">
-                  <span className="text-base font-black text-slate-800">Pencocokan Sektor Jual</span>
+                  <span className="text-base font-black text-slate-800">Pencocokan Potensi Jual</span>
                   <span className={`text-sm font-black px-2.5 py-1 rounded-lg ${canSaveInputHarian ? "bg-emerald-600 text-white" : "bg-rose-600 text-white"}`}>
                     {canSaveInputHarian ? "✓ COCOK" : "✗ BELUM PAS"}
                   </span>
@@ -1651,7 +1696,7 @@ export function YLView({
               </div>
             </div>
 
-            {/* Akumulasi Realisasi Per Potensi Sektor & Persentase Matrix */}
+            {/* Akumulasi Realisasi Per Potensi & Persentase Matrix */}
             <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-4">
               <div className="flex items-center justify-between border-l-4 border-indigo-600 pl-3">
                 <h2 className="text-sm sm:text-base font-black text-slate-900 uppercase tracking-wider">
@@ -2043,6 +2088,7 @@ export function YLView({
             <YlRealisasiPotensiTab
               currentMonth={currentMonth}
               isEditRealisasi={isEditRealisasi}
+              isRefreshing={isRefreshing}
               realisasiGridSelection={realisasiGridSelection}
               realisasiIsMenuOpen={realisasiIsMenuOpen}
               setRealisasiIsMenuOpen={setRealisasiIsMenuOpen}
@@ -2086,6 +2132,23 @@ export function YLView({
         {/* PRODUCT KNOWLEDGE TAB */}
         {activeTab === "product_knowledge" && <ProductKnowledgeView />}
         {activeTab === "tautan" && <OfficialLinksViewer onBack={() => setActiveTab("beranda")} />}
+
+        {/* TAB EVALUASI */}
+        {activeTab === "evaluasi" && (
+          <div className="space-y-4">
+            <EvaluasiView
+              evaluasiData={evaluasiData}
+              globalMonth={globalMonth}
+              currentYlName={ylName}
+              currentYlArea={ylAreaCode || currentYlInfo.area || ylName.substring(0, 3).trim()}
+              role="yl"
+              transactions={transactions}
+              ylBreakdownRealisasi={ylBreakdownRealisasi}
+              selectedDate={selectedDate}
+              onBack={() => setActiveTab("beranda")}
+            />
+          </div>
+        )}
 
         {activeTab === "potensi_tembus" && (
           <div className="space-y-4">

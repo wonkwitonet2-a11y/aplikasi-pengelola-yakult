@@ -18,7 +18,7 @@ import {
 import { loadFromSupabase, saveToSupabase, deleteFromSupabase } from "../lib/supabaseClient";
 import { cleanYlName } from "../types";
 import { SEED_DATA_2026 } from "./SalesRecordTKU";
-import { getPreviousYearDataSync, lookupPreviousYearData, applyTahunLaluFallback } from "../lib/historicalArchiveLookup";
+import { getPreviousYearDataSync, lookupPreviousYearData, applyTahunLaluFallback, get2025FullYearAveragePerYL } from "../lib/historicalArchiveLookup";
 
 // ----------------------------------------------------------------------------
 // Konstanta & helper
@@ -574,7 +574,10 @@ export function computeYLAverageData(
     monthIndices.push(i);
   }
 
+  const map2025 = typeof window !== "undefined" ? get2025FullYearAveragePerYL() : {};
+
   const rows: YLAverageRow[] = (perYL || []).map((yl, index) => {
+    const areaStr = String(yl.area || 201 + index);
     const monthlyValues = monthIndices.map((i) => {
       const k = MONTHS[i];
       const raw = yl.penjualan?.[k];
@@ -595,9 +598,20 @@ export function computeYLAverageData(
 
     const firstVal = validVals.length > 0 ? validVals[0] : null;
     const lastVal = validVals.length > 0 ? validVals[validVals.length - 1] : null;
-    const rawDelta = (firstVal !== null && lastVal !== null && validVals.length >= 2) ? lastVal - firstVal : 0;
+
+    // Utamakan pembandingan Rata-Rata YTD tahun ini vs Rata-Rata Tahun Lalu (2025)
+    const prevYearAvg = typeof yl.tahunLaluYL === "number" && yl.tahunLaluYL > 0
+      ? yl.tahunLaluYL
+      : typeof yl.thn_lalu === "number" && yl.thn_lalu > 0
+      ? yl.thn_lalu
+      : map2025[areaStr] || null;
+
+    const rawDelta = prevYearAvg !== null
+      ? rataRata - prevYearAvg
+      : (firstVal !== null && lastVal !== null && validVals.length >= 2) ? lastVal - firstVal : 0;
+
     const delta = Number(rawDelta.toFixed(1));
-    const trend: "up" | "down" | "flat" = validVals.length < 2 ? "flat" : delta >= 10 ? "up" : delta <= -10 ? "down" : "flat";
+    const trend: "up" | "down" | "flat" = delta >= 10 ? "up" : delta <= -10 ? "down" : "flat";
     const needsCoaching = trend === "down" || rataRata < 250;
 
     return {
@@ -877,7 +891,7 @@ function generateWhatsAppSummary({
     text += `• Ketidakhadiran: ${m.absen?.jumlahYL || 0} YL (${m.absen?.frekuensi || 0}x izin/sakit)\n`;
     const lossRes = computeLossPotential([m]);
     if (lossRes.hasAbsen) {
-      text += `  ⚠️ *Botol Terlewatkan (Absensi):* ~${fmtNum(lossRes.potensiBotolHilang)} btl (~${fmtNum(lossRes.potensiPakHilang)} pak)\n`;
+      text += `  ⚠️ *Botol Terlewatkan (Absensi):* ~${fmtNum(lossRes.potensiBotolHilang)} btl (~${fmtNum(lossRes.potensiPakHilang)} pack)\n`;
     }
     text += `• JWP (Hari Kerja): ${fmtNum(m.jwp)} hari\n\n`;
 
@@ -3621,7 +3635,7 @@ export function TabelRataRataYL({
 
       {!isDarkSlide && (
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between text-[8.5px] sm:text-[9.5px] text-slate-400 px-1 gap-1">
-          <span>*Keterangan: Standar YL Mandiri ≥ 250 btl/hari &middot; Tren membandingkan capaian bulan terakhir vs awal periode</span>
+          <span>*Keterangan: Standar YL Mandiri ≥ 250 btl/hari &middot; Tren membandingkan Rata-Rata YTD tahun ini vs Rata-Rata Tahun Lalu</span>
           <span className="font-mono text-slate-500">10 Yakult Lady Terdata</span>
         </div>
       )}
@@ -3712,7 +3726,7 @@ export function AnalisisAbsensiLossCard({
           <p className={`font-black mt-0.5 text-rose-400 ${isDarkSlide ? "text-base sm:text-lg" : "text-rose-600 dark:text-rose-400 text-base sm:text-lg"}`}>
             ~{fmtNum(res.potensiBotolHilang)} <span className="text-[10px] font-normal text-slate-400">Btl</span>
           </p>
-          <p className="text-[9.5px] font-bold text-rose-300 mt-0.5">~{fmtNum(res.potensiPakHilang)} Pak Yakult</p>
+          <p className="text-[9.5px] font-bold text-rose-300 mt-0.5">~{fmtNum(res.potensiPakHilang)} Pack Yakult</p>
         </div>
       </div>
 
@@ -6924,16 +6938,24 @@ function buildBulananSlides({
 
   // Data Target dari Menu Target di Arsip
   const arcTargetTim = archiveDetails?.targetTim;
-  const tgtMenuTarget = (arcTargetTim && arcTargetTim.target > 0)
-    ? arcTargetTim.target
-    : (m.akmTarget && jwp > 0 ? Math.round(m.akmTarget / jwp) : 0);
+  const jwpVal = jwp > 0 ? jwp : 25;
 
-  const tgtMenuBlnLalu = (arcTargetTim && arcTargetTim.bln_lalu > 0)
-    ? arcTargetTim.bln_lalu
+  let rawTgt = arcTargetTim?.target ?? 0;
+  if (rawTgt > 10000) rawTgt = Math.round(rawTgt / jwpVal);
+  const tgtMenuTarget = rawTgt > 0
+    ? rawTgt
+    : (m.akmTarget && jwpVal > 0 ? Math.round(m.akmTarget / jwpVal) : 0);
+
+  let rawBln = arcTargetTim?.bln_lalu ?? (arcTargetTim as any)?.bulanLalu ?? 0;
+  if (rawBln > 10000) rawBln = Math.round(rawBln / jwpVal);
+  const tgtMenuBlnLalu = rawBln > 0
+    ? rawBln
     : (prevM?.salesPerYL ? prevM.salesPerYL * 10 : 0);
 
-  const tgtMenuThnLalu = (arcTargetTim && arcTargetTim.thn_lalu > 0)
-    ? arcTargetTim.thn_lalu
+  let rawThn = arcTargetTim?.thn_lalu ?? (arcTargetTim as any)?.tahunLalu ?? 0;
+  if (rawThn > 10000) rawThn = Math.round(rawThn / jwpVal);
+  const tgtMenuThnLalu = rawThn > 0
+    ? rawThn
     : (m.salesPerYLTahunLalu ? m.salesPerYLTahunLalu * 10 : 0);
 
   const realisasiTimRata = archiveDetails?.rataHarian && archiveDetails.rataHarian > 0
@@ -6965,11 +6987,12 @@ function buildBulananSlides({
     const arcYl = archiveDetails?.perYL?.[areaStr];
     const jwpVal = jwp > 0 ? jwp : 25;
     const salesRaw = yl.penjualan?.[MONTHS[monthIndex]];
-    const rataIni = arcYl?.rata2
-      ? Math.round(arcYl.rata2)
-      : salesRaw
-        ? Math.round(salesRaw / jwpVal)
-        : 0;
+    let rataIni = 0;
+    if (arcYl?.rata2 && arcYl.rata2 > 0) {
+      rataIni = Math.round(arcYl.rata2);
+    } else if (typeof salesRaw === "number" && !isNaN(salesRaw) && salesRaw > 0) {
+      rataIni = salesRaw > 1000 ? Math.round(salesRaw / jwpVal) : Math.round(salesRaw);
+    }
 
     let rataThn = 0;
     if (arcYl?.tahunLaluYL && arcYl.tahunLaluYL > 0) {
@@ -6978,11 +7001,19 @@ function buildBulananSlides({
       const prevMatch = prevYearPerYL.find((p) => String(p.area) === areaStr || cleanYlName(p.nama || "") === nama);
       if (prevMatch) {
         const prevRaw = prevMatch.penjualan?.[MONTHS[monthIndex]];
-        rataThn = prevRaw ? Math.round(prevRaw / jwpVal) : Math.round(prevMatch.rataRata || 0);
+        if (typeof prevRaw === "number" && !isNaN(prevRaw) && prevRaw > 0) {
+          rataThn = prevRaw > 1000 ? Math.round(prevRaw / jwpVal) : Math.round(prevRaw);
+        } else if (typeof prevMatch.rataRata === "number" && !isNaN(prevMatch.rataRata) && prevMatch.rataRata > 0) {
+          rataThn = prevMatch.rataRata > 1000 ? Math.round(prevMatch.rataRata / jwpVal) : Math.round(prevMatch.rataRata);
+        }
       }
     }
     if (rataThn === 0 && rataIni > 0) {
-      rataThn = Math.round(rataIni * 0.95);
+      if (m?.salesPerYLTahunLalu && m.salesPerYLTahunLalu > 0) {
+        rataThn = Math.round(m.salesPerYLTahunLalu);
+      } else {
+        rataThn = Math.round(rataIni * 0.95);
+      }
     }
 
     return {
@@ -7405,19 +7436,40 @@ function buildBulananSlides({
     ),
   } : null;
 
-  // Slide 8: Penjualan per Sektor - dengan warna berbeda untuk setiap sektor
+  // Slide 8: Penjualan per Sektor - dengan analisis dinamis berdasarkan data sektor riil
+  const sortedSectors = [...sectorsRaw].sort((a, b) => b.pct - a.pct);
+  const topSector = sortedSectors[0] || { label: "Rumah", pct: 0, akm: 0, rata2: 0, key: "rmh" };
+  const secondSector = sortedSectors[1] && sortedSectors[1].pct > 0 ? sortedSectors[1] : null;
+  const lowestFixedSector = [...sectorsRaw]
+    .filter((s) => s.isFixedCustomer)
+    .sort((a, b) => a.pct - b.pct)[0];
+  const totalFixedPct = sectorsRaw
+    .filter((s) => s.isFixedCustomer)
+    .reduce((acc, s) => acc + s.pct, 0);
+  const ibSec = sectorsRaw.find((s) => s.key === "ib");
+  const ibPctVal = ibSec?.pct || 0;
+
+  let dynamicSectorTitle = `Analisis Sektor: Dominasi ${topSector.label} (${fmtPct(topSector.pct)}%)`;
+  if (topSector.key === "rmh") {
+    dynamicSectorTitle = `Analisis Sektor: Dominasi Pelanggan Rumah Tangga (${fmtPct(topSector.pct)}%)`;
+  } else if (topSector.key === "psr") {
+    dynamicSectorTitle = `Analisis Sektor: Sektor Pasar Menjadi Kontributor Utama (${fmtPct(topSector.pct)}%)`;
+  } else if (topSector.key === "ib") {
+    dynamicSectorTitle = `Analisis Sektor: Penjualan Insidental (IB) Tinggi (${fmtPct(topSector.pct)}%)`;
+  }
+
   const slide8: SlideDef = {
     id: "karakteristik",
     eyebrow: "Analisis Karakteristik Pelanggan",
     title: `Penjualan Persentase per Potensi Sektor — ${monthLabel}`,
-    speakerNotes: "Tinjau distribusi penjualan 6 potensi sektor. Penting: Penjualan IB (Instant Buyer) adalah penjualan insidental/keramaian, bukan pelanggan tetap rute harian.",
+    speakerNotes: `Tinjau komposisi 6 potensi sektor. Sektor terbesar: ${topSector.label} (${fmtPct(topSector.pct)}%), total pelanggan tetap ${fmtPct(totalFixedPct)}%.`,
     node: (
       <div className="space-y-2 w-full max-w-4xl mx-auto">
         {!sectorsDataAvailable && (
           <div className="bg-red-950/30 border border-red-500/40 rounded-xl p-2 sm:p-2.5 text-left flex items-start gap-1.5">
             <span className="text-sm shrink-0 mt-0.5">⚠️</span>
             <p className="text-[10px] sm:text-[10.5px] text-red-200 leading-snug">
-              <strong>Data sektor bulan {monthLabel} belum diisi di Menu Archive.</strong> Persentase & angka di bawah ini adalah <strong>estimasi ilustratif</strong>, bukan data riil — lengkapi data sektor di Archive agar slide ini menampilkan angka yang akurat.
+              <strong>Data sektor bulan {monthLabel} belum diisi di Menu Archive.</strong> Persentase &amp; angka di bawah ini adalah <strong>estimasi ilustratif</strong>, bukan data riil — lengkapi data sektor di Archive agar slide ini menampilkan angka yang akurat.
             </p>
           </div>
         )}
@@ -7481,12 +7533,28 @@ function buildBulananSlides({
             <span className="text-sm shrink-0 mt-0.5">💡</span>
             <div className="text-[10px] sm:text-[10.5px]">
               <p className="font-black text-amber-300 uppercase tracking-wide text-[10px]">
-                Pemahaman Analisis Sektor Instant Buyer (IB)
+                {dynamicSectorTitle}
               </p>
               <p className="text-slate-300 mt-0.5 leading-snug">
-                Penjualan <strong>IB (Instant Buyer)</strong> adalah pembeli langsung insidental di keramaian/jalan.
-                Omzet tambahan ini sangat baik, namun <strong>tidak dapat dijadikan tolak ukur pelanggan tetap</strong>.
-                Fondasi utama stabilitas tim tetap pada 5 sektor pelanggan tetap: <strong>Rumah ({fmtPct(sectorsRaw.find(s=>s.key==="rmh")?.pct || 0)}%)</strong>, Pasar, Toko, Sekolah, dan Kantor (Total {fmtPct(sectorsRaw.filter(s=>s.isFixedCustomer).reduce((acc, s) => acc + s.pct, 0))}%).
+                Sektor <strong>{topSector.label}</strong> menjadi penopang utama penjualan bulan ini dengan porsi <strong>{fmtPct(topSector.pct)}%</strong> ({fmtNum(topSector.akm)} botol, rata-rata {fmtNum(topSector.rata2)} btl/hr)
+                {secondSector && (
+                  <>
+                    , disusul sektor <strong>{secondSector.label}</strong> sebesar <strong>{fmtPct(secondSector.pct)}%</strong> ({fmtNum(secondSector.akm)} botol)
+                  </>
+                )}.
+              </p>
+              <p className="text-slate-300 mt-1 leading-snug">
+                Total kontribusi 5 sektor pelanggan tetap (Rumah, Pasar, Toko, Sekolah, Kantor) mencapai <strong>{fmtPct(totalFixedPct)}%</strong>.
+                {ibPctVal > 15 ? (
+                  <> Penjualan IB (Instant Buyer) tercatat <strong>{fmtPct(ibPctVal)}%</strong> — merupakan omzet tambahan insidental yang bagus, namun terus dorong porsi pelanggan tetap harian agar kestabilan rute terjaga.</>
+                ) : ibPctVal > 0 ? (
+                  <> Penjualan IB (Instant Buyer) berada di tingkat wajar <strong>{fmtPct(ibPctVal)}%</strong>, menegaskan mayoritas omzet berasal dari rute langganan tetap harian yang stabil.</>
+                ) : (
+                  <> Seluruh penjualan 100% didukung oleh rute langganan tetap harian.</>
+                )}
+                {lowestFixedSector && lowestFixedSector.pct < 10 && (
+                  <> Peluang pengembangan: Sektor <strong>{lowestFixedSector.label}</strong> ({fmtPct(lowestFixedSector.pct)}%) dapat diprioritaskan untuk penambahan langganan baru bulan depan.</>
+                )}
               </p>
             </div>
           </div>
@@ -7553,7 +7621,10 @@ function buildBulananSlides({
   // Poin-poin yang perlu diperbaiki (mendalam) - hanya 2 poin
   const poinPerbaikan: string[] = [];
   if (!isTgtTembus) {
-    poinPerbaikan.push(`🎯 Target masih kurang ${fmtPct(100 - pctVsTarget)}% (${fmtNum(Math.abs(Math.round(tgtMenuTarget > 0 ? (tgtMenuTarget - realisasiTimRata) * jwp : (m.akmTarget - m.akmPenjualan))))} botol). Ajak setiap YL tawarkan +1 pak ke langganan rumah.`);
+    const akmTargetVal = m.akmTarget > 0 ? m.akmTarget : (tgtMenuTarget * jwpVal);
+    const akmPenjualanVal = m.akmPenjualan > 0 ? m.akmPenjualan : (realisasiTimRata * jwpVal);
+    const selisihBotolTotal = Math.max(0, Math.round(akmTargetVal - akmPenjualanVal));
+    poinPerbaikan.push(`🎯 Target masih kurang ${fmtPct(100 - pctVsTarget)}% (${fmtNum(selisihBotolTotal)} botol). Ajak setiap YL tawarkan +1 pack ke langganan rumah.`);
   } else {
     poinPerbaikan.push(`📊 Pertahankan konsistensi, jangan kendor di awal bulan. Pembukaan minggu pertama yang kuat menentukan kelancaran sisa bulan.`);
   }
@@ -7669,7 +7740,7 @@ function buildBulananSlides({
               <div className="my-1.5 sm:my-2 space-y-1 sm:space-y-1.5 text-xs sm:text-sm landscape:text-[11px] text-slate-300">
                 <div className="flex items-start gap-1.5">
                   <span className="text-orange-400 font-bold shrink-0">1.</span>
-                  <span><strong>Tambah 1 Pak:</strong> Tawarkan paket keluarga saat kunjungan mingguan rute rumah.</span>
+                  <span><strong>Tambah 1 Pack:</strong> Tawarkan paket keluarga saat kunjungan mingguan rute rumah.</span>
                 </div>
                 <div className="flex items-start gap-1.5">
                   <span className="text-orange-400 font-bold shrink-0">2.</span>
@@ -7697,7 +7768,7 @@ function buildBulananSlides({
               <p className="text-xs sm:text-sm landscape:text-[11px] text-slate-300 mt-1 leading-relaxed">
                 Perjuangan bulan ini membuktikan bahwa dedikasi Ibu-Ibu Yakult Lady berhasil menjaga stabilitas konsumsi harian keluarga pelanggan.
                 Dengan rata-rata capaian tim sebesar <strong className="text-white">{fmtNum(realisasiTimRata)} btl/hari</strong> dan tingkat kesegaran botol sebesar <strong className={isBBAman ? "text-emerald-400" : "text-amber-400"}>{fmtPct(bbPct)}%</strong>,
-                kunci keberhasilan bulan berikutnya terletak pada <strong>penambahan kuantitas langganan rumah tangga (+1 pak)</strong> serta <strong>pendampingan aktif bagi area binaan</strong> agar seluruh 10 area mandiri bersama.
+                kunci keberhasilan bulan berikutnya terletak pada <strong>penambahan kuantitas langganan rumah tangga (+1 pack)</strong> serta <strong>pendampingan aktif bagi area binaan</strong> agar seluruh 10 area mandiri bersama.
               </p>
             </div>
           </div>
@@ -7775,7 +7846,7 @@ function buildSemesterSlides(
 
   const poinPerbaikanSem: string[] = [];
   if (agg.avgCapaian < 100) {
-    poinPerbaikanSem.push(`🎯 Rata-rata capaian masih kurang ${fmtPct(100 - agg.avgCapaian)}%. Dorong penawaran +1 pak ke pelanggan rumah tangga setiap kunjungan.`);
+    poinPerbaikanSem.push(`🎯 Rata-rata capaian masih kurang ${fmtPct(100 - agg.avgCapaian)}%. Dorong penawaran +1 pack ke pelanggan rumah tangga setiap kunjungan.`);
   } else {
     poinPerbaikanSem.push(`📊 Pertahankan konsistensi ritme penjualan agar performa periode berikutnya tetap melampaui target.`);
   }

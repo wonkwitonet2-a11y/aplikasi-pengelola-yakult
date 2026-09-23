@@ -1151,15 +1151,31 @@ export default function SalesRecordTKU({ defaultYear, defaultMonthIndex }: { def
   const computeTotals = useMemo(() => {
     if (!currentDisplayData) return null;
     
-    // YL Sales Subtotals
+    // YL Sales Subtotals (Rata-Rata Penjualan Harian per Period)
     const ylTotals = currentDisplayData.perYL?.map((yl: any) => {
-      const sem1 = ["jan", "feb", "mar", "apr", "mei", "jun"].reduce((sum, m) => sum + (yl.penjualan?.[m] || 0), 0);
-      const sem2 = ["jul", "agu", "sep", "okt", "nov", "des"].reduce((sum, m) => sum + (yl.penjualan?.[m] || 0), 0);
-      return { sem1, sem2, total: sem1 + sem2 };
+      const sem1Vals = ["jan", "feb", "mar", "apr", "mei", "jun"]
+        .map(m => Number(yl.penjualan?.[m]))
+        .filter(v => !isNaN(v) && v > 0);
+      const sem2Vals = ["jul", "agu", "sep", "okt", "nov", "des"]
+        .map(m => Number(yl.penjualan?.[m]))
+        .filter(v => !isNaN(v) && v > 0);
+      const allVals = [...sem1Vals, ...sem2Vals];
+
+      const sem1 = sem1Vals.length > 0 ? Math.round(sem1Vals.reduce((a, b) => a + b, 0) / sem1Vals.length) : 0;
+      const sem2 = sem2Vals.length > 0 ? Math.round(sem2Vals.reduce((a, b) => a + b, 0) / sem2Vals.length) : 0;
+      const total = allVals.length > 0 ? Math.round(allVals.reduce((a, b) => a + b, 0) / allVals.length) : 0;
+
+      return { sem1, sem2, total };
     }) || [];
 
-    const sm1Total = ylTotals.reduce((sum: number, yl: any) => sum + yl.sem1, 0);
-    const sm2Total = ylTotals.reduce((sum: number, yl: any) => sum + yl.sem2, 0);
+    const sm1NonZero = ylTotals.map(y => y.sem1).filter(v => v > 0);
+    const sm1Total = sm1NonZero.length > 0 ? Math.round(sm1NonZero.reduce((a, b) => a + b, 0) / sm1NonZero.length) : 0;
+
+    const sm2NonZero = ylTotals.map(y => y.sem2).filter(v => v > 0);
+    const sm2Total = sm2NonZero.length > 0 ? Math.round(sm2NonZero.reduce((a, b) => a + b, 0) / sm2NonZero.length) : 0;
+
+    const overallNonZero = ylTotals.map(y => y.total).filter(v => v > 0);
+    const overallTotal = overallNonZero.length > 0 ? Math.round(overallNonZero.reduce((a, b) => a + b, 0) / overallNonZero.length) : 0;
     
     // Bottom summary
     const summary = {
@@ -1183,7 +1199,7 @@ export default function SalesRecordTKU({ defaultYear, defaultMonthIndex }: { def
       }
     });
 
-    return { ylTotals, sm1Total, sm2Total, summary };
+    return { ylTotals, sm1Total, sm2Total, overallTotal, summary };
   }, [currentDisplayData]);
 
   if (isLoading) {
@@ -1307,9 +1323,9 @@ export default function SalesRecordTKU({ defaultYear, defaultMonthIndex }: { def
                         {MONTHS.map(m => (
                           <th key={m} className="p-2 sm:p-3 border border-blue-800 text-center">{m}</th>
                         ))}
-                        <th className="p-2 sm:p-3 border border-blue-800 text-right bg-blue-950">Smt 1</th>
-                        <th className="p-2 sm:p-3 border border-blue-800 text-right bg-blue-950">Smt 2</th>
-                        <th className="p-2 sm:p-3 border border-blue-800 text-right bg-emerald-700">AKM</th>
+                        <th className="p-2 sm:p-3 border border-blue-800 text-right bg-blue-950">Rata² Smt 1</th>
+                        <th className="p-2 sm:p-3 border border-blue-800 text-right bg-blue-950">Rata² Smt 2</th>
+                        <th className="p-2 sm:p-3 border border-blue-800 text-right bg-emerald-700">Rata² YTD</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 bg-white">
@@ -1342,7 +1358,7 @@ export default function SalesRecordTKU({ defaultYear, defaultMonthIndex }: { def
                         })}
                         <td className="p-2 sm:p-3 border border-slate-300 text-right text-blue-900">{formatNumberDisplay(computeTotals?.sm1Total)}</td>
                         <td className="p-2 sm:p-3 border border-slate-300 text-right text-blue-900">{formatNumberDisplay(computeTotals?.sm2Total)}</td>
-                        <td className="p-2 sm:p-3 border border-slate-300 text-right text-emerald-800">{formatNumberDisplay((computeTotals?.sm1Total || 0) + (computeTotals?.sm2Total || 0))}</td>
+                        <td className="p-2 sm:p-3 border border-slate-300 text-right text-emerald-800">{formatNumberDisplay(computeTotals?.overallTotal)}</td>
                       </tr>
                     </tfoot>
                   </table>
@@ -1524,9 +1540,9 @@ export default function SalesRecordTKU({ defaultYear, defaultMonthIndex }: { def
                         <th className="p-3 border-b border-slate-200">Area</th>
                         <th className="p-3 border-b border-slate-200">Nama YL</th>
                         <th className="p-3 border-b border-slate-200 text-right">Penjualan ({activeMonthLabel})</th>
-                        <th className="p-3 border-b border-slate-200 text-right">Smstr 1</th>
-                        <th className="p-3 border-b border-slate-200 text-right">Smstr 2</th>
-                        <th className="p-3 border-b border-slate-200 text-right">Total Thn</th>
+                        <th className="p-3 border-b border-slate-200 text-right">Rata² Smt 1</th>
+                        <th className="p-3 border-b border-slate-200 text-right">Rata² Smt 2</th>
+                        <th className="p-3 border-b border-slate-200 text-right">Rata² YTD</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">

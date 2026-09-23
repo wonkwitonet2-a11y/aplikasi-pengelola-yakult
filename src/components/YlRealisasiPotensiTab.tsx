@@ -7,6 +7,7 @@ import type { Transaction } from "../types";
 interface YlRealisasiPotensiTabProps {
   currentMonth?: string;
   isEditRealisasi: boolean;
+  isRefreshing?: boolean;
   realisasiGridSelection: GridSelection | null;
   realisasiIsMenuOpen?: boolean;
   setRealisasiIsMenuOpen?: (open: boolean) => void;
@@ -49,6 +50,7 @@ const REALISASI_COL_NAMES = [
 function YlRealisasiPotensiTabInner({
   currentMonth,
   isEditRealisasi,
+  isRefreshing,
   realisasiGridSelection,
   realisasiIsMenuOpen,
   setRealisasiIsMenuOpen,
@@ -130,6 +132,12 @@ function YlRealisasiPotensiTabInner({
         </div>
 
         <div className="space-y-3">
+          {isRefreshing && (
+            <div className="bg-sky-50 border border-sky-200 text-sky-800 text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-2 animate-pulse">
+              <span className="inline-block w-2 h-2 rounded-full bg-sky-600 animate-ping" />
+              <span>Memperbarui & menyelaraskan data tabel realisasi potensi dari server...</span>
+            </div>
+          )}
           <div className="overflow-x-auto overflow-y-auto max-h-[70vh] border border-slate-200 rounded-xl fast-scroll">
             <table className="w-full text-left text-xs sm:text-sm border-collapse font-mono min-w-[900px]">
               <thead className="sticky top-0 z-30 sticky-header-gpu">

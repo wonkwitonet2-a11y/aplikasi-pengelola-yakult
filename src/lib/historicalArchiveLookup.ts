@@ -542,3 +542,79 @@ export function getPreviousYearDataSync(
     jumlahYLTahunLalu: 10,
   };
 }
+
+/**
+ * Menghitung otomatis rata-rata harian (botol/hari) tahun 2025 penuh (Januari s/d Desember)
+ * per YL berdasarkan data yang ada di Menu Rata-Rata Bulanan (rata2_bulanan_2025-XX)
+ * atau monthly_archive_2025-XX.
+ */
+export function get2025FullYearAveragePerYL(): Record<string, number> {
+  const map: Record<string, { sum: number; count: number }> = {};
+
+  for (let m = 1; m <= 12; m++) {
+    const mPad = String(m).padStart(2, "0");
+    const ymKey = `2025-${mPad}`;
+
+    // 1. Cek rata2_bulanan_2025-XX
+    try {
+      const rawR2 = localStorage.getItem(`rata2_bulanan_${ymKey}`);
+      if (rawR2) {
+        const r2 = JSON.parse(rawR2);
+        const rows = r2.rows || r2.data?.rows || [];
+        if (Array.isArray(rows) && rows.length > 0) {
+          rows.forEach((r: any) => {
+            const area = String(r.area || "");
+            const val = parseFloat(r.totalRata2 || r.rata2 || r.total) || 0;
+            if (area && val > 0) {
+              if (!map[area]) map[area] = { sum: 0, count: 0 };
+              map[area].sum += val;
+              map[area].count += 1;
+            }
+          });
+          continue;
+        }
+      }
+    } catch {}
+
+    // 2. Cek monthly_archive_2025-XX
+    try {
+      const rawArc = localStorage.getItem(`monthly_archive_${ymKey}`);
+      if (rawArc) {
+        const arc = JSON.parse(rawArc);
+        const rec = arc.data || arc;
+        const perYL = rec.perYL || rec.dashboardData?.perYL;
+        if (perYL && typeof perYL === "object") {
+          Object.entries(perYL).forEach(([areaStr, yVal]: [string, any]) => {
+            const val = Number(yVal?.rata2 || yVal?.rataRata || yVal?.penjualan) || 0;
+            if (val > 0) {
+              if (!map[areaStr]) map[areaStr] = { sum: 0, count: 0 };
+              map[areaStr].sum += val;
+              map[areaStr].count += 1;
+            }
+          });
+        }
+      }
+    } catch {}
+  }
+
+  const finalMap: Record<string, number> = {
+    "201": 280,
+    "202": 350,
+    "203": 480,
+    "204": 380,
+    "205": 250,
+    "206": 220,
+    "207": 330,
+    "208": 290,
+    "209": 260,
+    "210": 360,
+  };
+
+  Object.keys(map).forEach((area) => {
+    if (map[area].count > 0) {
+      finalMap[area] = Math.round(map[area].sum / map[area].count);
+    }
+  });
+
+  return finalMap;
+}

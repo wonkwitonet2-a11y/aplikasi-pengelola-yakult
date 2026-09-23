@@ -449,23 +449,42 @@ export function getFallbackEvaluasiData(month?: string): EvaluasiData {
     const rataOs = pembagi > 0 ? Math.round(ylOs / pembagi) : 0;
     const rataYt = pembagi > 0 ? Math.round(ylYt / pembagi) : 0;
 
-    // Rata2 Minggu Ini (offset 0..6)
-    let sumMingguIni = 0;
-    for (let i = 0; i < 7; i++) {
-      const dt = getDateWithOffsetLocal(currentM, pembagi, i);
-      const targetMap = dt.monthKey === currentM ? realMap : prevRealMap;
-      sumMingguIni += getSalesFromRealMap(targetMap, area, dt.day);
-    }
-    const rataMingguIni = Math.trunc(sumMingguIni / 7);
+    // Rata2 Minggu Ini (rata-rata kumulatif berjalan pada tanggal pembagi saat ini)
+    const rataMingguIni = rata2Total;
 
-    // Rata2 Minggu Lalu (offset 7..13)
-    let sumMingguLalu = 0;
-    for (let i = 0; i < 7; i++) {
-      const dt = getDateWithOffsetLocal(currentM, pembagi, 7 + i);
-      const targetMap = dt.monthKey === currentM ? realMap : prevRealMap;
-      sumMingguLalu += getSalesFromRealMap(targetMap, area, dt.day);
+    // Rata2 Minggu Lalu (rata-rata kumulatif pada posisi 7 hari sebelumnya)
+    let rataMingguLalu = 0;
+    if (pembagi > 7) {
+      const prevD = pembagi - 7;
+      let prevSum = 0;
+      if (days && typeof days === "object") {
+        for (let d = 1; d <= prevD; d++) {
+          const dData = days[String(d)] || days[d];
+          if (dData) {
+            prevSum += (Number(dData.yo) || 0) + (Number(dData.om) || 0) + (Number(dData.os) || 0) + (Number(dData.yt) || 0);
+          }
+        }
+      }
+      rataMingguLalu = prevD > 0 ? Math.round(prevSum / prevD) : 0;
+    } else {
+      const prevEntry = prevRealMap[area];
+      if (prevEntry && prevEntry.days) {
+        let prevSum = 0;
+        const prevTargetDay = 31 - (7 - pembagi);
+        for (let d = 1; d <= prevTargetDay; d++) {
+          const dData = prevEntry.days[String(d)] || prevEntry.days[d];
+          if (dData) {
+            prevSum += (Number(dData.yo) || 0) + (Number(dData.om) || 0) + (Number(dData.os) || 0) + (Number(dData.yt) || 0);
+          }
+        }
+        rataMingguLalu = prevTargetDay > 0 ? Math.round(prevSum / prevTargetDay) : 0;
+      }
     }
-    const rataMingguLalu = Math.trunc(sumMingguLalu / 7);
+
+    if (rataMingguLalu === 0) {
+      rataMingguLalu = Math.round(rata2Total > 0 ? rata2Total : 0);
+    }
+
     const vsMingguLaluPct = rataMingguLalu > 0 ? Math.trunc((rataMingguIni / rataMingguLalu) * 100) : 0;
 
     return [

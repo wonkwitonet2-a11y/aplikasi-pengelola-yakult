@@ -10,6 +10,7 @@ import { BreakdownGridRow } from "../BreakdownGridRow";
 import { TargetManagerRow } from "../TargetManagerRow";
 import { lookupHistoricalTargetRealization, computeMonthlyRata2DataFromSnapshot } from "../../lib/targetArchiveLookup";
 import { Rata2BulananTab } from "../Rata2BulananTab";
+import { EvaluasiView } from "../EvaluasiView";
 const SalesRecordTKU = React.lazy(() => import("../SalesRecordTKU"));
 import { GridSelectionToolbar } from "../GridSelectionToolbar";
 import { SpreadsheetInputBar } from "../SpreadsheetInputBar";
@@ -385,6 +386,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
   const [snapshot, setSnapshot] = useState(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [archiveEvalYl, setArchiveEvalYl] = useState<string>("ALL");
   const [saveMsg, setSaveMsg] = useState("");
 
   const computedDashboardData = useMemo(() => {
@@ -437,6 +439,28 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
      if (!snapshot || !selectedMonth) return;
      setSaveMsg("Menyimpan ke Supabase...");
 
+     // BUGFIX: RATA MGG LALU di menu Evaluasi YL untuk 3 kunjungan pertama bulan
+     // BERIKUTNYA dihitung dari breakdownRealisasiMap arsip bulan ini (data harian
+     // YO/OM/OS/YT per tanggal). Kalau saat "Mode edit manual arsip bulanan" admin
+     // cuma mengisi tabel ringkasan (tab Evaluasi/Dashboard) tanpa pernah mengisi
+     // breakdown harian per tanggal (tab "BD & Realisasi"), area itu akan punya
+     // breakdownRealisasiMap kosong walau tabel ringkasannya sudah lengkap — dan
+     // bulan depan RATA MGG LALU-nya akan salah/statis. Peringatkan di sini supaya
+     // ketahuan SEBELUM disimpan, bukan setelah YL komplain bulan depan.
+     const activeAreas = (ylList || []).filter((y: any) => y.status !== "nonaktif").map((y: any) => String(y.area).substring(0, 3));
+     const bdMapAtSave = snapshot.breakdownRealisasiMap || {};
+     const areasMissingBreakdown = activeAreas.filter((area: string) => {
+       const entry = bdMapAtSave[area];
+       const daysObj = entry?.days || entry;
+       return !daysObj || Object.keys(daysObj).length === 0;
+     });
+     if (areasMissingBreakdown.length > 0) {
+       console.warn(
+         `[ArchiveEditor] Arsip ${selectedMonth} akan disimpan TANPA data breakdown harian (BD & Realisasi) untuk area: ${areasMissingBreakdown.join(", ")}. ` +
+         `Akibatnya RATA MGG LALU di awal bulan berikutnya untuk area-area ini tidak akan akurat. Isi tab "BD & Realisasi" untuk area tsb kalau datanya ada.`
+       );
+     }
+
      // Hitung / perbarui rata2Data otomatis di snapshot dan juga simpan ke rata2_bulanan_${selectedMonth}
      let snapToSave = { ...snapshot };
      try {
@@ -453,8 +477,12 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
      const res = await saveToSupabase(`monthly_archive_${selectedMonth}`, snapToSave);
      if (res.success) {
         setSnapshot(snapToSave);
-        setSaveMsg("✅ Berhasil disimpan!");
-        setTimeout(() => setSaveMsg(""), 3000);
+        setSaveMsg(
+          areasMissingBreakdown.length > 0
+            ? `✅ Tersimpan, tapi area ${areasMissingBreakdown.join(", ")} belum ada data harian (BD & Realisasi) — RATA MGG LALU bulan depan utk area itu bisa tidak akurat.`
+            : "✅ Berhasil disimpan!"
+        );
+        setTimeout(() => setSaveMsg(""), areasMissingBreakdown.length > 0 ? 8000 : 3000);
      } else {
         setSaveMsg("❌ Gagal menyimpan!");
      }
@@ -1163,6 +1191,7 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
            <div className="w-full md:w-48 shrink-0 flex md:flex-col gap-1.5 sm:gap-2 overflow-x-auto pb-1 sm:pb-2 max-w-full">
               {[
                 { id: "dashboard", label: "Dashboard", icon: "📊" },
+                { id: "evaluasi", label: "Evaluasi", icon: "📋" },
                 { id: "lhpp", label: "LHPP & LPPBJ", icon: "📝" },
                 { id: "bd_realisasi", label: "BD & Realisasi", icon: "🧩" },
                 { id: "target", label: "Target", icon: "🎯" },
@@ -1193,6 +1222,58 @@ export function ArchiveEditor({ onClose, motivasiConfig, ylList }) {
                   currentMonthTotal={currentMonthTotal}
                   calculateSektorTotals={calculateSektorTotals}
                 />
+              )}
+              {activeTab === "evaluasi" && (
+                <div className="space-y-4">
+                  <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-700">Tampilkan Evaluasi:</span>
+                      <select
+                        value={archiveEvalYl}
+                        onChange={(e) => setArchiveEvalYl(e.target.value)}
+                        className="text-xs font-bold bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                      >
+                        <option value="ALL">🏢 Semua Tim (Mirror Sheet Table)</option>
+                        {(ylList || []).filter((y: any) => y.status !== "nonaktif").map((yl: any) => (
+                          <option key={yl.area} value={yl.nama}>
+                            Area {yl.area} - {cleanYlName(yl.nama)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">
+                      📅 Periode Arsip: {selectedMonth}
+                    </div>
+                  </div>
+
+                  {archiveEvalYl === "ALL" ? (
+                    <EvaluasiView
+                      evaluasiData={snapshot.evaluasiData}
+                      globalMonth={selectedMonth}
+                      role="manager"
+                      transactions={snapshot.transactions}
+                    />
+                  ) : (
+                    <EvaluasiView
+                      evaluasiData={snapshot.evaluasiData}
+                      globalMonth={selectedMonth}
+                      currentYlName={archiveEvalYl}
+                      currentYlArea={(() => {
+                        const matchingYl = (ylList || []).find((y: any) => y.nama === archiveEvalYl);
+                        return matchingYl ? String(matchingYl.area).substring(0, 3) : "";
+                      })()}
+                      role="yl"
+                      ylBreakdownRealisasi={
+                        (() => {
+                          const matchingYl = (ylList || []).find((y: any) => y.nama === archiveEvalYl);
+                          const area = matchingYl ? String(matchingYl.area).substring(0, 3) : "";
+                          return snapshot.breakdownRealisasiMap?.[area] || snapshot.breakdownRealisasiMap?.[archiveEvalYl];
+                        })()
+                      }
+                      transactions={snapshot.transactions}
+                    />
+                  )}
+                </div>
               )}
               {activeTab === "lhpp" && (
                 <LhppRealisasiView ylList={ylList} selectedMonth={selectedMonth} motivasiConfig={motivasiConfig} />

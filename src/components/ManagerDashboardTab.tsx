@@ -211,7 +211,7 @@ function ManagerDashboardTabInner({
   const cardTitles = [
     "Ringkasan Utama Tim",
     "Komposisi & Performa Produk",
-    "Potensi Sektor Tim",
+    "Potensi Tim",
     "Tren Penjualan Harian",
     "Ranking Penjualan Antar YL",
     "Target vs Actual per YL",
@@ -422,13 +422,13 @@ function ManagerDashboardTabInner({
           </div>
         );
 
-      case 2: // 3. Potensi Sektor Tim
+      case 2: // 3. Potensi Tim
         return (
           <div className={`bg-white rounded-2xl p-3 sm:p-6 border border-slate-100 shadow-sm text-slate-900 ${isFullscreen ? "w-full min-h-full p-2 sm:p-3 border-0 shadow-none flex flex-col justify-center my-auto" : ""}`}>
             {!isFullscreen && (
               <div className="flex items-center justify-between mb-2 sm:mb-3">
                 <h3 className="text-xs sm:text-sm font-bold text-slate-800 uppercase tracking-wider">
-                  Potensi Sektor Tim
+                  Potensi Tim
                 </h3>
                 <div className="flex items-center gap-1.5">
                   <StyleToggleButton onClick={() => cycleCardStyle(2)} />

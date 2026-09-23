@@ -359,17 +359,27 @@ export default function App() {
   };
 
   const refreshAllData = async (isBackground = false) => {
-    if (!isBackground) setLoading(true);
+    if (!isBackground) {
+      setLoading(true);
+      lastPayloadRef.current = {};
+    }
 
     try {
-      const [db, ev, mot, knt, pins, ylListData, globalMonthData] = await Promise.all([
+      const isYl = session?.role === "yl";
+      const activeName = session?.name || "";
+      const activeMonth = globalMonth || new Date().toISOString().substring(0, 7);
+
+      const [db, ev, mot, knt, pins, ylListData, globalMonthData, mineData] = await Promise.all([
         safeFetchJson(`/api/getDashboardDP1?month=${globalMonth}`),
         safeFetchJson(`/api/getEvaluasi?month=${globalMonth}`),
         safeFetchJson("/api/getMotivasi"),
         safeFetchJson("/api/getKontes"),
         safeFetchJson("/api/getPins"),
         safeFetchJson("/api/getYlList"),
-        safeFetchJson("/api/getGlobalMonth")
+        safeFetchJson("/api/getGlobalMonth"),
+        isYl && activeName
+          ? safeFetchJson(`/api/getMine?nama=${encodeURIComponent(activeName)}&month=${encodeURIComponent(activeMonth)}`)
+          : Promise.resolve(null)
       ]);
 
       // Samakan bulan aktif device ini dengan bulan aktif di server (yang terakhir
@@ -378,7 +388,8 @@ export default function App() {
       if (globalMonthData && globalMonthData.globalMonth && /^\d{4}-\d{2}$/.test(globalMonthData.globalMonth)) {
         if (globalMonthData.globalMonth !== globalMonth) {
           setGlobalMonth(globalMonthData.globalMonth);
-          return; // data lain di bawah ini akan di-refetch otomatis lewat useEffect [globalMonth]
+          // Jangan return early di sini agar data mineData & evaluasi tetap terpasang ke state,
+          // sehingga tampilan tabel tidak blank saat menunggu siklus render berikutnya.
         }
       } else if (!isBackground) {
         // Server belum pernah punya globalMonth tersimpan (mis. pertama kali dipakai
@@ -387,13 +398,13 @@ export default function App() {
         updateGlobalMonth(globalMonth);
       }
 
-      const activeMonth = globalMonth || "2026-07";
-      const fallbackDb = getFallbackDashboardData(activeMonth);
+      const activeDatasetMonth = (globalMonthData && globalMonthData.globalMonth) || globalMonth || "2026-07";
+      const fallbackDb = getFallbackDashboardData(activeDatasetMonth);
       const finalDb = db ? db : fallbackDb;
       setIfChanged("dashboard", finalDb, setDashboardData);
 
       const rawEv = ev && ev.evaluasiData ? ev.evaluasiData : (ev && ev.dataRows ? ev : null);
-      const fallbackEv = getFallbackEvaluasiData(activeMonth);
+      const fallbackEv = getFallbackEvaluasiData(activeDatasetMonth);
       const finalEv = rawEv ? rawEv : fallbackEv;
       setIfChanged("evaluasi", finalEv, setEvaluasiData);
       if (mot) {
@@ -410,10 +421,8 @@ export default function App() {
       if (pins && pins.managerPin) setIfChanged("managerPin", pins.managerPin, setActiveManagerPin);
       if (pins && pins.ylPins) setIfChanged("ylPins", pins.ylPins, setActiveYlPins);
 
-      let activeName = session?.name || "";
-
       // Auto-update YL session name if YL was renamed in Setting/Profil YL
-      if (session?.role === "yl" && session.name) {
+      if (isYl && activeName) {
         const ylListArray = (ylListData && Array.isArray(ylListData.ylList)) ? ylListData.ylList : [];
         setIfChanged("ylList", ylListArray, setYlList);
 
@@ -423,22 +432,13 @@ export default function App() {
           localStorage.removeItem("yakult_session");
           return;
         }
-      }
 
-      // Load specific YL records if role is YL
-      if (session?.role === "yl" && activeName) {
-        // FIX (1 Sep 2026): dulu activeMonth di sini SELALU new Date() (tanggal asli device),
-        // terlepas dari globalMonth. Akibatnya walau tab "Ringkasan" & selectedDate di YLView
-        // sudah ikut globalMonth (Agustus), transaksi mentah yang diambil dari server tetap
-        // transaksi bulan device (September, kosong) — jadi tab "Realisasi Potensi Sektor"
-        // (yang menghitung dari transactions ini) tetap kosong. Sekarang pakai globalMonth.
-        const activeMonth = globalMonth || new Date().toISOString().substring(0, 7);
-        const mine = await safeFetchJson(`/api/getMine?nama=${encodeURIComponent(activeName)}&month=${encodeURIComponent(activeMonth)}`);
-        if (mine) {
-          if (mine.transactions) setIfChanged("myTransactions", mine.transactions, setTransactions);
-          if (mine.targetYL) setIfChanged("myTargetYL", mine.targetYL, setTargetYL);
-          setIfChanged("myBreakdownRealisasi", mine.breakdownRealisasi || [], setBreakdownRealisasi);
-          setIfChanged("myTanggalValid", mine.tanggalValid || [], setTanggalValid);
+        // Apply specific YL records immediately
+        if (mineData) {
+          if (mineData.transactions) setIfChanged("myTransactions", mineData.transactions, setTransactions);
+          if (mineData.targetYL) setIfChanged("myTargetYL", mineData.targetYL, setTargetYL);
+          setIfChanged("myBreakdownRealisasi", mineData.breakdownRealisasi || [], setBreakdownRealisasi);
+          setIfChanged("myTanggalValid", mineData.tanggalValid || [], setTanggalValid);
         }
       }
     } catch (e) {
@@ -676,8 +676,9 @@ export default function App() {
         ylName={session.name}
         ylList={ylList}
         onLogout={handleLogout}
-          globalMonth={globalMonth}
-          setGlobalMonth={updateGlobalMonth}
+        globalMonth={globalMonth}
+        setGlobalMonth={updateGlobalMonth}
+        evaluasiData={evaluasiData}
         onRefresh={refreshAllData}
         isRefreshing={loading}
         transactions={transactions}

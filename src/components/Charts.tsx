@@ -358,6 +358,16 @@ const CustomTargetVsActualTooltip = ({ active, payload, label, colors }: any) =>
 
 export const TargetVsActualChart = memo(function TargetVsActualChart({ data = [], chartType = "groupedBar", colors }: TargetVsActualProps) {
   const sortedData = [...(data || [])].sort((a, b) => a.nama.localeCompare(b.nama));
+  const chartData = sortedData.map((item) => {
+    const maxVal = Math.max(
+      Number(item.target) || 0,
+      Number(item.actual) || 0,
+      Number(item.bulanLalu) || 0,
+      Number(item.tahunLalu) || 0
+    );
+    return { ...item, maxVal };
+  });
+
   const targetColor = colors?.target || "#fca5a5";
   const actualColor = colors?.actual || "#dc2626";
   const bulanLaluColor = colors?.bulanLalu || "#f59e0b";
@@ -389,11 +399,12 @@ export const TargetVsActualChart = memo(function TargetVsActualChart({ data = []
           </LineChart>
         ) : (
           <BarChart
-            data={sortedData}
+            data={chartData}
             margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis
+              xAxisId="main"
               dataKey="nama"
               stroke="#94a3b8"
               fontSize={8}
@@ -403,13 +414,31 @@ export const TargetVsActualChart = memo(function TargetVsActualChart({ data = []
               textAnchor="end"
               height={70}
             />
+            <XAxis
+              xAxisId="bg"
+              dataKey="nama"
+              hide
+            />
             <YAxis stroke="#94a3b8" fontSize={9} />
             <Tooltip content={(props) => <CustomTargetVsActualTooltip {...props} colors={{ target: targetColor, actual: actualColor, bulanLalu: bulanLaluColor, tahunLalu: tahunLaluColor }} />} />
             <Legend wrapperStyle={{ fontSize: 9, paddingTop: 5 }} />
-            <Bar dataKey="target" name="Target" fill={targetColor} radius={[3, 3, 0, 0]} maxBarSize={16} />
-            <Bar dataKey="actual" name="Actual" fill={actualColor} radius={[3, 3, 0, 0]} maxBarSize={16} />
-            <Bar dataKey="bulanLalu" name="Bulan Lalu" fill={bulanLaluColor} radius={[3, 3, 0, 0]} maxBarSize={16} fillOpacity={0.75} />
-            <Bar dataKey="tahunLalu" name="Tahun Lalu" fill={tahunLaluColor} radius={[3, 3, 0, 0]} maxBarSize={16} fillOpacity={0.75} />
+            <Bar
+              xAxisId="bg"
+              dataKey="maxVal"
+              name="Pembungkus"
+              fill="rgba(203, 213, 225, 0.25)"
+              stroke="rgba(148, 163, 184, 0.45)"
+              strokeWidth={1}
+              strokeDasharray="3 3"
+              radius={[6, 6, 0, 0]}
+              maxBarSize={64}
+              legendType="none"
+              tooltipType="none"
+            />
+            <Bar xAxisId="main" dataKey="target" name="Target" fill={targetColor} radius={[3, 3, 0, 0]} maxBarSize={14} />
+            <Bar xAxisId="main" dataKey="actual" name="Actual" fill={actualColor} radius={[3, 3, 0, 0]} maxBarSize={14} />
+            <Bar xAxisId="main" dataKey="bulanLalu" name="Bulan Lalu" fill={bulanLaluColor} radius={[3, 3, 0, 0]} maxBarSize={14} fillOpacity={0.75} />
+            <Bar xAxisId="main" dataKey="tahunLalu" name="Tahun Lalu" fill={tahunLaluColor} radius={[3, 3, 0, 0]} maxBarSize={14} fillOpacity={0.75} />
           </BarChart>
         )}
       </ResponsiveContainer>
@@ -430,7 +459,7 @@ const CustomSektorTooltip = ({ active, payload }: any) => {
     return (
       <div className="bg-slate-900/95 backdrop-blur-md p-2.5 rounded-lg border border-slate-700 text-xs shadow-xl min-w-[150px] z-50">
         <p className="font-bold text-amber-400 mb-1.5 pb-1 border-b border-slate-700/80 flex items-center justify-between gap-2">
-          <span>Sektor:</span>
+          <span>Potensi:</span>
           <span className="text-white bg-slate-800 px-1.5 py-0.5 rounded font-semibold">{item.name}</span>
         </p>
         <div className="flex flex-col gap-1 text-[11px]">
