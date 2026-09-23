@@ -564,108 +564,7 @@ export function ManagerView({
     }
   };
 
-  // Handler: Update / Refresh Snapshot Arsip Bulan Ini dari Data Live Terbaru
-  const handleUpdateArchiveMonth = async () => {
-    const mKey = selectedMonthlyArchive;
-    const label = getIndonesianMonthLabel(mKey);
 
-    if (!window.confirm(`Konfirmasi Perbarui Arsip Bulan ${label}:\n\nApakah Anda yakin ingin memperbarui data arsip bulan ${label} di Supabase dengan data live terbaru saat ini?`)) {
-      return;
-    }
-
-    setIsSbSyncing(true);
-    setArchiveStatusMsg(`⏳ Memperbarui arsip data bulan ${label} dari data live terbaru...`);
-
-    try {
-      let plgPjlTransactions: any[] = [];
-      let plgPjlPotensiTembus: any = {};
-      try {
-        const plgRes = await fetch(`/api/getPlgPjlData?month=${encodeURIComponent(mKey)}`);
-        if (!plgRes.ok) throw new Error("Failed to fetch PlgPjlData");
-        const plgJson = await plgRes.json();
-        if (plgJson && plgJson.ok) {
-          plgPjlTransactions = plgJson.transactions || [];
-          plgPjlPotensiTembus = plgJson.potensiTembus || {};
-        }
-      } catch (plgErr) {
-        console.error("Gagal mengambil data Pelanggan & Penjualan terbaru:", plgErr);
-      }
-
-      if (plgPjlTransactions.length === 0) {
-        try {
-          const localRaw = localStorage.getItem("plg_pjl_transactions") || localStorage.getItem("yakult_transactions") || localStorage.getItem("transactions");
-          if (localRaw) {
-            const parsed = JSON.parse(localRaw);
-            if (Array.isArray(parsed)) {
-              plgPjlTransactions = parsed.filter((t: any) => t.tanggal && t.tanggal.startsWith(mKey));
-            }
-          }
-        } catch (e) {}
-      }
-
-      const currentSnap = historicalDataSnapshot;
-      const snapTargetTKU = (isViewingHistoricalMonth && currentSnap?.targetTKU) ? currentSnap.targetTKU : targetTKU;
-      const snapTargetYLMap = (isViewingHistoricalMonth && currentSnap?.targetYLMap) ? currentSnap.targetYLMap : targetYLMap;
-
-      // Hitung otomatis data rata-rata bulanan (per YL & produk) sebelum memperbarui arsip
-      let calculatedRata2: any = null;
-      try {
-        calculatedRata2 = computeMonthlyRata2DataFromSnapshot(
-          { breakdownRealisasiMap, transactions: plgPjlTransactions, monthKey: mKey, ylList },
-          ylList,
-          mKey
-        );
-        await saveToSupabase(`rata2_bulanan_${mKey}`, calculatedRata2);
-        try {
-          localStorage.setItem(`rata2_bulanan_${mKey}`, JSON.stringify(calculatedRata2));
-          const rawIdx = localStorage.getItem("rata2_bulanan_index");
-          let r2Idx: string[] = rawIdx ? JSON.parse(rawIdx) : [];
-          if (!r2Idx.includes(mKey)) {
-            r2Idx.push(mKey);
-            r2Idx.sort().reverse();
-            localStorage.setItem("rata2_bulanan_index", JSON.stringify(r2Idx));
-            await saveToSupabase("rata2_bulanan_index", r2Idx);
-          }
-        } catch (e) {}
-      } catch (rErr) {
-        console.error("Gagal menghitung otomatis rata2 bulanan saat update:", rErr);
-      }
-
-      const snapshot = {
-        monthKey: mKey,
-        monthLabel: label,
-        savedAt: new Date().toISOString(),
-        dashboardData: dashboardData,
-        evaluasiData: localEval || evaluasiData,
-        breakdownPlanMap: breakdownPlanMap,
-        breakdownRealisasiMap: breakdownRealisasiMap,
-        targetTKU: snapTargetTKU,
-        targetYLMap: snapTargetYLMap,
-        kontesConfig: kontesConfig,
-        ylList: ylList,
-        transactions: plgPjlTransactions,
-        potensiTembus: plgPjlPotensiTembus,
-        rata2Data: calculatedRata2
-      };
-
-      const res = await saveToSupabase(`monthly_archive_${mKey}`, snapshot);
-      if (!res.success) {
-        throw new Error(res.error || "Gagal memperbarui arsip di Supabase");
-      }
-
-      setHistoricalDataSnapshot(snapshot);
-      setIsViewingHistoricalMonth(true);
-      setHistoricalMonthLabel(label);
-
-      setArchiveStatusMsg(`🎉 REFRESH ARSIP BERHASIL! Data Bulan ${label} berhasil diperbarui di Supabase.`);
-      alert(`🎉 ARSIP BERHASIL DIPERBARUI!\n\nData Bulan ${label} di Supabase telah diperbarui dengan transaksi & realisasi live terbaru.`);
-    } catch (e: any) {
-      setArchiveStatusMsg(`❌ Gagal memperbarui arsip bulan ${label}: ${e.message || "Periksa koneksi Supabase"}`);
-      alert(`❌ Gagal memperbarui: ${e.message || "Periksa koneksi Supabase"}`);
-    } finally {
-      setIsSbSyncing(false);
-    }
-  };
 
   const handleDeleteArchiveFromSupabase = (targetMonth: string) => {
     if (!targetMonth) {
@@ -3294,37 +3193,7 @@ export function ManagerView({
 
 
 
-  const handleDownloadExcel = async () => {
-    try {
-      setBreakdownMsg("📊 Mengunduh Laporan Excel PLG PJL...");
-      const res = await fetch(`/api/exportRealisasi?month=${globalMonth || ""}`);
-      if (!res.ok) throw new Error("Gagal mengunduh file Excel");
-      
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      
-      const contentDisposition = res.headers.get('Content-Disposition');
-      let filename = `Laporan_PLG_PJL_DP1_${globalMonth || new Date().toISOString().slice(0, 10)}.xlsx`;
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename="?([^";]+)"?/);
-        if (match) filename = match[1];
-      }
-      
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
 
-      setBreakdownMsg("✅ File Excel PLG PJL (.xlsx) berhasil diunduh!");
-      setTimeout(() => setBreakdownMsg(""), 3500);
-      alert(`✅ File Excel Laporan PLG PJL (Sheet: plg pjl(laporan Dp 1)) bulan ${globalMonth || "ini"} berhasil diunduh!`);
-    } catch (e: any) {
-      alert("Error unduh Excel: " + e.message);
-    }
-  };
 
   const activeDashboardData = (isViewingHistoricalMonth && historicalDataSnapshot?.dashboardData)
     ? historicalDataSnapshot.dashboardData
@@ -4421,29 +4290,6 @@ export function ManagerView({
                 >
                   🔒 Selesaikan & Arsipkan Data ({selectedMonthlyArchive})
                 </button>
-                <button
-                  onClick={() => handleFetchMonthFromSupabase(selectedMonthlyArchive)}
-                  disabled={isSbSyncing}
-                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  📂 Buka Arsip dari Supabase
-                </button>
-                <button
-                  onClick={handleUpdateArchiveMonth}
-                  disabled={isSbSyncing}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
-                  title="Ambil data live terbaru untuk bulan ini lalu timpa/perbarui arsip di Supabase"
-                >
-                  🔄 Perbarui Arsip di Supabase
-                </button>
-                <button
-                  onClick={() => handleDeleteArchiveFromSupabase(selectedMonthlyArchive)}
-                  disabled={isSbSyncing}
-                  className="bg-rose-600 hover:bg-rose-700 text-white font-black text-xs py-2.5 px-3 rounded-xl transition-all cursor-pointer shadow disabled:opacity-50 flex items-center justify-center gap-2"
-                  title="Hapus permanen arsip bulan terpilih dari database Supabase"
-                >
-                  🗑️ Hapus Arsip Bulan Ini dari Supabase
-                </button>
                 {isViewingHistoricalMonth && (
                   <button
                     onClick={handleResetToLiveData}
@@ -5159,13 +5005,6 @@ WITH CHECK (true);`}
                   <span>📤 Impor Backup JSON</span>
                   <input type="file" accept=".json" onChange={handleImportBackupJson} className="hidden" />
                 </label>
-                <button
-                  onClick={handleDownloadExcel}
-                  className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1"
-                  title={`Unduh Laporan PLG PJL (Laporan DP 1) Bulan ${globalMonth}`}
-                >
-                  📊 Unduh Excel PLG PJL (Laporan DP 1)
-                </button>
                 <button
                   onClick={handleClearCache}
                   className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
