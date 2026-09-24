@@ -9,6 +9,8 @@ export interface YlItem {
   tanggalResign?: string;
   nik?: string;
   tglLahir?: string;
+  ikutJht?: boolean;
+  iuranJht?: number;
 }
 
 export const INITIAL_YL_LIST: YlItem[] = [

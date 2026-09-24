@@ -69,6 +69,8 @@ export interface YLLady {
   foto?: string;
   nik?: string; // e.g. "350..."
   tglLahir?: string; // e.g. "1980-01-01"
+  ikutJht?: boolean;
+  iuranJht?: number;
 }
 
 export interface CompensationTier {

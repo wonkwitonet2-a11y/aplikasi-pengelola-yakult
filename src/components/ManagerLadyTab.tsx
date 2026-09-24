@@ -21,6 +21,10 @@ interface ManagerLadyTabProps {
   setNewYlNik: (val: string) => void;
   newYlTglLahir: string;
   setNewYlTglLahir: (val: string) => void;
+  newYlIkutJht?: boolean;
+  setNewYlIkutJht?: (val: boolean) => void;
+  newYlIuranJht?: number;
+  setNewYlIuranJht?: (val: number) => void;
   ylSavedMsg: string | null;
 }
 
@@ -44,6 +48,10 @@ function ManagerLadyTabInner({
   setNewYlNik,
   newYlTglLahir,
   setNewYlTglLahir,
+  newYlIkutJht = true,
+  setNewYlIkutJht,
+  newYlIuranJht = 24000,
+  setNewYlIuranJht,
   ylSavedMsg,
 }: ManagerLadyTabProps) {
   return (
@@ -76,6 +84,7 @@ function ManagerLadyTabInner({
                 <th className="p-3 text-center min-w-[100px]">PIN Login</th>
                 <th className="p-3 text-center min-w-[100px]">NIK</th>
                 <th className="p-3 text-center min-w-[100px]">Tgl Lahir</th>
+                <th className="p-3 text-center min-w-[170px]">Iuran JHT</th>
                 <th className="p-3 text-center min-w-[100px]">Status</th>
                 <th className="p-3 text-right min-w-[160px]">Aksi</th>
               </tr>
@@ -101,55 +110,114 @@ function ManagerLadyTabInner({
           <span className="text-[11px] font-black text-slate-900 uppercase tracking-wider block border-l-3 border-emerald-600 pl-2">
             ➕ Mendaftar Yakult Lady (YL) Baru
           </span>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-            <input
-              type="text"
-              placeholder="Area (mis: 211)"
-              value={newYlArea}
-              onChange={(e) => setNewYlArea(e.target.value)}
-              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
-            />
-            <input
-              type="text"
-              placeholder="Kode YL (mis: YL-211)"
-              value={newYlKode}
-              onChange={(e) => setNewYlKode(e.target.value)}
-              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 font-mono"
-            />
-            <input
-              type="text"
-              placeholder="Nama YL (mis: Rahmawati)"
-              value={newYlNama}
-              onChange={(e) => setNewYlNama(e.target.value)}
-              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
-            />
-            <input
-              type="date"
-              value={newYlTanggalMasuk}
-              onChange={(e) => setNewYlTanggalMasuk(e.target.value)}
-              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 focus:border-emerald-500"
-            />
-            <input
-              type="text"
-              placeholder="PIN (mis: 211)"
-              value={newYlPin}
-              onChange={(e) => setNewYlPin(e.target.value)}
-              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 font-mono"
-            />
-            <input
-              type="text"
-              placeholder="NIK (opsional)"
-              value={newYlNik}
-              onChange={(e) => setNewYlNik(e.target.value)}
-              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
-            />
-            <input
-              type="date"
-              placeholder="Tgl Lahir"
-              value={newYlTglLahir}
-              onChange={(e) => setNewYlTglLahir(e.target.value)}
-              className="p-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
-            />
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-2.5 items-end">
+            <div>
+              <label className="text-[10px] font-bold text-slate-600 block mb-1">Area</label>
+              <input
+                type="text"
+                placeholder="mis: 211"
+                value={newYlArea}
+                onChange={(e) => setNewYlArea(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-600 block mb-1">Kode YL</label>
+              <input
+                type="text"
+                placeholder="mis: YL-211"
+                value={newYlKode}
+                onChange={(e) => setNewYlKode(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 font-mono"
+              />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
+              <label className="text-[10px] font-bold text-slate-600 block mb-1">Nama YL</label>
+              <input
+                type="text"
+                placeholder="mis: Rahmawati"
+                value={newYlNama}
+                onChange={(e) => setNewYlNama(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-700 block mb-1 flex items-center gap-1">
+                <span>📅 Tgl Masuk</span>
+              </label>
+              <input
+                type="date"
+                value={newYlTanggalMasuk}
+                onChange={(e) => setNewYlTanggalMasuk(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none text-slate-900 focus:border-emerald-500 cursor-pointer min-h-[36px]"
+                style={{ colorScheme: "light" }}
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-600 block mb-1">PIN Login</label>
+              <input
+                type="text"
+                placeholder="mis: 211"
+                value={newYlPin}
+                onChange={(e) => setNewYlPin(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500 font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-600 block mb-1">NIK (opsional)</label>
+              <input
+                type="text"
+                placeholder="350xxx"
+                value={newYlNik}
+                onChange={(e) => setNewYlNik(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none text-slate-900 placeholder:text-slate-400 focus:border-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-slate-700 block mb-1 flex items-center gap-1">
+                <span>🎂 Tgl Lahir</span>
+              </label>
+              <input
+                type="date"
+                value={newYlTglLahir}
+                onChange={(e) => setNewYlTglLahir(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-none text-slate-900 focus:border-emerald-500 cursor-pointer min-h-[36px]"
+                style={{ colorScheme: "light" }}
+              />
+            </div>
+            {/* Input & Toggle Iuran JHT */}
+            <div className="col-span-2 sm:col-span-1">
+              <label className="text-[10px] font-bold text-slate-600 block mb-1">Iuran JHT</label>
+              <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2 py-1 min-h-[36px]">
+                <button
+                  type="button"
+                  onClick={() => setNewYlIkutJht && setNewYlIkutJht(!newYlIkutJht)}
+                  className={`text-[10px] font-black px-2 py-1 rounded-md transition-all cursor-pointer whitespace-nowrap shadow-xs ${
+                    newYlIkutJht
+                      ? "bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200"
+                      : "bg-slate-100 text-slate-500 border border-slate-300 hover:bg-slate-200"
+                  }`}
+                  title={newYlIkutJht ? "Status: Ikut Program JHT" : "Status: Tidak Ikut JHT"}
+                >
+                  {newYlIkutJht ? "✓ Ikut" : "✕ Tidak"}
+                </button>
+                <div className="relative flex-1">
+                  <span className="absolute left-1 top-1 text-[10px] text-slate-400 font-bold pointer-events-none">Rp</span>
+                  <input
+                    type="number"
+                    step={1000}
+                    min={0}
+                    disabled={!newYlIkutJht}
+                    value={newYlIkutJht ? newYlIuranJht : 0}
+                    onChange={(e) => setNewYlIuranJht && setNewYlIuranJht(parseInt(e.target.value, 10) || 0)}
+                    placeholder="24000"
+                    className={`w-full pl-6 pr-1 py-0.5 text-xs font-mono font-bold outline-none text-right rounded ${
+                      !newYlIkutJht ? "text-slate-400 cursor-not-allowed bg-slate-50" : "text-slate-900 bg-white"
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           <button
             onClick={handleAddYl}

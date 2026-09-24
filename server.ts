@@ -2522,7 +2522,10 @@ app.get("/api/getDataYL", async (req, res) => {
   const kompensasi = Math.floor(effectiveTotalSales * factor);
   const pph = Math.floor(kompensasi * (compCfg.pphRate / 100));
   const jkk = compCfg.jkkJkm || 18800;
-  const jht = compCfg.jht || 24000;
+  const ylItem = (db.ylList || []).find((y: any) => String(y.area).substring(0, 3) === areaStr);
+  const ikutJht = ylItem ? (ylItem.ikutJht !== false) : true;
+  const jhtNominal = ylItem && typeof ylItem.iuranJht === "number" ? ylItem.iuranJht : (compCfg.jht || 24000);
+  const jht = ikutJht ? jhtNominal : 0;
   const kresekDll = 0;
   const kompenBersih = Math.max(0, kompensasi - pph - jkk - jht - kresekDll);
 
@@ -2610,6 +2613,12 @@ app.post("/api/saveYlList", async (req, res) => {
           merged[field] = oldY[field];
         }
       });
+      if (newY.ikutJht === undefined && oldY.ikutJht !== undefined) {
+        merged.ikutJht = oldY.ikutJht;
+      }
+      if (newY.iuranJht === undefined && oldY.iuranJht !== undefined) {
+        merged.iuranJht = oldY.iuranJht;
+      }
       return merged;
     });
 

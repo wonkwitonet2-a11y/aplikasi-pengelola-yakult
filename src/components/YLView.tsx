@@ -1038,7 +1038,8 @@ export function YLView({
   const mPphRate = (compConfig.pphRate && compConfig.pphRate > 0) ? compConfig.pphRate : 2.5;
   const mPphRateStr = mPphRate.toString().replace('.', ',');
   const mPph = Math.floor(mKompensasiBulanan * (mPphRate / 100));
-  const mJht = compConfig.jht;
+  const mIkutJht = currentYlInfo ? (currentYlInfo.ikutJht !== false) : true;
+  const mJht = mIkutJht ? (typeof currentYlInfo?.iuranJht === "number" ? currentYlInfo.iuranJht : (compConfig.jht || 24000)) : 0;
   const mJkk = compConfig.jkkJkm;
   const mTotalPotongan = mPph + mJht + mJkk;
   const mKompensasiBersihBulanan = Math.max(0, mKompensasiBulanan - mTotalPotongan);
@@ -1860,8 +1861,15 @@ export function YLView({
                     <span className="font-bold text-rose-700">- {formatRp(mPph)}</span>
                   </div>
                   <div className="flex justify-between items-center text-rose-900 font-medium">
-                    <span>• Iuran JHT (Jaminan Hari Tua)</span>
-                    <span className="font-bold text-rose-700">- {formatRp(mJht)}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span>• Iuran JHT (Jaminan Hari Tua)</span>
+                      {!mIkutJht && (
+                        <span className="text-[9px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-bold">
+                          Tidak Ikut
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-bold text-rose-700">{mIkutJht ? `- ${formatRp(mJht)}` : "Rp 0"}</span>
                   </div>
                   {mJkk > 0 && (
                     <div className="flex justify-between items-center text-rose-900 font-medium">

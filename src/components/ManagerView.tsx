@@ -1660,6 +1660,8 @@ export function ManagerView({
   const [newYlTanggalMasuk, setNewYlTanggalMasuk] = useState<string>("");
   const [newYlNik, setNewYlNik] = useState<string>("");
   const [newYlTglLahir, setNewYlTglLahir] = useState<string>("");
+  const [newYlIkutJht, setNewYlIkutJht] = useState<boolean>(true);
+  const [newYlIuranJht, setNewYlIuranJht] = useState<number>(24000);
   const [ylSavedMsg, setYlSavedMsg] = useState<string>("");
   const [ylToDelete, setYlToDelete] = useState<{ idx: number; yl: any } | null>(null);
   const [isDeletingYl, setIsDeletingYl] = useState<boolean>(false);
@@ -2542,7 +2544,9 @@ export function ManagerView({
     try {
       const cleanedList = (newList || []).map((y: any) => ({
         ...y,
-        nama: cleanYlName(y.nama)
+        nama: cleanYlName(y.nama),
+        ikutJht: y.ikutJht !== false,
+        iuranJht: y.ikutJht === false ? 0 : (typeof y.iuranJht === "number" ? y.iuranJht : 24000)
       }));
       
       // Update local storage instantly
@@ -2589,7 +2593,9 @@ export function ManagerView({
       nik: newYlNik || undefined,
       tglLahir: newYlTglLahir || undefined,
       status: "Aktif",
-      tanggalDaftar: today
+      tanggalDaftar: today,
+      ikutJht: newYlIkutJht,
+      iuranJht: newYlIkutJht ? (newYlIuranJht || 24000) : 0
     }];
     handleSaveYlList(newList);
     setNewYlArea("");
@@ -2599,6 +2605,8 @@ export function ManagerView({
     setNewYlTanggalMasuk("");
     setNewYlNik("");
     setNewYlTglLahir("");
+    setNewYlIkutJht(true);
+    setNewYlIuranJht(24000);
   };
 
   // Handler: Open Permanent Delete YL Modal
@@ -4054,9 +4062,14 @@ export function ManagerView({
                   ? ylDetail.kompensasi.pph
                   : Math.floor(kompenKotor * 0.025);
                 const jkkVal = ylDetail?.kompensasi?.jkk || 18800;
-                const jhtVal = ylDetail?.kompensasi?.jht || 24000;
+                const selectedYlProfile = (ylList || []).find((y: any) => String(y.area).substring(0, 3) === String(selectedYLArea).substring(0, 3));
+                const isIkutJht = selectedYlProfile ? (selectedYlProfile.ikutJht !== false) : true;
+                const profileJhtNominal = selectedYlProfile && typeof selectedYlProfile.iuranJht === "number"
+                  ? selectedYlProfile.iuranJht
+                  : (ylDetail?.kompensasi?.jht !== undefined ? ylDetail.kompensasi.jht : 24000);
+                const jhtVal = isIkutJht ? profileJhtNominal : 0;
                 const kresekVal = ylDetail?.kompensasi?.kresekDll || 0;
-                const kompenBersihVal = (ylDetail?.kompensasi?.kompenBersih && ylDetail.kompensasi.kompenBersih > 0)
+                const kompenBersihVal = (ylDetail?.kompensasi?.kompenBersih && ylDetail.kompensasi.kompenBersih > 0 && selectedYlProfile?.ikutJht === undefined)
                   ? ylDetail.kompensasi.kompenBersih
                   : Math.max(0, kompenKotor - pphVal - jkkVal - jhtVal - kresekVal);
 
@@ -4101,8 +4114,26 @@ export function ManagerView({
                               <td className="p-2.5 text-right font-bold">- {formatRp(jkkVal)}</td>
                             </tr>
                             <tr className="text-rose-600 bg-rose-50/40">
-                              <td className="p-2.5 font-normal">Iuran JHT</td>
-                              <td className="p-2.5 text-right font-bold">- {formatRp(jhtVal)}</td>
+                              <td className="p-2.5 font-normal" colSpan={2}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">
+                                    <span>Iuran JHT</span>
+                                    <span className={`text-[9.5px] font-black px-2 py-0.5 rounded-full border ${
+                                      isIkutJht
+                                        ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                                        : "bg-slate-200 text-slate-700 border-slate-300"
+                                    }`}>
+                                      {isIkutJht ? "✓ Ikut Program" : "✕ Tidak Ikut"}
+                                    </span>
+                                  </div>
+                                  <span className="font-bold text-rose-700">
+                                    {isIkutJht ? `- ${formatRp(jhtVal)}` : "Rp 0"}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-slate-500 font-normal italic block mt-1 leading-snug">
+                                  *Nilai ini hanya ditampilkan. Untuk mengubah Iuran JHT, edit di tabel Profil/Kelola Yakult Lady.
+                                </span>
+                              </td>
                             </tr>
                             <tr className="text-rose-600 bg-rose-50/40">
                               <td className="p-2.5 font-normal">Kresek / Potongan Mandiri</td>
@@ -5037,6 +5068,13 @@ WITH CHECK (true);`}
             setNewYlPin={setNewYlPin}
             newYlNik={newYlNik}
             setNewYlNik={setNewYlNik}
+            newYlTglLahir={newYlTglLahir}
+            setNewYlTglLahir={setNewYlTglLahir}
+            newYlIkutJht={newYlIkutJht}
+            setNewYlIkutJht={setNewYlIkutJht}
+            newYlIuranJht={newYlIuranJht}
+            setNewYlIuranJht={setNewYlIuranJht}
+            ylSavedMsg={ylSavedMsg}
             newYlNoHP={newYlNoHP}
             setNewYlNoHP={setNewYlNoHP}
             newYlAlamat={newYlAlamat}

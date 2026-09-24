@@ -62,7 +62,8 @@ function YlProfileRowInner({
             copy[idx].tanggalMasuk = e.target.value;
             setYlList(copy);
           }}
-          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white"
+          style={{ colorScheme: "light" }}
+          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white cursor-pointer"
         />
       </td>
       <td className="p-2.5 text-center">
@@ -100,8 +101,56 @@ function YlProfileRowInner({
             copy[idx].tglLahir = e.target.value;
             setYlList(copy);
           }}
-          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white"
+          style={{ colorScheme: "light" }}
+          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white cursor-pointer"
         />
+      </td>
+      <td className="p-2.5 text-center">
+        <div className="flex items-center justify-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              const copy = [...ylList];
+              const currentIkut = copy[idx].ikutJht !== false;
+              const nextIkut = !currentIkut;
+              copy[idx].ikutJht = nextIkut;
+              if (nextIkut && (copy[idx].iuranJht === undefined || copy[idx].iuranJht === 0)) {
+                copy[idx].iuranJht = 24000;
+              }
+              setYlList(copy);
+            }}
+            className={`px-2 py-1 text-[10px] font-black rounded-lg border transition-all cursor-pointer whitespace-nowrap shadow-xs ${
+              (yl.ikutJht !== false)
+                ? "bg-emerald-100 border-emerald-300 text-emerald-800 hover:bg-emerald-200"
+                : "bg-slate-100 border-slate-300 text-slate-500 hover:bg-slate-200"
+            }`}
+            title={(yl.ikutJht !== false) ? "Status: Ikut Program JHT (Klik untuk ubah)" : "Status: Tidak Ikut JHT (Klik untuk ubah)"}
+          >
+            {(yl.ikutJht !== false) ? "✓ Ikut" : "✕ Tidak"}
+          </button>
+          <div className="relative">
+            <span className="absolute left-1.5 top-1.5 text-[10px] text-slate-400 font-bold pointer-events-none">Rp</span>
+            <input
+              type="number"
+              step={1000}
+              min={0}
+              disabled={yl.ikutJht === false}
+              value={yl.ikutJht === false ? 0 : (yl.iuranJht !== undefined ? yl.iuranJht : 24000)}
+              onChange={(e) => {
+                const copy = [...ylList];
+                const val = parseInt(e.target.value, 10);
+                copy[idx].iuranJht = isNaN(val) ? 0 : val;
+                setYlList(copy);
+              }}
+              placeholder="24000"
+              className={`pl-6 pr-1.5 py-1 text-xs rounded border outline-none font-mono font-bold w-24 text-right transition-colors ${
+                yl.ikutJht === false
+                  ? "bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed"
+                  : "bg-white border-slate-300 text-slate-900 focus:border-red-500"
+              }`}
+            />
+          </div>
+        </div>
       </td>
       <td className="p-2.5 text-center">
         <span className={`text-[10px] font-black px-2.5 py-1 rounded-full ${isResign ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-800"}`}>
