@@ -701,16 +701,11 @@ function LhppRealisasiViewInner({
              handleCopy();
           }
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        if (targetTag !== "input" && targetTag !== "textarea") {
-          navigator.clipboard.readText().then(text => {
-            handlePaste(text);
-          }).catch(err => console.error("Clipboard read error:", err));
-        }
       }
     };
 
     const handleWindowPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (targetTag === "textarea") return;
       const text = e.clipboardData?.getData("text/plain");

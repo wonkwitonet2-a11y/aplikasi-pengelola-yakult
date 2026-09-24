@@ -1909,20 +1909,11 @@ export function ManagerView({
             if (tkuGridSelection) handleTkuGridCopy();
           }
         }
-      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v") {
-        if (targetTag !== "input" && targetTag !== "textarea") {
-          navigator.clipboard.readText().then(text => {
-            if (activeTab === "breakdown" && breakdownGridSelectionNew) handleBreakdownGridPaste(text);
-            else if (activeTab === "target_kompensasi") {
-               if (targetGridSelection) handleTargetGridPaste(text);
-               if (tkuGridSelection) handleTkuGridPaste(text);
-            }
-          }).catch(err => console.error("Clipboard read error:", err));
-        }
       }
     };
 
     const handleWindowPaste = (e: ClipboardEvent) => {
+      if (e.defaultPrevented) return;
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       if (targetTag === "textarea") return;
       const text = e.clipboardData?.getData("text/plain");

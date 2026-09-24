@@ -1,5 +1,26 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
+// Global in-memory clipboard for all grids across the entire application
+let globalSharedClipboard: {
+  text: string;
+  matrix: string[][];
+  copiedAt: number;
+} | null = null;
+
+// Track whether the user has left the browser window/tab (e.g. switched to Google Sheets / Excel)
+let hasUserLeftAppSinceLastCopy = false;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("blur", () => {
+    hasUserLeftAppSinceLastCopy = true;
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      hasUserLeftAppSinceLastCopy = true;
+    }
+  });
+}
+
 export interface GridSelection {
   startR: number;
   startC: number;
@@ -111,6 +132,12 @@ export function useSimpleGrid({
     }
     const tsv = rowsArr.map((row) => row.join("\t")).join("\n");
     setInternalClipboard(rowsArr);
+    globalSharedClipboard = {
+      text: tsv,
+      matrix: rowsArr,
+      copiedAt: Date.now(),
+    };
+    hasUserLeftAppSinceLastCopy = false;
 
     // PENTING: jangan pakai `navigator.clipboard?.writeText(...).then().catch()`.
     // Kalau `navigator.clipboard` itu sendiri undefined (API tidak tersedia di
@@ -256,20 +283,35 @@ export function useSimpleGrid({
           endC: Math.min(totalCols - 1, sMinC + pasteWidth - 1),
         });
 
+        // Simpan data terakhir yang ditempel ke global clipboard dan tandai bahwa kita masih di dalam app
+        setInternalClipboard(srcMatrix);
+        globalSharedClipboard = {
+          text,
+          matrix: srcMatrix,
+          copiedAt: Date.now(),
+        };
+        hasUserLeftAppSinceLastCopy = false;
+
         if (updatedCount > 0) showToast(`📥 ${updatedCount} sel berhasil ditempel`);
       };
 
       const fallbackToManualOrInternal = () => {
-        if (internalClipboard) {
-          const text = internalClipboard.map((r) => r.join("\t")).join("\n");
-          processPaste(text);
-        } else {
-          setClipboardModal({
-            mode: "paste",
-            text: "",
-            overrideSelection: activeSelection,
-          });
+        // Hanya pakai internal clipboard JIKA pengguna TIDAK PERNAH keluar jendela aplikasi sejak salinan internal terakhir
+        if (!hasUserLeftAppSinceLastCopy && (internalClipboard || globalSharedClipboard?.matrix)) {
+          const matrix = internalClipboard || globalSharedClipboard?.matrix;
+          if (matrix && matrix.length > 0) {
+            const text = matrix.map((r) => r.join("\t")).join("\n");
+            processPaste(text);
+            return;
+          }
         }
+        // Pengguna sempat beralih ke aplikasi luar (misal Google Sheets) atau memori kosong,
+        // buka modal dialog agar tidak salah menempelkan data lama!
+        setClipboardModal({
+          mode: "paste",
+          text: "",
+          overrideSelection: activeSelection,
+        });
       };
 
       if (typeof pastedText === "string") {
@@ -281,9 +323,18 @@ export function useSimpleGrid({
         fallbackToManualOrInternal();
       } else {
         try {
+          if (typeof window !== "undefined" && !document.hasFocus()) {
+            try { window.focus(); } catch {}
+          }
           navigator.clipboard
             .readText()
-            .then(processPaste)
+            .then((text) => {
+              if (text && text.trim().length > 0) {
+                processPaste(text);
+              } else {
+                fallbackToManualOrInternal();
+              }
+            })
             .catch(fallbackToManualOrInternal);
         } catch {
           fallbackToManualOrInternal();
@@ -478,7 +529,8 @@ export function useSimpleGrid({
       if (e.ctrlKey || e.metaKey) {
         if (key === "c") { e.preventDefault(); handleCopy(); return; }
         if (key === "x") { e.preventDefault(); handleCut(); return; }
-        if (key === "v") { e.preventDefault(); handlePaste(); return; }
+        // Biarkan 'v' memicu event native 'paste' pada browser agar e.clipboardData dari Google Sheets/Excel
+        // bisa langsung dibaca dan ditempel tanpa prompt izin atau modal konfirmasi!
         if (key === "a") { e.preventDefault(); handleSelectAll(); return; }
       }
 
@@ -525,8 +577,24 @@ export function useSimpleGrid({
       }
     };
 
+    const handleNativePaste = (e: ClipboardEvent) => {
+      const activeTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (activeTag === "input" || activeTag === "textarea") return;
+      if (!selectionRef.current) return;
+
+      const text = e.clipboardData?.getData("text/plain");
+      if (text && text.length > 0) {
+        e.preventDefault();
+        handlePaste(text, selectionRef.current);
+      }
+    };
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("paste", handleNativePaste);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("paste", handleNativePaste);
+    };
   }, [selection, totalRows, totalCols, handleCopy, handleCut, handlePaste, handleClear, handleSelectAll]);
 
   // Quick navigation helpers for active cell
