@@ -54,17 +54,24 @@ function YlProfileRowInner({
         />
       </td>
       <td className="p-2.5 text-center">
-        <input
-          type="date"
-          value={yl.tanggalMasuk || yl.tanggalDaftar || ""}
-          onChange={(e) => {
-            const copy = [...ylList];
-            copy[idx].tanggalMasuk = e.target.value;
-            setYlList(copy);
-          }}
-          style={{ colorScheme: "light" }}
-          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white cursor-pointer"
-        />
+        <div className="relative inline-block w-full min-w-[130px]">
+          <input
+            type="date"
+            value={yl.tanggalMasuk || yl.tanggalDaftar || ""}
+            onChange={(e) => {
+              const copy = [...ylList];
+              copy[idx].tanggalMasuk = e.target.value;
+              setYlList(copy);
+            }}
+            style={{ colorScheme: "light" }}
+            className="w-full p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white cursor-pointer"
+          />
+          {!(yl.tanggalMasuk || yl.tanggalDaftar) && (
+            <span className="absolute left-2.5 top-2 text-[10px] text-slate-400 font-bold pointer-events-none select-none">
+              Pilih Tanggal
+            </span>
+          )}
+        </div>
       </td>
       <td className="p-2.5 text-center">
         <input
@@ -93,17 +100,24 @@ function YlProfileRowInner({
         />
       </td>
       <td className="p-2.5 text-center">
-        <input
-          type="date"
-          value={yl.tglLahir || ""}
-          onChange={(e) => {
-            const copy = [...ylList];
-            copy[idx].tglLahir = e.target.value;
-            setYlList(copy);
-          }}
-          style={{ colorScheme: "light" }}
-          className="p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white cursor-pointer"
-        />
+        <div className="relative inline-block w-full min-w-[130px]">
+          <input
+            type="date"
+            value={yl.tglLahir || ""}
+            onChange={(e) => {
+              const copy = [...ylList];
+              copy[idx].tglLahir = e.target.value;
+              setYlList(copy);
+            }}
+            style={{ colorScheme: "light" }}
+            className="w-full p-1.5 text-xs bg-slate-50 border border-slate-300 rounded outline-none font-bold text-slate-900 focus:border-red-500 focus:bg-white cursor-pointer"
+          />
+          {!yl.tglLahir && (
+            <span className="absolute left-2.5 top-2 text-[10px] text-slate-400 font-bold pointer-events-none select-none">
+              Pilih Tanggal
+            </span>
+          )}
+        </div>
       </td>
       <td className="p-2.5 text-center">
         <div className="flex items-center justify-center gap-1.5">

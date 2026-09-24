@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const DATA_FILE = path.join(process.cwd(), "data.json");
 
 app.use(express.json({ limit: "50mb" }));
@@ -2865,8 +2865,8 @@ app.get("/api/getCompensationConfig", (req, res) => {
 app.post("/api/saveCompensationConfig", async (req, res) => {
   const { config } = req.body;
   const db = loadData();
-  if (config && Array.isArray(config.tiers)) {
-    db.compensationConfig = config;
+  if (config && typeof config === "object") {
+    db.compensationConfig = { ...(db.compensationConfig || DEFAULT_COMP_CONFIG), ...config };
     await saveData(db);
   }
   res.json({ ok: true, config: db.compensationConfig });
@@ -4663,10 +4663,16 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // VITE MIDDLEWARE FOR DEVELOPMENT / STATIC SERVING FOR PRODUCTION
 async function startServer() {
+  const distPath = path.join(process.cwd(), "dist");
+  const distIndexHtml = path.join(distPath, "index.html");
+
   const isProduction =
     process.env.NODE_ENV === "production" ||
+    Boolean(process.env.K_SERVICE) ||
+    Boolean(process.env.PORT && process.env.PORT !== "3000") ||
     (typeof __filename !== "undefined" && __filename.includes("server.cjs")) ||
-    (process.argv[1] && process.argv[1].includes("server.cjs"));
+    (process.argv[1] && process.argv[1].includes("server.cjs")) ||
+    (fs.existsSync(distIndexHtml) && process.env.NODE_ENV !== "development");
 
   if (isProduction && process.env.NODE_ENV !== "production") {
     process.env.NODE_ENV = "production";
@@ -4676,9 +4682,6 @@ async function startServer() {
   if (!cachedDb) {
     cachedDb = buildDbFromLocal();
   }
-
-  const distPath = path.join(process.cwd(), "dist");
-  const distIndexHtml = path.join(distPath, "index.html");
 
   if (!isProduction) {
     const vite = await createViteServer({

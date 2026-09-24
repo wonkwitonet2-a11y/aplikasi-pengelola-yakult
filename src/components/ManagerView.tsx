@@ -4058,15 +4058,18 @@ export function ManagerView({
                 const kompenKotor = (ylDetail?.kompensasi?.kompensasi && ylDetail.kompensasi.kompensasi > 0)
                   ? ylDetail.kompensasi.kompensasi
                   : Math.floor(effectiveTotal * rateTier);
+                const pphRateNum = (compConfig?.pphRate !== undefined && compConfig?.pphRate !== null) ? Number(compConfig.pphRate) : 2.5;
                 const pphVal = (ylDetail?.kompensasi?.pph && ylDetail.kompensasi.pph > 0)
                   ? ylDetail.kompensasi.pph
-                  : Math.floor(kompenKotor * 0.025);
-                const jkkVal = ylDetail?.kompensasi?.jkk || 18800;
+                  : Math.floor(kompenKotor * (pphRateNum / 100));
+                const jkkVal = (compConfig?.jkkJkm !== undefined && compConfig?.jkkJkm !== null)
+                  ? Number(compConfig.jkkJkm)
+                  : (ylDetail?.kompensasi?.jkk || 18800);
                 const selectedYlProfile = (ylList || []).find((y: any) => String(y.area).substring(0, 3) === String(selectedYLArea).substring(0, 3));
                 const isIkutJht = selectedYlProfile ? (selectedYlProfile.ikutJht !== false) : true;
                 const profileJhtNominal = selectedYlProfile && typeof selectedYlProfile.iuranJht === "number"
                   ? selectedYlProfile.iuranJht
-                  : (ylDetail?.kompensasi?.jht !== undefined ? ylDetail.kompensasi.jht : 24000);
+                  : (compConfig?.jht !== undefined ? compConfig.jht : 24000);
                 const jhtVal = isIkutJht ? profileJhtNominal : 0;
                 const kresekVal = ylDetail?.kompensasi?.kresekDll || 0;
                 const kompenBersihVal = (ylDetail?.kompensasi?.kompenBersih && ylDetail.kompensasi.kompenBersih > 0 && selectedYlProfile?.ikutJht === undefined)
@@ -4106,7 +4109,7 @@ export function ManagerView({
                               <td className="p-2.5 text-right text-slate-900 font-black">{formatRp(kompenKotor)}</td>
                             </tr>
                             <tr className="text-rose-600 bg-rose-50/40">
-                              <td className="p-2.5 font-normal">PPh (2,5%)</td>
+                              <td className="p-2.5 font-normal">PPh ({pphRateNum.toString().replace('.', ',')}%)</td>
                               <td className="p-2.5 text-right font-bold">- {formatRp(pphVal)}</td>
                             </tr>
                             <tr className="text-rose-600 bg-rose-50/40">
@@ -5079,6 +5082,10 @@ WITH CHECK (true);`}
             setNewYlNoHP={setNewYlNoHP}
             newYlAlamat={newYlAlamat}
             setNewYlAlamat={setNewYlAlamat}
+            compConfig={compConfig}
+            setCompConfig={setCompConfig}
+            handleSaveCompConfig={handleSaveCompConfig}
+            compSavedMsg={compSavedMsg}
           />
         )}
         
