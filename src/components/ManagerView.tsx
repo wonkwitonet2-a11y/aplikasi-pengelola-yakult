@@ -886,6 +886,7 @@ export function ManagerView({
   // Helper to update grid state and record undo history
   const updateActiveGridMap = (updater: (prev: typeof breakdownPlanMap) => typeof breakdownPlanMap) => {
     isBreakdownDirtyRef.current = true;
+    breakdownEditVersionRef.current += 1;
     if (isViewingHistoricalMonth) {
       setHistoricalDataSnapshot((prevSnap: any) => {
         if (!prevSnap) return prevSnap;
@@ -912,6 +913,12 @@ export function ManagerView({
       }
     }
   };
+
+  // Selalu panggil versi TERBARU updateActiveGridMap. Callback grid (paste/hapus/ketik)
+  // dibungkus useCallback; tanpa ref ini ia memegang gridSubMode lama ("BD"), sehingga
+  // saat tab Realisasi aktif, data yang di-paste/dihapus justru tertulis ke Breakdown.
+  const updateActiveGridMapRef = useRef(updateActiveGridMap);
+  updateActiveGridMapRef.current = updateActiveGridMap;
 
   // Handler: Undo last grid edit
   const handleUndo = () => {
@@ -1019,7 +1026,7 @@ export function ManagerView({
   }, [activeYLsList, activeGridMap]);
 
   const setBreakdownBatchCellValues = useCallback((updates: { r: number; c: number; val: number | string }[]) => {
-    updateActiveGridMap(prev => {
+    updateActiveGridMapRef.current(prev => {
       const copy = { ...prev };
       updates.forEach(({ r, c, val }) => {
         const yl = activeYLsList[r];
@@ -2126,6 +2133,7 @@ export function ManagerView({
   const breakdownPlanMapRef = useRef(breakdownPlanMap);
   const breakdownRealisasiMapRef = useRef(breakdownRealisasiMap);
   const isBreakdownDirtyRef = useRef(false);
+  const breakdownEditVersionRef = useRef(0);
 
   useEffect(() => {
     breakdownPlanMapRef.current = breakdownPlanMap;
@@ -2153,16 +2161,17 @@ export function ManagerView({
   // Auto-save Breakdown
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (isBreakdownDirtyRef.current && (Object.keys(breakdownPlanMap).length > 0 || Object.keys(breakdownRealisasiMap).length > 0)) {
+      if (!isBreakdownSaving && isBreakdownDirtyRef.current && (Object.keys(breakdownPlanMap).length > 0 || Object.keys(breakdownRealisasiMap).length > 0)) {
         handleSaveBreakdownPlan();
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [breakdownPlanMap, breakdownRealisasiMap]);
+  }, [breakdownPlanMap, breakdownRealisasiMap, isBreakdownSaving]);
 
   // Handler: Save Breakdown Plan & Realisasi (hanya lewat server, satu sumber kebenaran)
   const handleSaveBreakdownPlan = async (isManual = false) => {
     if (!isManual && !isBreakdownDirtyRef.current) return; // Prevent unnecessary save
+    const editVersionAtSave = breakdownEditVersionRef.current;
     setIsBreakdownSaving(true);
     try {
       const payloadStr = JSON.stringify({
@@ -2185,7 +2194,8 @@ export function ManagerView({
       }
       const resData = await res.json();
       if (resData && resData.ok) {
-        isBreakdownDirtyRef.current = false; // Clear dirty flag on success
+        // Hanya bersihkan kalau tidak ada edit baru selama request berjalan
+        if (breakdownEditVersionRef.current === editVersionAtSave) isBreakdownDirtyRef.current = false;
         if (onRefresh) await onRefresh();
         if (isManual) alert("Berhasil menyimpan data breakdown!");
       } else {

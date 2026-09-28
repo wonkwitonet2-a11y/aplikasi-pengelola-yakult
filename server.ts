@@ -250,6 +250,13 @@ const cleanEmptyTransactions = (db: any) => {
   });
 };
 
+// Kalau tanggal itu sudah punya data LHPP, BB mengikuti LHPP (jangan ditimpa form YL)
+const hasLhppBb = (db: any, tanggal: string, area: string | null, cleanName: string) => {
+  const day = db.lhppPdm?.[tanggal];
+  if (!day) return false;
+  return !!((area && day[area]) || (cleanName && day[cleanName]));
+};
+
 // INITIAL SEED DATA FOR SIMULATOR
 const INITIAL_DATA = {
   scriptUrl: "",
@@ -402,8 +409,6 @@ function syncBreakdownRealisasiToTransactions(db: any, targetMonth?: string) {
         const yt = Number(dayObj?.yt) || 0;
         const total = yo + om + os + yt;
 
-        if (total <= 0) return;
-
         const dayPadded = String(dNum).padStart(2, "0");
         const targetDate = `${month}-${dayPadded}`;
 
@@ -413,6 +418,18 @@ function syncBreakdownRealisasiToTransactions(db: any, targetMonth?: string) {
                             (t.nama && (String(t.nama).startsWith(areaKey) || (cleanName && cleanYlName(t.nama) === cleanName)));
           return matchDate && matchArea;
         });
+
+        if (total <= 0) {
+          // Ketika penjualan dikosongkan/dihapus (total <= 0), nolkan tot_* agar cleanEmptyTransactions membersihkannya
+          if (existingIdx !== -1) {
+            const tx = db.transactions[existingIdx];
+            tx.tot_yo = 0;
+            tx.tot_om = 0;
+            tx.tot_os = 0;
+            tx.tot_yt = 0;
+          }
+          return;
+        }
 
         if (existingIdx !== -1) {
           const tx = db.transactions[existingIdx];
@@ -2417,6 +2434,24 @@ app.post("/api/saveBreakdownPlan", async (req, res) => {
       if (!db.breakdownRealisasi) db.breakdownRealisasi = {};
       db.breakdownRealisasi[month] = breakdownRealisasi;
       syncBreakdownRealisasiToTransactions(db, month);
+
+      // Bersihkan db.lhppPdm jika suatu tanggal di Realisasi di-nol-kan sepenuhnya (misal tgl 27)
+      if (db.lhppPdm) {
+        for (let d = 1; d <= 31; d++) {
+          const dStr = String(d);
+          const dPadded = dStr.padStart(2, "0");
+          const dateKey = `${month}-${dPadded}`;
+          let dayTotal = 0;
+          Object.keys(breakdownRealisasi).forEach(areaKey => {
+            const dObj = breakdownRealisasi[areaKey]?.days?.[dStr] || breakdownRealisasi[areaKey]?.days?.[dPadded];
+            dayTotal += (Number(dObj?.yo) || 0) + (Number(dObj?.om) || 0) + (Number(dObj?.os) || 0) + (Number(dObj?.yt) || 0);
+          });
+          if (dayTotal === 0 && db.lhppPdm[dateKey]) {
+            delete db.lhppPdm[dateKey];
+            if (db.lhppPdmYlm) delete db.lhppPdmYlm[dateKey];
+          }
+        }
+      }
     }
 
     cleanEmptyTransactions(db);
@@ -3133,9 +3168,10 @@ app.post("/api/saveLhppPdm", async (req, res) => {
         const tot_os = Math.max(0, pdmSebelum.os - bb.os);
         const tot_yt = Math.max(0, pdmSebelum.yt - bb.yt);
 
-        // Find transaction matching dateKey and YL
+        // Find transaction matching dateKey and YL (exact month-day match to avoid cross-month collision)
+        const exactDate = `${month}-${dayPadded}`;
         const txIdx = db.transactions.findIndex((t: any) => {
-          const matchDate = t.tanggal === dateKey || t.tanggal === String(day) || t.tanggal.endsWith(`-${dayPadded}`);
+          const matchDate = t.tanggal === dateKey || t.tanggal === exactDate;
           const matchYl = (areaKey && (t.area === areaKey || t.nama?.startsWith(areaKey))) ||
                           (cleanName && cleanYlName(t.nama || "") === cleanName) ||
                           (r.nama && t.nama === r.nama);
@@ -3889,24 +3925,31 @@ app.post("/api/saveRealisasiPotensiYL", async (req, res) => {
     tk_yo, tk_om, tk_os, tk_yt,
     ib_yo, ib_om, ib_os, ib_yt,
     tot_yo, tot_om, tot_os, tot_yt,
-    bb_yo: Number(data.bb_yo) || 0, bb_om: Number(data.bb_om) || 0, bb_os: Number(data.bb_os) || 0, bb_yt: Number(data.bb_yt) || 0,
     pb_p: Number(data.pb_p) || 0, pb_s: Number(data.pb_s) || 0,
     apk_plg: Number(data.apk_plg) || 0, apk_botol: Number(data.apk_botol) || 0,
     f_plg: Number(data.f_plg) || 0, f_rk: Number(data.f_rk) || 0, f_ra: Number(data.f_ra) || 0, f_rb: Number(data.f_rb) || 0
+  };
+
+  const lockBb = idx !== -1 && hasLhppBb(db, data.tanggal, area, cleanName);
+  const bbUpdates = lockBb ? {} : {
+    bb_yo: Number(data.bb_yo) || 0, bb_om: Number(data.bb_om) || 0,
+    bb_os: Number(data.bb_os) || 0, bb_yt: Number(data.bb_yt) || 0
   };
 
   if (idx !== -1) {
     db.transactions[idx] = {
       ...db.transactions[idx],
       area: db.transactions[idx].area || area,
-      ...updates
+      ...updates,
+      ...bbUpdates
     };
   } else {
     db.transactions.push({
       tanggal: data.tanggal,
       nama: data.nama,
       area: area,
-      ...updates
+      ...updates,
+      ...bbUpdates
     });
   }
 
@@ -3990,24 +4033,31 @@ app.post("/api/saveBatchRealisasiPotensiYL", async (req, res) => {
         tk_yo, tk_om, tk_os, tk_yt,
         ib_yo, ib_om, ib_os, ib_yt,
         tot_yo, tot_om, tot_os, tot_yt,
-        bb_yo: Number(data.bb_yo) || 0, bb_om: Number(data.bb_om) || 0, bb_os: Number(data.bb_os) || 0, bb_yt: Number(data.bb_yt) || 0,
         pb_p: Number(data.pb_p) || 0, pb_s: Number(data.pb_s) || 0,
         apk_plg: Number(data.apk_plg) || 0, apk_botol: Number(data.apk_botol) || 0,
         f_plg: Number(data.f_plg) || 0, f_rk: Number(data.f_rk) || 0, f_ra: Number(data.f_ra) || 0, f_rb: Number(data.f_rb) || 0
+      };
+
+      const lockBb = idx !== -1 && hasLhppBb(db, data.tanggal, area, cleanName);
+      const bbUpdates = lockBb ? {} : {
+        bb_yo: Number(data.bb_yo) || 0, bb_om: Number(data.bb_om) || 0,
+        bb_os: Number(data.bb_os) || 0, bb_yt: Number(data.bb_yt) || 0
       };
 
       if (idx !== -1) {
         db.transactions[idx] = {
           ...db.transactions[idx],
           area: db.transactions[idx].area || area,
-          ...itemUpdates
+          ...itemUpdates,
+          ...bbUpdates
         };
       } else if (hasAnyValue) {
         db.transactions.push({
           tanggal: data.tanggal,
           nama: data.nama || nama,
           area: area,
-          ...itemUpdates
+          ...itemUpdates,
+          ...bbUpdates
         });
       }
     });

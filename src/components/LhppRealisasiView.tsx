@@ -135,11 +135,13 @@ function LhppRealisasiViewInner({
         setSummary(summaryData);
         setUndoStack([]);
         setRedoStack([]);
+        isDirtyRef.current = false;
       }
     } catch (err) {
       console.error("Error loading LHPP data from server:", err);
     } finally {
       setIsLoading(false);
+      isDirtyRef.current = false;
     }
   }, [ylList]);
 
@@ -179,9 +181,11 @@ function LhppRealisasiViewInner({
   };
 
   useEffect(() => {
+    isDirtyRef.current = false;
     loadDataFromServer(selectedMonth, selectedDay);
 
     const handleAppRefresh = () => {
+      isDirtyRef.current = false;
       loadDataFromServer(selectedMonth, selectedDay);
     };
     window.addEventListener("app_header_refresh", handleAppRefresh);
@@ -193,9 +197,11 @@ function LhppRealisasiViewInner({
   const [redoStack, setRedoStack] = useState<Array<{ rows: LhppRow[]; summary: LhppYlmSummary }>>([]);
 
   const isDirtyRef = useRef(false);
+  const editVersionRef = useRef(0);
 
   const recordHistory = useCallback(() => {
     isDirtyRef.current = true;
+    editVersionRef.current += 1;
     setUndoStack(u => [...u.slice(-19), JSON.parse(JSON.stringify({ rows, summary }))]);
     setRedoStack([]);
   }, [rows, summary]);
@@ -340,16 +346,17 @@ function LhppRealisasiViewInner({
   // Auto-save Effect
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (isDirtyRef.current && rows.length > 0) {
+      if (!isSaving && isDirtyRef.current && rows.length > 0) {
         handleSaveLhpp(true);
       }
     }, 1000);
     return () => clearTimeout(timer);
-  }, [rows, summary, selectedDay, selectedMonth]);
+  }, [rows, summary, selectedDay, selectedMonth, isSaving]);
 
   // Save Handler: Save PDM to server & patch Realisasi db.transactions
   const handleSaveLhpp = async (isAutoSave = false) => {
     if (isSaving || (!isAutoSave && !isDirtyRef.current)) return;
+    const editVersionAtSave = editVersionRef.current;
     setIsSaving(true);
     if (!isAutoSave) setMsg("⏳ Menyimpan data LHPP & memperbarui Realisasi...");
 
@@ -377,7 +384,8 @@ function LhppRealisasiViewInner({
       });
 
       if (res && res.ok) {
-        isDirtyRef.current = false;
+        // Hanya bersihkan penanda 'belum tersimpan' kalau tidak ada edit baru selama request berjalan
+        if (editVersionRef.current === editVersionAtSave) isDirtyRef.current = false;
         if (!isAutoSave) {
           setMsg("✅ Data LHPP tersimpan & tersambung ke Realisasi");
           setTimeout(() => setMsg(""), 4000);
@@ -394,12 +402,17 @@ function LhppRealisasiViewInner({
     }
   };
 
-  // Delete Handler: Delete LHPP, associated transactions, and clear Realisasi
-  const handleDeleteLhpp = async () => {
-    const formattedDate = `${selectedMonth}-${String(selectedDay).padStart(2, "0")}`;
-    const confirmMsg = `⚠️ KONFIRMASI HAPUS DATA LHPP\n\nApakah Anda yakin ingin MENGHAPUS seluruh data LHPP tanggal ${selectedDay} (${selectedMonth})?\n\nTindakan ini akan:\n1. Menghapus data input LHPP & PDM tanggal ${selectedDay}\n2. Menghapus transaksi penjualan harian YL tanggal ${formattedDate}\n3. Mengosongkan data Realisasi di menu Admin & YL untuk tanggal ${selectedDay}\n\nKlik [OK] untuk menghapus data.`;
+  const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
 
-    if (!window.confirm(confirmMsg)) return;
+  // Trigger Delete Modal
+  const handleDeleteLhpp = () => {
+    setShowDeleteModal(true);
+  };
+
+  // Execute Delete after in-app modal confirmation
+  const executeDeleteLhpp = async () => {
+    setShowDeleteModal(false);
+    const formattedDate = `${selectedMonth}-${String(selectedDay).padStart(2, "0")}`;
 
     setIsDeleting(true);
     setMsg("⏳ Sedang menghapus data LHPP dan membersihkan transaksi...");
@@ -834,7 +847,7 @@ function LhppRealisasiViewInner({
 
             {/* Tombol Simpan - Utama */}
             <button
-              onClick={handleSaveLhpp}
+              onClick={() => handleSaveLhpp(false)}
               disabled={isSaving}
               className="h-8.5 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-[11px] rounded-lg shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap min-w-[92px]"
               title="Simpan LHPP & update Realisasi ke Server"
@@ -1587,6 +1600,52 @@ function LhppRealisasiViewInner({
           </table>
         </div>
       </div>
+
+      {/* MODAL KONFIRMASI HAPUS DATA LHPP (BEKERJA DI SEMUA BROWSER & ANDROID WEBVIEW) */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
+            <div className="p-5 sm:p-6 space-y-4">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-inner">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="text-center space-y-1.5">
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  Hapus Data LHPP Tanggal {selectedDay}?
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Tindakan ini akan <span className="font-bold text-rose-600">menghapus bersih</span> seluruh data LHPP tanggal <span className="font-bold">{selectedDay} ({selectedMonth})</span>, menghapus catatan transaksi harian YL, dan mengosongkan kolom tanggal {selectedDay} di menu Realisasi Admin & YL.
+                </p>
+              </div>
+
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-[11px] text-rose-800 font-semibold flex items-start gap-2">
+                <span className="text-rose-600 text-base leading-none">⚠️</span>
+                <span>Data yang dihapus tidak dapat dipulihkan kembali. Pastikan Anda telah memeriksa tanggal yang dipilih.</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={isDeleting}
+                  className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer border border-slate-300"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={executeDeleteLhpp}
+                  disabled={isDeleting}
+                  className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-700 active:scale-95 disabled:opacity-50 text-white font-extrabold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  <span>{isDeleting ? "Menghapus..." : "Ya, Hapus Sekarang"}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
